@@ -8,6 +8,8 @@ import (
 )
 
 // Services lists the operations used by HTTP handlers.
+//
+// Здесь собираются все сервисы воедино
 type Services interface {
 	ReadinessService
 	Auth

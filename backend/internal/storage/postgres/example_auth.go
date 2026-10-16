@@ -18,6 +18,8 @@ func NewExampleAuthRepository(pool *pgxpool.Pool) *ExampleAuthRepository {
 }
 
 // SignIn runs a test query and does not authenticate a user.
+//
+// 6) поход в бд
 func (r *ExampleAuthRepository) SignIn(ctx context.Context) (bool, error) {
 	var reached bool
 	if err := r.pool.QueryRow(ctx, "SELECT TRUE").Scan(&reached); err != nil {
