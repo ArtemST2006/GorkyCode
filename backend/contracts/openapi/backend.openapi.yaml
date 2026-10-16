@@ -1,0 +1,127 @@
+openapi: 3.0.3
+info:
+  title: GorkyCode Backend API
+  version: 0.0.0
+  description: Контракт API для фронтенда будет дополнен после согласования.
+paths:
+  /health:
+    get:
+      tags: [Service]
+      summary: Liveness
+      operationId: health
+      responses:
+        '200':
+          description: Процесс работает
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /ready:
+    get:
+      tags: [Service]
+      summary: Readiness
+      operationId: ready
+      responses:
+        '200':
+          description: Сервис готов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: PostgreSQL недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /api/v1/example/sign-in:
+    post:
+      tags: [Examples]
+      summary: Учебный пример вызова PostgreSQL через все слои backend
+      description: Не выполняет аутентификацию и не выдаёт токен.
+      operationId: signIn
+      responses:
+        '200':
+          description: Тестовый запрос к репозиторию выполнен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExampleSignInResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  schemas:
+    ExampleSignInResponse:
+      type: object
+      additionalProperties: false
+      required: [repository_reached, authenticated]
+      properties:
+        repository_reached:
+          type: boolean
+          description: Результат тестового запроса к PostgreSQL.
+        authenticated:
+          type: boolean
+          description: Всегда false; пример не выполняет вход пользователя.
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [service, status]
+      properties:
+        service:
+          type: string
+        status:
+          type: string
+          enum: [ok, unavailable]
+    Problem:
+      type: object
+      description: Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+      required:
+        - type
+        - title
+        - status
+        - code
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Конфликт запроса
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unavailable:
+      description: Сервис временно недоступен
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

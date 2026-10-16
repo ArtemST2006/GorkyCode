@@ -1,0 +1,16 @@
+env: local
+log_level: info
+shutdown_timeout: 10s
+
+http-server:
+  read_header_timeout: 5s
+  read_timeout: 10s
+  write_timeout: 10s
+  idle_timeout: 60s
+
+database:
+  max_conns: 10
+  min_conns: 2
+  max_conn_lifetime: 30m
+  connect_timeout: 5s
+  query_timeout: 3s
