@@ -5,6 +5,7 @@ CREATE TABLE users (
     name              VARCHAR(100) NOT NULL CHECK (btrim(name) <> ''),
     email             VARCHAR(320) NOT NULL,
     password_hash     TEXT NOT NULL,
+    timezone TEXT NOT NULL DEFAULT 'Europe/Moscow',
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );

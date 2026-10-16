@@ -6,8 +6,10 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for HealthResponseStatus.
@@ -26,6 +28,11 @@ func (e HealthResponseStatus) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// AuthResponse defines model for AuthResponse.
+type AuthResponse struct {
+	User User `json:"user"`
 }
 
 // ExampleSignInResponse defines model for ExampleSignInResponse.
@@ -56,11 +63,55 @@ type Problem struct {
 	Type     string  `json:"type"`
 }
 
+// SignInRequest defines model for SignInRequest.
+type SignInRequest struct {
+	// Email Пробелы по краям удаляются; регистр не учитывается.
+	//
+	// Example: artem@example.com
+	Email    openapi_types.Email `json:"email"`
+	Password *string             `json:"password,omitempty"`
+}
+
+// SignUpRequest defines model for SignUpRequest.
+type SignUpRequest struct {
+	// Email Уникальный email; при регистрации пробелы по краям удаляются, регистр не учитывается.
+	//
+	// Example: artem@example.com
+	Email openapi_types.Email `json:"email"`
+
+	// Name Отображаемое имя пользователя; строка из одних пробелов недопустима.
+	//
+	// Example: Артём
+	Name string `json:"name"`
+
+	// Password Во внешних окружениях передаётся только по HTTPS; никогда не возвращается в ответе.
+	Password *string `json:"password,omitempty"`
+
+	// Timezone Часовой пояс IANA для интерпретации относительных дат и времени.
+	//
+	// Example: Europe/Moscow
+	Timezone string `json:"timezone"`
+}
+
+// User defines model for User.
+type User struct {
+	CreatedAt time.Time           `json:"created_at"`
+	Email     openapi_types.Email `json:"email"`
+	Id        openapi_types.UUID  `json:"id"`
+	Name      string              `json:"name"`
+
+	// Timezone Example: Europe/Moscow
+	Timezone string `json:"timezone"`
+}
+
 // BadRequest Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type BadRequest = Problem
 
 // Conflict Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type Conflict = Problem
+
+// EmailAlreadyExists Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type EmailAlreadyExists = Problem
 
 // InternalError Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type InternalError = Problem
@@ -68,11 +119,29 @@ type InternalError = Problem
 // NotFound Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type NotFound = Problem
 
+// TooManyRequests Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type TooManyRequests = Problem
+
+// Unauthorized Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type Unauthorized = Problem
+
 // Unavailable Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type Unavailable = Problem
 
+// AuthSignInJSONRequestBody defines body for AuthSignIn for application/json ContentType.
+type AuthSignInJSONRequestBody = SignInRequest
+
+// AuthSignUpJSONRequestBody defines body for AuthSignUp for application/json ContentType.
+type AuthSignUpJSONRequestBody = SignUpRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// AuthSignIn Вход по email и паролю
+	// (POST /api/v1/auth/sign-in)
+	AuthSignIn(w http.ResponseWriter, r *http.Request)
+	// AuthSignUp Регистрация пользователя
+	// (POST /api/v1/auth/sign-up)
+	AuthSignUp(w http.ResponseWriter, r *http.Request)
 	// SignIn Учебный пример вызова PostgreSQL через все слои backend
 	// (POST /api/v1/example/sign-in)
 	SignIn(w http.ResponseWriter, r *http.Request)
@@ -87,6 +156,18 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// AuthSignIn Вход по email и паролю
+// (POST /api/v1/auth/sign-in)
+func (_ Unimplemented) AuthSignIn(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthSignUp Регистрация пользователя
+// (POST /api/v1/auth/sign-up)
+func (_ Unimplemented) AuthSignUp(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // SignIn Учебный пример вызова PostgreSQL через все слои backend
 // (POST /api/v1/example/sign-in)
@@ -114,6 +195,34 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// AuthSignIn operation middleware
+func (siw *ServerInterfaceWrapper) AuthSignIn(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthSignIn(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthSignUp operation middleware
+func (siw *ServerInterfaceWrapper) AuthSignUp(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthSignUp(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // SignIn operation middleware
 func (siw *ServerInterfaceWrapper) SignIn(w http.ResponseWriter, r *http.Request) {
@@ -275,6 +384,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ready", wrapper.Ready)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/auth/sign-up", wrapper.AuthSignUp)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/auth/sign-in", wrapper.AuthSignIn)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/example/sign-in", wrapper.SignIn)
