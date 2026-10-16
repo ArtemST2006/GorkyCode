@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"gorkycode/backend/internal/voice"
 	"log/slog"
 
 	api "gorkycode/backend/internal/generated"
@@ -19,11 +20,12 @@ type Server struct {
 
 	log      *slog.Logger
 	services Services
+	model    *voice.Recognizer
 }
 
 var _ api.ServerInterface = (*Server)(nil)
 
 // NewServer constructs HTTP handlers with all application services.
-func NewServer(log *slog.Logger, services Services) *Server {
-	return &Server{log: log, services: services}
+func NewServer(log *slog.Logger, services Services, rec *voice.Recognizer) *Server {
+	return &Server{log: log, services: services, model: rec}
 }

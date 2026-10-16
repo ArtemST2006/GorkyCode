@@ -79,7 +79,7 @@ func newTestRouterWithAuth(err error, auth fakeAuthService) http.Handler {
 	server := NewServer(log, fakeServices{
 		fakeReadinessService: fakeReadinessService{err: err},
 		fakeAuthService:      auth,
-	})
+	}, nil)
 	router := chi.NewRouter()
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, r, apierr.NotFound("route not found"))

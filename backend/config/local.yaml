@@ -14,3 +14,9 @@ database:
   max_conn_lifetime: 30m
   connect_timeout: 5s
   query_timeout: 3s
+
+ars_model:
+  num_threads: 2
+  decoding_method: "greedy_search"
+  provider: "cpu"
+

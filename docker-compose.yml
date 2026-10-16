@@ -11,13 +11,17 @@ services:
       AI_SERVICE_URL: "http://ai-service:8090"
       DATABASE_URL: "postgres://${POSTGRES_USER:-gorkycode}:${POSTGRES_PASSWORD:-local_dev_only}@postgres:5432/${POSTGRES_DB:-gorkycode}?sslmode=disable"
       REDIS_URL: "redis://redis:6379/0"
+      MODEL_PATH: "/app/model/asr-model"
+      MODEL_URL: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ru-2024-09-18.tar.bz2"
+    volumes:
+      - asr_model:/app/model
     depends_on:
-      # ai-service:
-      #  condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+
 
   ai-service:
     build:
@@ -64,3 +68,4 @@ services:
 
 volumes:
   postgres_data:
+  asr_model:

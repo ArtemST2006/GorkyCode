@@ -12,6 +12,7 @@ import (
 	"gorkycode/backend/internal/service"
 	"gorkycode/backend/internal/storage"
 	"gorkycode/backend/internal/storage/postgres"
+	"gorkycode/backend/internal/voice"
 	"log/slog"
 	"net/http"
 	"os"
@@ -35,7 +36,6 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
 	pool, err := postgres.NewPool(ctx, cfg.Database)
 	if err != nil {
 		log.Error("failed to connect to PostgreSQL", logger.Err(err))
@@ -43,9 +43,20 @@ func run() error {
 	}
 	defer pool.Close()
 
+	rec, err := voice.NewModel(&voice.VoiceConfig{
+		ModelPath:    cfg.ArsModel.ModelPath,
+		NumThreads:   cfg.ArsModel.NumThreads,
+		DecodeMethod: cfg.ArsModel.DecodeMethod,
+		Provider:     cfg.ArsModel.Provider,
+	})
+	if err != nil {
+		panic("failed to load model")
+	}
+	defer rec.Close()
+
 	repo := storage.NewRepository(pool)
 	services := service.New(repo, cfg.Database.QueryTimeout)
-	handler := handlers.NewServer(log, services)
+	handler := handlers.NewServer(log, services, rec)
 	router := chi.NewRouter()
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, r, apierr.NotFound("route not found"))
