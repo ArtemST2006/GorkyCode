@@ -13,7 +13,7 @@ func TestTranscribeTestWavs(t *testing.T) {
 		t.Skip("model not found, run 'make download-model' first")
 	}
 
-	rec, err := NewModel(&VoiceConfig{
+	rec, err := NewModel(&Config{
 		ModelPath:    modelDir,
 		NumThreads:   2,
 		DecodeMethod: "greedy_search",
@@ -31,11 +31,13 @@ func TestTranscribeTestWavs(t *testing.T) {
 
 	for _, wavPath := range testFiles {
 		t.Run(filepath.Base(wavPath), func(t *testing.T) {
-			file, err := os.Open(wavPath)
+			file, err := os.Open(wavPath) //nolint:gosec // путь к тестовому аудио из локальной модели
 			if err != nil {
 				t.Fatalf("failed to open wav: %v", err)
 			}
-			defer file.Close()
+			defer func() {
+				_ = file.Close()
+			}()
 
 			text, err := rec.Transcribe(context.Background(), file)
 			if err != nil {

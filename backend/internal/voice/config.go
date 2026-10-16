@@ -2,14 +2,15 @@ package voice
 
 import "fmt"
 
-type VoiceConfig struct {
+// Config holds ASR model settings.
+type Config struct {
 	ModelPath    string
 	NumThreads   int
 	DecodeMethod string
 	Provider     string
 }
 
-func (c *VoiceConfig) validate() error {
+func (c *Config) validate() error {
 	if c.ModelPath == "" {
 		return fmt.Errorf("voice_config: Model path is required")
 	}

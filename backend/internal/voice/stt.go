@@ -7,7 +7,8 @@ import (
 	sherpa "github.com/k2-fsa/sherpa-onnx-go/sherpa_onnx"
 )
 
-func ConvertToText(ctx context.Context, r *Recognizer, path string) (string, error) {
+// ConvertToText decodes the WAV file at path and returns the recognized text.
+func ConvertToText(_ context.Context, r *Recognizer, path string) (string, error) {
 	wave := sherpa.ReadWave(path)
 	if wave == nil {
 		return "", fmt.Errorf("stt: failed to read wave %q", path)

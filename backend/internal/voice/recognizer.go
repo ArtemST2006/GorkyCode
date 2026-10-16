@@ -1,3 +1,4 @@
+// Package voice provides speech recognition on top of the sherpa-onnx runtime.
 package voice
 
 import (
@@ -9,11 +10,13 @@ import (
 	sherpa "github.com/k2-fsa/sherpa-onnx-go/sherpa_onnx"
 )
 
+// Recognizer wraps the sherpa-onnx offline recognizer.
 type Recognizer struct {
 	rec *sherpa.OfflineRecognizer
 }
 
-func NewModel(cfg *VoiceConfig) (*Recognizer, error) {
+// NewModel loads the ASR model located at cfg.ModelPath.
+func NewModel(cfg *Config) (*Recognizer, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("recognizer: check config (cfg is nil)")
 	}
@@ -43,13 +46,14 @@ func NewModel(cfg *VoiceConfig) (*Recognizer, error) {
 	recognizer := sherpa.NewOfflineRecognizer(&settings)
 
 	return &Recognizer{rec: recognizer}, nil
-
 }
 
+// Close releases the native recognizer resources.
 func (r *Recognizer) Close() {
 	sherpa.DeleteOfflineRecognizer(r.rec)
 }
 
+// Transcribe reads a WAV stream and returns the recognized text.
 func (r *Recognizer) Transcribe(ctx context.Context, wav io.Reader) (string, error) {
 	if wav == nil {
 		return "", fmt.Errorf("recognizer: file is nil")
@@ -59,10 +63,12 @@ func (r *Recognizer) Transcribe(ctx context.Context, wav io.Reader) (string, err
 	if err != nil {
 		return "", fmt.Errorf("recognizer: failed to create tmp file: %w", err)
 	}
-	defer os.Remove(f.Name())
-	defer f.Close()
+	defer func() {
+		_ = os.Remove(f.Name())
+		_ = f.Close()
+	}()
 
-	if _, err := io.Copy(f, wav); err != nil {
+	if _, err = io.Copy(f, wav); err != nil {
 		return "", fmt.Errorf("recognizer: failed to write wav to tmp file: %w", err)
 	}
 

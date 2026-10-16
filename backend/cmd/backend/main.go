@@ -43,7 +43,7 @@ func run() error {
 	}
 	defer pool.Close()
 
-	rec, err := voice.NewModel(&voice.VoiceConfig{
+	rec, err := voice.NewModel(&voice.Config{
 		ModelPath:    cfg.ArsModel.ModelPath,
 		NumThreads:   cfg.ArsModel.NumThreads,
 		DecodeMethod: cfg.ArsModel.DecodeMethod,
