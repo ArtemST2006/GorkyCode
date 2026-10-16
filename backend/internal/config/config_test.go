@@ -11,6 +11,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 	t.Setenv("CONFIG_PATH", "")
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("HTTP_ADDR", ":9000")
+	t.Setenv("MODEL_PATH", "model/asr-model")
 
 	cfg, err := Load()
 	if err != nil {
@@ -33,6 +34,7 @@ func TestLoadEnvironmentOverridesYAML(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "warn")
 	t.Setenv("HTTP_ADDR", ":7000")
 	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("MODEL_PATH", "model/asr-model")
 
 	cfg, err := Load()
 	if err != nil {

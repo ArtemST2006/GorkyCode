@@ -1,2 +1,6 @@
 .env
 .DS_Store
+.idea/
+backend/model/
+*.tar.bz2
+*.onnx

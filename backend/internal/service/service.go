@@ -1,7 +1,10 @@
 // Package service contains application logic between HTTP and storage.
 package service
 
-import "time"
+import (
+	"gorkycode/backend/internal/voice"
+	"time"
+)
 
 // Repositories lists the storage operations needed to build all services.
 type Repositories interface {
@@ -16,7 +19,7 @@ type Services struct {
 }
 
 // New constructs all services from the repository bundle.
-func New(repo Repositories, queryTimeout time.Duration) *Services {
+func New(repo Repositories, queryTimeout time.Duration, _ *voice.Recognizer) *Services {
 	return &Services{
 		HealthService: NewHealthService(repo, queryTimeout),
 		AuthService:   NewAuthService(repo, queryTimeout),

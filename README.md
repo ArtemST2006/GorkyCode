@@ -13,9 +13,9 @@
 4. Остановить окружение командой `docker-compose down` (данные PostgreSQL сохраняются).
 
 Для запуска Go backend вне контейнера сначала поднять зависимости командой
-`docker-compose up -d postgres redis`, затем скопировать
-`backend/.env.example` в `backend/.env` и выполнить `make run` из каталога
-`backend`. Оба файла `.env` исключены из Git.
+`docker compose up -d postgres redis`, затем перейти в каталог `backend`,
+выполнить `cp .env.example .env`, скачать модель командой `make download-model`
+и запустить сервис через `make run`. Оба файла `.env` исключены из Git.
 
 Compose поднимает backend, AI-сервис, PostgreSQL и Redis. Данные PostgreSQL
 сохраняются в именованном томе postgres_data; Redis используется как временный

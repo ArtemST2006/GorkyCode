@@ -17,6 +17,7 @@ type Config struct {
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"SHUTDOWN_TIMEOUT" env-default:"10s"`
 	HTTPServer      HTTPServer    `yaml:"http-server"`
 	Database        Database      `yaml:"database"`
+	ArsModel        ArsModel      `yaml:"ars_model"`
 }
 
 // HTTPServer holds HTTP listener settings.
@@ -36,6 +37,14 @@ type Database struct {
 	MaxConnLifetime time.Duration `yaml:"max_conn_lifetime" env:"DATABASE_MAX_CONN_LIFETIME" env-default:"30m"`
 	ConnectTimeout  time.Duration `yaml:"connect_timeout" env:"DATABASE_CONNECT_TIMEOUT" env-default:"5s"`
 	QueryTimeout    time.Duration `yaml:"query_timeout" env:"DATABASE_QUERY_TIMEOUT" env-default:"3s"`
+}
+
+// ArsModel hold Ars model settings
+type ArsModel struct {
+	ModelPath    string `env:"MODEL_PATH" env-required:"true"`
+	NumThreads   int    `yaml:"num_threads" env-default:"2"`
+	DecodeMethod string `yaml:"decode_method" env-default:"greedy_search"`
+	Provider     string `yaml:"provider" env-default:"cpu"`
 }
 
 // Load reads CONFIG_PATH when set, then applies environment variables.
