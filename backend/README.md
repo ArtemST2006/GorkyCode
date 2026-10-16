@@ -4,7 +4,11 @@
 
 Для локального запуска сначала скопируйте `backend/.env.example` в
 `backend/.env` и поднимите PostgreSQL командой `docker-compose up -d postgres`
-из корня проекта. Затем запустите `make run` из каталога `backend`.
+из корня проекта. 
+
+Затем накати миграции make migrate
+
+Затем запустите `make run` из каталога `backend`.
 `make run` экспортирует переменные из `.env`; YAML: `backend/config/local.yaml`.
 
 - `GET /health` проверяет, что HTTP-процесс работает.
