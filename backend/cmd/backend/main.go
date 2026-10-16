@@ -55,8 +55,8 @@ func run() error {
 	defer rec.Close()
 
 	repo := storage.NewRepository(pool)
-	services := service.New(repo, cfg.Database.QueryTimeout)
-	handler := handlers.NewServer(log, services, rec)
+	services := service.New(repo, cfg.Database.QueryTimeout, rec)
+	handler := handlers.NewServer(log, services)
 	router := chi.NewRouter()
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, r, apierr.NotFound("route not found"))
