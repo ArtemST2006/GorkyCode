@@ -1,0 +1,10 @@
+# Настройки генерации internal/generated/api.gen.go (make generate).
+package: api
+generate:
+  models: true
+  chi-server: true
+output: internal/generated/api.gen.go
+output-options:
+  skip-prune: true
+  # ID, URL, HTTP и т.п. пишутся как в Go (ID), а не Id.
+  name-normalizer: ToCamelCaseWithInitialisms

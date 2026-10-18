@@ -12,13 +12,13 @@ import (
 // Здесь собираются все репозитории воедино
 type Repository struct {
 	*postgres.HealthRepository
-	*postgres.ExampleAuthRepository
+	*postgres.AuthRepository
 }
 
 // NewRepository creates repositories over the shared PostgreSQL pool.
 func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{
-		HealthRepository:      postgres.NewHealthRepository(pool),
-		ExampleAuthRepository: postgres.NewExampleAuthRepository(pool),
+		HealthRepository: postgres.NewHealthRepository(pool),
+		AuthRepository:   postgres.NewAuthRepository(pool),
 	}
 }

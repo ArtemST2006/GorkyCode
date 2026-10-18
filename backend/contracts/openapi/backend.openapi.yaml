@@ -38,7 +38,7 @@ paths:
     post:
       tags: [Auth]
       summary: Регистрация пользователя
-      description: Создаёт пользователя и возвращает access token. Email сравнивается без учёта регистра.
+      description: Создаёт пользователя и возвращает его данные. Email сравнивается без учёта регистра.
       operationId: authSignUp
       requestBody:
         required: true
@@ -49,12 +49,6 @@ paths:
       responses:
         '201':
           description: Пользователь создан и авторизован
-          headers:
-            Cache-Control:
-              description: Ответ с токеном не должен кешироваться.
-              schema:
-                type: string
-                enum: [no-store]
           content:
             application/json:
               schema:
@@ -82,12 +76,6 @@ paths:
       responses:
         '200':
           description: Пользователь авторизован
-          headers:
-            Cache-Control:
-              description: Ответ с токеном не должен кешироваться.
-              schema:
-                type: string
-                enum: [no-store]
           content:
             application/json:
               schema:
@@ -116,11 +104,6 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      description: Access token, полученный из sign-up или sign-in.
   schemas:
     SignUpRequest:
       type: object
@@ -167,22 +150,10 @@ components:
     AuthResponse:
       type: object
       additionalProperties: false
-      required: [user, access_token, token_type, expires_in]
+      required: [user]
       properties:
         user:
           $ref: '#/components/schemas/User'
-        access_token:
-          type: string
-          minLength: 1
-          description: Токен для заголовка Authorization.
-        token_type:
-          type: string
-          enum: [Bearer]
-        expires_in:
-          type: integer
-          format: int32
-          minimum: 1
-          description: Срок действия access token в секундах.
     User:
       type: object
       additionalProperties: false

@@ -40,6 +40,16 @@ func Internal() api.Problem {
 	return newProblem(http.StatusInternalServerError, "internal_error", "internal-error", "Internal server error", "")
 }
 
+// InvalidCredentials reports a wrong email or password.
+func InvalidCredentials(detail string) api.Problem {
+	return newProblem(http.StatusUnauthorized, "invalid_credentials", "invalid-credentials", "Invalid credentials", detail)
+}
+
+// RequestTimeout reports a request that took too long to complete.
+func RequestTimeout(detail string) api.Problem {
+	return newProblem(http.StatusRequestTimeout, "request_timeout", "request-timeout", "Request timeout", detail)
+}
+
 // Write sends a Problem response and sets instance to the request path.
 func Write(w http.ResponseWriter, r *http.Request, p api.Problem) {
 	instance := r.URL.Path
