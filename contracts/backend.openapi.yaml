@@ -1,0 +1,560 @@
+openapi: 3.0.3
+info:
+  title: GorkyCode Backend API
+  version: 0.0.0
+  description: HTTP API backend для клиентского приложения.
+paths:
+  /health:
+    get:
+      tags: [Service]
+      summary: Liveness
+      operationId: health
+      responses:
+        '200':
+          description: Процесс работает
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /ready:
+    get:
+      tags: [Service]
+      summary: Readiness
+      operationId: ready
+      responses:
+        '200':
+          description: Сервис готов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: PostgreSQL недоступен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /api/task:
+    post:
+      tags: [Tasks]
+      summary: Обработать текстовую или голосовую команду
+      operationId: processTask
+      description: |
+        При первом запросе клиент не передаёт task_id: backend создаёт UUID и
+        передаёт AI-service текст, время запроса, часовой пояс пользователя и
+        пустой context. Для ответа на уточнение клиент повторяет запрос с
+        полученным task_id; backend загружает context из Redis.
+        Ровно один источник команды: text в application/json или WAV-файл в
+        multipart/form-data. Контекст, request_time и timezone клиент не
+        передаёт. Backend вызывает STT только для аудио, проверяет ответ AI
+        и выполняет разрешённое действие по intent. Ответ 201 подтверждает
+        создание только после сохранения записи. Для списка и поиска используется
+        ответ 200 с data.items.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskTextRequest'
+            examples:
+              firstRequest:
+                summary: Первая команда
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  text: Назначь встречу с Иваном завтра
+              clarificationReply:
+                summary: Ответ на уточняющий вопрос
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                  text: 'В 15:00'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaskAudioRequest'
+            encoding:
+              file:
+                contentType: audio/wav, audio/x-wav
+      responses:
+        '200':
+          description: Требуется уточнение либо получен результат списка/поиска
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/TaskClarificationResponse'
+                  - $ref: '#/components/schemas/TaskCollectionResponse'
+              examples:
+                needsClarification:
+                  summary: Время встречи ещё не указано
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: needs_clarification
+                    message: В какое время?
+                listEvents:
+                  summary: Список событий на завтра
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: ok
+                    message: На завтра запланирована встреча с Иваном.
+                    data:
+                      items:
+                        - id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                          user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                          record_type: meeting
+                          title: Встреча с Иваном
+                          date: '2026-10-19'
+                          time: '15:00'
+                          created_at: '2026-10-18T12:00:20+03:00'
+                          status: active
+        '201':
+          description: Событие создано и сохранено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskCreatedResponse'
+              example:
+                user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                status: ok
+                message: Встреча с Иваном назначена на 19 октября в 15:00
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/auth/sign-up:
+    post:
+      tags: [Auth]
+      summary: Регистрация пользователя
+      description: Создаёт пользователя и возвращает access token. Email сравнивается без учёта регистра.
+      operationId: authSignUp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignUpRequest'
+      responses:
+        '201':
+          description: Пользователь создан и авторизован
+          headers:
+            Cache-Control:
+              description: Ответ с токеном не должен кешироваться.
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/auth/sign-in:
+    post:
+      tags: [Auth]
+      summary: Вход по email и паролю
+      description: Возвращает одинаковую ошибку при неизвестном email и неверном пароле.
+      operationId: authSignIn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+      responses:
+        '200':
+          description: Пользователь авторизован
+          headers:
+            Cache-Control:
+              description: Ответ с токеном не должен кешироваться.
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/example/sign-in:
+    post:
+      tags: [Examples]
+      summary: Учебный пример вызова PostgreSQL через все слои backend
+      description: Не выполняет аутентификацию и не выдаёт токен.
+      operationId: signIn
+      responses:
+        '200':
+          description: Тестовый запрос к репозиторию выполнен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExampleSignInResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Access token, полученный из sign-up или sign-in.
+  schemas:
+    TaskTextRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id, text]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: |
+            Передаётся только при ответе на уточнение. Backend ищет context
+            в Redis по паре user_id и task_id.
+        text:
+          type: string
+          minLength: 1
+          description: После удаления пробелов по краям строка должна быть непустой.
+    TaskAudioRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id, file]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: Текстовое поле multipart/form-data.
+        task_id:
+          type: string
+          format: uuid
+          description: Необязательное текстовое поле для продолжения диалога.
+        file:
+          type: string
+          format: binary
+          description: |
+            WAV-аудио (.wav или .wave). Максимальный размер задаётся
+            конфигурацией backend; другие аудиоформаты отклоняются.
+    TaskClarificationResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: Клиент возвращает этот ID в следующем запросе.
+        status:
+          type: string
+          enum: [needs_clarification]
+        message:
+          type: string
+          minLength: 1
+          description: Уточняющий вопрос от AI-service.
+    TaskCreatedResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: Совпадает с id созданной записи в tasks.
+        status:
+          type: string
+          enum: [ok]
+        message:
+          type: string
+          minLength: 1
+          description: Подтверждение по результату сохранения, сформированное backend.
+    TaskCollectionResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, data]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: ID обработки запроса; новую запись tasks не обозначает.
+        status:
+          type: string
+          enum: [ok]
+        message:
+          type: string
+          minLength: 1
+          description: Сводка результата, сформированная backend.
+        data:
+          $ref: '#/components/schemas/TaskCollection'
+    TaskCollection:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskItem'
+    TaskItem:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, record_type, title, created_at, status]
+      description: |
+        Представление записи tasks для клиента. Значения record_type на API
+        совпадают с AI-контрактом; backend преобразует их из значений колонки
+        tasks.type в PostgreSQL.
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        record_type:
+          type: string
+          enum: [task, reminder, meeting]
+        title:
+          type: string
+          minLength: 1
+        date:
+          type: string
+          format: date
+          nullable: true
+          description: Отсутствует или null, если дата не задана.
+        time:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: Локальное время HH:MM; отсутствует или null, если не задано.
+        created_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, completed]
+    SignUpRequest:
+      type: object
+      additionalProperties: false
+      required: [name, email, password, timezone]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Отображаемое имя пользователя; строка из одних пробелов недопустима.
+          example: Артём
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: Уникальный email; при регистрации пробелы по краям удаляются, регистр не учитывается.
+          example: artem@example.com
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 15
+          maxLength: 128
+          description: Пароль передаётся только по HTTPS и никогда не возвращается в ответе.
+        timezone:
+          type: string
+          description: Часовой пояс IANA для интерпретации относительных дат и времени.
+          example: Europe/Moscow
+    SignInRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          example: artem@example.com
+        password:
+          type: string
+          format: password
+          writeOnly: true
+    AuthResponse:
+      type: object
+      additionalProperties: false
+      required: [user, access_token, token_type, expires_in]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        access_token:
+          type: string
+          minLength: 1
+          description: Токен для заголовка Authorization.
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Срок действия access token в секундах.
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, name, email, timezone, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        timezone:
+          type: string
+          example: Europe/Moscow
+        created_at:
+          type: string
+          format: date-time
+    ExampleSignInResponse:
+      type: object
+      additionalProperties: false
+      required: [repository_reached, authenticated]
+      properties:
+        repository_reached:
+          type: boolean
+          description: Результат тестового запроса к PostgreSQL.
+        authenticated:
+          type: boolean
+          description: Всегда false; пример не выполняет вход пользователя.
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [service, status]
+      properties:
+        service:
+          type: string
+        status:
+          type: string
+          enum: [ok, unavailable]
+    Problem:
+      type: object
+      description: Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+      required:
+        - type
+        - title
+        - status
+        - code
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+  responses:
+    BadRequest:
+      description: Некорректный запрос
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PayloadTooLarge:
+      description: WAV-файл превышает настроенный лимит размера
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    BadGateway:
+      description: Ошибка STT или AI-service, включая некорректный JSON AI
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    GatewayTimeout:
+      description: Таймаут STT или AI-service
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Неверный email или пароль; code = invalid_credentials.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Unauthorized
+            status: 401
+            code: invalid_credentials
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Конфликт запроса
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unavailable:
+      description: Сервис временно недоступен
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TooManyRequests:
+      description: Превышен лимит запросов; code = rate_limited.
+      headers:
+        Retry-After:
+          description: Через сколько секунд можно повторить запрос.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

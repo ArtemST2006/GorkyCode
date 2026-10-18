@@ -1,6 +1,0 @@
-openapi: 3.0.3
-info:
-  title: GorkyCode AI Service API
-  version: 0.0.0
-  description: Контракт backend ↔ AI будет добавлен после согласования.
-paths: {}

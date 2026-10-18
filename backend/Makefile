@@ -71,7 +71,7 @@ generate: ## Сгенерировать Go-типы и маршруты из Ope
 		-generate types,chi-server,skip-prune \
 		-package api \
 		-o internal/generated/api.gen.go \
-		contracts/openapi/backend.openapi.yaml
+		../contracts/backend.openapi.yaml
 
 download-model: ## Скачать и распаковать модель распознавания речи
 	@echo "Скачивание модели в $(MODEL_DIR)..."

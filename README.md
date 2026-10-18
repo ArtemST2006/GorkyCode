@@ -27,4 +27,8 @@ GET /health проверяет процесс, GET /ready — доступнос
 AI-заглушка возвращает 501 на POST-запросы. Настройки Compose лежат в корневом
 .env.example; переменные для запуска backend через make run — в backend/.env.example.
 
+Контракты HTTP API лежат в `contracts/backend.openapi.yaml` и
+`contracts/ai.openapi.yaml`. Команда `make generate` из каталога `backend`
+генерирует Go-типы и маршруты backend из первого файла.
+
 См. backend/README.md и ai-service/README.md.
