@@ -199,21 +199,26 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/Unavailable'
-  /api/v1/example/sign-in:
+  /api/v1/auth/sign-out:
     post:
-      tags: [Examples]
-      summary: Учебный пример вызова PostgreSQL через все слои backend
-      description: Не выполняет аутентификацию и не выдаёт токен.
-      operationId: signIn
+      tags: [Auth]
+      summary: Выход из аккаунта
+      description: >-
+        Завершает сессию, к которой привязан переданный access token. После
+        этого токен больше не принимается. Повторный вызов с тем же токеном
+        возвращает 401, так как сессии уже нет.
+      operationId: authSignOut
+      security:
+        - bearerAuth: []
       responses:
-        '200':
-          description: Тестовый запрос к репозиторию выполнен
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ExampleSignInResponse'
+        '204':
+          description: Сессия завершена
+        '401':
+          $ref: '#/components/responses/SessionRequired'
         '500':
           $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
 components:
   securitySchemes:
     bearerAuth:
@@ -443,17 +448,6 @@ components:
         created_at:
           type: string
           format: date-time
-    ExampleSignInResponse:
-      type: object
-      additionalProperties: false
-      required: [repository_reached, authenticated]
-      properties:
-        repository_reached:
-          type: boolean
-          description: Результат тестового запроса к PostgreSQL.
-        authenticated:
-          type: boolean
-          description: Всегда false; пример не выполняет вход пользователя.
     HealthResponse:
       type: object
       additionalProperties: false
@@ -522,6 +516,17 @@ components:
             title: Unauthorized
             status: 401
             code: invalid_credentials
+    SessionRequired:
+      description: Нет access token или сессия истекла либо завершена; code = unauthorized.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Unauthorized
+            status: 401
+            code: unauthorized
     NotFound:
       description: Ресурс не найден
       content:

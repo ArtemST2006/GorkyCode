@@ -67,11 +67,7 @@ migrate-create: ## Создать SQL-миграцию: make migrate-create NAME
 	$(GOOSE) create $(NAME) sql
 
 generate: ## Сгенерировать Go-типы и маршруты из OpenAPI
-	$(OAPI_CODEGEN) \
-		-generate types,chi-server,skip-prune \
-		-package api \
-		-o internal/generated/api.gen.go \
-		../contracts/backend.openapi.yaml
+	$(OAPI_CODEGEN) -config oapi-codegen.yaml ../contracts/backend.openapi.yaml
 
 download-model: ## Скачать и распаковать модель распознавания речи
 	@echo "Скачивание модели в $(MODEL_DIR)..."

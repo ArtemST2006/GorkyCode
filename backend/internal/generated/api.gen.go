@@ -4,13 +4,30 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Defines values for AuthResponseTokenType.
+const (
+	Bearer AuthResponseTokenType = "Bearer"
+)
+
+// Valid indicates whether the value is a known member of the AuthResponseTokenType enum.
+func (e AuthResponseTokenType) Valid() bool {
+	switch e {
+	case Bearer:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for HealthResponseStatus.
 const (
@@ -30,19 +47,103 @@ func (e HealthResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for TaskClarificationResponseStatus.
+const (
+	NeedsClarification TaskClarificationResponseStatus = "needs_clarification"
+)
+
+// Valid indicates whether the value is a known member of the TaskClarificationResponseStatus enum.
+func (e TaskClarificationResponseStatus) Valid() bool {
+	switch e {
+	case NeedsClarification:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskCollectionResponseStatus.
+const (
+	TaskCollectionResponseStatusOk TaskCollectionResponseStatus = "ok"
+)
+
+// Valid indicates whether the value is a known member of the TaskCollectionResponseStatus enum.
+func (e TaskCollectionResponseStatus) Valid() bool {
+	switch e {
+	case TaskCollectionResponseStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskCreatedResponseStatus.
+const (
+	TaskCreatedResponseStatusOk TaskCreatedResponseStatus = "ok"
+)
+
+// Valid indicates whether the value is a known member of the TaskCreatedResponseStatus enum.
+func (e TaskCreatedResponseStatus) Valid() bool {
+	switch e {
+	case TaskCreatedResponseStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskItemRecordType.
+const (
+	Meeting  TaskItemRecordType = "meeting"
+	Reminder TaskItemRecordType = "reminder"
+	Task     TaskItemRecordType = "task"
+)
+
+// Valid indicates whether the value is a known member of the TaskItemRecordType enum.
+func (e TaskItemRecordType) Valid() bool {
+	switch e {
+	case Meeting:
+		return true
+	case Reminder:
+		return true
+	case Task:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskItemStatus.
+const (
+	Active    TaskItemStatus = "active"
+	Completed TaskItemStatus = "completed"
+)
+
+// Valid indicates whether the value is a known member of the TaskItemStatus enum.
+func (e TaskItemStatus) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	case Completed:
+		return true
+	default:
+		return false
+	}
+}
+
 // AuthResponse defines model for AuthResponse.
 type AuthResponse struct {
-	User User `json:"user"`
+	// AccessToken Токен для заголовка Authorization.
+	AccessToken string `json:"access_token"`
+
+	// ExpiresIn Срок действия access token в секундах.
+	ExpiresIn int32                 `json:"expires_in"`
+	TokenType AuthResponseTokenType `json:"token_type"`
+	User      User                  `json:"user"`
 }
 
-// ExampleSignInResponse defines model for ExampleSignInResponse.
-type ExampleSignInResponse struct {
-	// Authenticated Всегда false; пример не выполняет вход пользователя.
-	Authenticated bool `json:"authenticated"`
-
-	// RepositoryReached Результат тестового запроса к PostgreSQL.
-	RepositoryReached bool `json:"repository_reached"`
-}
+// AuthResponseTokenType defines model for AuthResponse.TokenType.
+type AuthResponseTokenType string
 
 // HealthResponse defines model for HealthResponse.
 type HealthResponse struct {
@@ -65,9 +166,7 @@ type Problem struct {
 
 // SignInRequest defines model for SignInRequest.
 type SignInRequest struct {
-	// Email Пробелы по краям удаляются; регистр не учитывается.
-	//
-	// Example: artem@example.com
+	// Email Example: artem@example.com
 	Email    openapi_types.Email `json:"email"`
 	Password *string             `json:"password,omitempty"`
 }
@@ -84,7 +183,7 @@ type SignUpRequest struct {
 	// Example: Артём
 	Name string `json:"name"`
 
-	// Password Во внешних окружениях передаётся только по HTTPS; никогда не возвращается в ответе.
+	// Password Пароль передаётся только по HTTPS и никогда не возвращается в ответе.
 	Password *string `json:"password,omitempty"`
 
 	// Timezone Часовой пояс IANA для интерпретации относительных дат и времени.
@@ -93,16 +192,116 @@ type SignUpRequest struct {
 	Timezone string `json:"timezone"`
 }
 
+// TaskAudioRequest defines model for TaskAudioRequest.
+type TaskAudioRequest struct {
+	// File WAV-аудио (.wav или .wave). Максимальный размер задаётся
+	// конфигурацией backend; другие аудиоформаты отклоняются.
+	File openapi_types.File `json:"file"`
+
+	// TaskID Необязательное текстовое поле для продолжения диалога.
+	TaskID *openapi_types.UUID `json:"task_id,omitempty"`
+
+	// UserID Текстовое поле multipart/form-data.
+	UserID openapi_types.UUID `json:"user_id"`
+}
+
+// TaskClarificationResponse defines model for TaskClarificationResponse.
+type TaskClarificationResponse struct {
+	// Message Уточняющий вопрос от AI-service.
+	Message string                          `json:"message"`
+	Status  TaskClarificationResponseStatus `json:"status"`
+
+	// TaskID Клиент возвращает этот ID в следующем запросе.
+	TaskID openapi_types.UUID `json:"task_id"`
+	UserID openapi_types.UUID `json:"user_id"`
+}
+
+// TaskClarificationResponseStatus defines model for TaskClarificationResponse.Status.
+type TaskClarificationResponseStatus string
+
+// TaskCollection defines model for TaskCollection.
+type TaskCollection struct {
+	Items []TaskItem `json:"items"`
+}
+
+// TaskCollectionResponse defines model for TaskCollectionResponse.
+type TaskCollectionResponse struct {
+	Data TaskCollection `json:"data"`
+
+	// Message Сводка результата, сформированная backend.
+	Message string                       `json:"message"`
+	Status  TaskCollectionResponseStatus `json:"status"`
+
+	// TaskID ID обработки запроса; новую запись tasks не обозначает.
+	TaskID openapi_types.UUID `json:"task_id"`
+	UserID openapi_types.UUID `json:"user_id"`
+}
+
+// TaskCollectionResponseStatus defines model for TaskCollectionResponse.Status.
+type TaskCollectionResponseStatus string
+
+// TaskCreatedResponse defines model for TaskCreatedResponse.
+type TaskCreatedResponse struct {
+	// Message Подтверждение по результату сохранения, сформированное backend.
+	Message string                    `json:"message"`
+	Status  TaskCreatedResponseStatus `json:"status"`
+
+	// TaskID Совпадает с id созданной записи в tasks.
+	TaskID openapi_types.UUID `json:"task_id"`
+	UserID openapi_types.UUID `json:"user_id"`
+}
+
+// TaskCreatedResponseStatus defines model for TaskCreatedResponse.Status.
+type TaskCreatedResponseStatus string
+
+// TaskItem Представление записи tasks для клиента. Значения record_type на API
+// совпадают с AI-контрактом; backend преобразует их из значений колонки
+// tasks.type в PostgreSQL.
+type TaskItem struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Date Отсутствует или null, если дата не задана.
+	Date       *openapi_types.Date `json:"date,omitempty"`
+	ID         openapi_types.UUID  `json:"id"`
+	RecordType TaskItemRecordType  `json:"record_type"`
+	Status     TaskItemStatus      `json:"status"`
+
+	// Time Локальное время HH:MM; отсутствует или null, если не задано.
+	Time   *string            `json:"time,omitempty"`
+	Title  string             `json:"title"`
+	UserID openapi_types.UUID `json:"user_id"`
+}
+
+// TaskItemRecordType defines model for TaskItem.RecordType.
+type TaskItemRecordType string
+
+// TaskItemStatus defines model for TaskItem.Status.
+type TaskItemStatus string
+
+// TaskTextRequest defines model for TaskTextRequest.
+type TaskTextRequest struct {
+	// TaskID Передаётся только при ответе на уточнение. Backend ищет context
+	// в Redis по паре user_id и task_id.
+	TaskID *openapi_types.UUID `json:"task_id,omitempty"`
+
+	// Text После удаления пробелов по краям строка должна быть непустой.
+	Text   string             `json:"text"`
+	UserID openapi_types.UUID `json:"user_id"`
+}
+
 // User defines model for User.
 type User struct {
 	CreatedAt time.Time           `json:"created_at"`
 	Email     openapi_types.Email `json:"email"`
-	Id        openapi_types.UUID  `json:"id"`
+	ID        openapi_types.UUID  `json:"id"`
 	Name      string              `json:"name"`
 
 	// Timezone Example: Europe/Moscow
 	Timezone string `json:"timezone"`
 }
+
+// BadGateway Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type BadGateway = Problem
 
 // BadRequest Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type BadRequest = Problem
@@ -110,14 +309,20 @@ type BadRequest = Problem
 // Conflict Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type Conflict = Problem
 
-// EmailAlreadyExists Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
-type EmailAlreadyExists = Problem
+// GatewayTimeout Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type GatewayTimeout = Problem
 
 // InternalError Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type InternalError = Problem
 
 // NotFound Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type NotFound = Problem
+
+// PayloadTooLarge Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type PayloadTooLarge = Problem
+
+// SessionRequired Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type SessionRequired = Problem
 
 // TooManyRequests Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type TooManyRequests = Problem
@@ -128,23 +333,99 @@ type Unauthorized = Problem
 // Unavailable Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type Unavailable = Problem
 
+// ProcessTask200JSONResponseBody defines parameters for ProcessTask.
+type ProcessTask200JSONResponseBody struct {
+	union json.RawMessage
+}
+
+// ProcessTaskJSONRequestBody defines body for ProcessTask for application/json ContentType.
+type ProcessTaskJSONRequestBody = TaskTextRequest
+
+// ProcessTaskMultipartRequestBody defines body for ProcessTask for multipart/form-data ContentType.
+type ProcessTaskMultipartRequestBody = TaskAudioRequest
+
 // AuthSignInJSONRequestBody defines body for AuthSignIn for application/json ContentType.
 type AuthSignInJSONRequestBody = SignInRequest
 
 // AuthSignUpJSONRequestBody defines body for AuthSignUp for application/json ContentType.
 type AuthSignUpJSONRequestBody = SignUpRequest
 
+// AsTaskClarificationResponse returns the union data inside the ProcessTask200JSONResponseBody as a TaskClarificationResponse
+func (t ProcessTask200JSONResponseBody) AsTaskClarificationResponse() (TaskClarificationResponse, error) {
+	var body TaskClarificationResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTaskClarificationResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskClarificationResponse
+func (t *ProcessTask200JSONResponseBody) FromTaskClarificationResponse(v TaskClarificationResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTaskClarificationResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TaskClarificationResponse
+func (t *ProcessTask200JSONResponseBody) MergeTaskClarificationResponse(v TaskClarificationResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTaskCollectionResponse returns the union data inside the ProcessTask200JSONResponseBody as a TaskCollectionResponse
+func (t ProcessTask200JSONResponseBody) AsTaskCollectionResponse() (TaskCollectionResponse, error) {
+	var body TaskCollectionResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTaskCollectionResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskCollectionResponse
+func (t *ProcessTask200JSONResponseBody) FromTaskCollectionResponse(v TaskCollectionResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTaskCollectionResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TaskCollectionResponse
+func (t *ProcessTask200JSONResponseBody) MergeTaskCollectionResponse(v TaskCollectionResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ProcessTask200JSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ProcessTask200JSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// ProcessTask Обработать текстовую или голосовую команду
+	// (POST /api/task)
+	ProcessTask(w http.ResponseWriter, r *http.Request)
 	// AuthSignIn Вход по email и паролю
 	// (POST /api/v1/auth/sign-in)
 	AuthSignIn(w http.ResponseWriter, r *http.Request)
+	// AuthSignOut Выход из аккаунта
+	// (POST /api/v1/auth/sign-out)
+	AuthSignOut(w http.ResponseWriter, r *http.Request)
 	// AuthSignUp Регистрация пользователя
 	// (POST /api/v1/auth/sign-up)
 	AuthSignUp(w http.ResponseWriter, r *http.Request)
-	// SignIn Учебный пример вызова PostgreSQL через все слои backend
-	// (POST /api/v1/example/sign-in)
-	SignIn(w http.ResponseWriter, r *http.Request)
 	// Health Liveness
 	// (GET /health)
 	Health(w http.ResponseWriter, r *http.Request)
@@ -157,21 +438,27 @@ type ServerInterface interface {
 
 type Unimplemented struct{}
 
+// ProcessTask Обработать текстовую или голосовую команду
+// (POST /api/task)
+func (_ Unimplemented) ProcessTask(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // AuthSignIn Вход по email и паролю
 // (POST /api/v1/auth/sign-in)
 func (_ Unimplemented) AuthSignIn(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// AuthSignUp Регистрация пользователя
-// (POST /api/v1/auth/sign-up)
-func (_ Unimplemented) AuthSignUp(w http.ResponseWriter, r *http.Request) {
+// AuthSignOut Выход из аккаунта
+// (POST /api/v1/auth/sign-out)
+func (_ Unimplemented) AuthSignOut(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// SignIn Учебный пример вызова PostgreSQL через все слои backend
-// (POST /api/v1/example/sign-in)
-func (_ Unimplemented) SignIn(w http.ResponseWriter, r *http.Request) {
+// AuthSignUp Регистрация пользователя
+// (POST /api/v1/auth/sign-up)
+func (_ Unimplemented) AuthSignUp(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -196,6 +483,20 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
+// ProcessTask operation middleware
+func (siw *ServerInterfaceWrapper) ProcessTask(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ProcessTask(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AuthSignIn operation middleware
 func (siw *ServerInterfaceWrapper) AuthSignIn(w http.ResponseWriter, r *http.Request) {
 
@@ -210,11 +511,11 @@ func (siw *ServerInterfaceWrapper) AuthSignIn(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
-// AuthSignUp operation middleware
-func (siw *ServerInterfaceWrapper) AuthSignUp(w http.ResponseWriter, r *http.Request) {
+// AuthSignOut operation middleware
+func (siw *ServerInterfaceWrapper) AuthSignOut(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AuthSignUp(w, r)
+		siw.Handler.AuthSignOut(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -224,11 +525,11 @@ func (siw *ServerInterfaceWrapper) AuthSignUp(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
-// SignIn operation middleware
-func (siw *ServerInterfaceWrapper) SignIn(w http.ResponseWriter, r *http.Request) {
+// AuthSignUp operation middleware
+func (siw *ServerInterfaceWrapper) AuthSignUp(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SignIn(w, r)
+		siw.Handler.AuthSignUp(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -386,13 +687,16 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/ready", wrapper.Ready)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/task", wrapper.ProcessTask)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/auth/sign-up", wrapper.AuthSignUp)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/auth/sign-in", wrapper.AuthSignIn)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/example/sign-in", wrapper.SignIn)
+		r.Post(options.BaseURL+"/api/v1/auth/sign-out", wrapper.AuthSignOut)
 	})
 
 	return r

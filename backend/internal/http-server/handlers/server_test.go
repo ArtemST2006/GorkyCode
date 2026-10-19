@@ -24,18 +24,9 @@ func (f fakeReadinessService) Ready(context.Context) error {
 	return f.err
 }
 
-type fakeAuthService struct {
-	reached bool
-	err     error
-}
-
-func (f fakeAuthService) SignIn(context.Context) (bool, error) {
-	return f.reached, f.err
-}
-
 type fakeServices struct {
 	fakeReadinessService
-	fakeAuthService
+	*fakeAuthService
 }
 
 func TestHealthDoesNotDependOnDatabase(t *testing.T) {
@@ -71,10 +62,10 @@ func TestReadyReportsServiceStatus(t *testing.T) {
 }
 
 func newTestRouter(err error) http.Handler {
-	return newTestRouterWithAuth(err, fakeAuthService{reached: true})
+	return newTestRouterWithAuth(err, &fakeAuthService{})
 }
 
-func newTestRouterWithAuth(err error, auth fakeAuthService) http.Handler {
+func newTestRouterWithAuth(err error, auth *fakeAuthService) http.Handler {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	server := NewServer(log, fakeServices{
 		fakeReadinessService: fakeReadinessService{err: err},
@@ -136,33 +127,4 @@ func assertProblemResponse(t *testing.T, response *httptest.ResponseRecorder, co
 	if problem.Code != code || int(problem.Status) != response.Code {
 		t.Fatalf("unexpected problem: %+v", problem)
 	}
-}
-
-func TestExampleSignInReachesRepository(t *testing.T) {
-	router := newTestRouter(nil)
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/example/sign-in", nil))
-	if response.Code != http.StatusOK {
-		t.Fatalf("POST example sign-in: got %d, want %d", response.Code, http.StatusOK)
-	}
-	if got := response.Header().Get("Content-Type"); got != "application/json" {
-		t.Fatalf("content type = %q", got)
-	}
-	var body api.ExampleSignInResponse
-	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if !body.RepositoryReached || body.Authenticated {
-		t.Fatalf("unexpected example sign-in response: %+v", body)
-	}
-}
-
-func TestExampleSignInRepositoryFailure(t *testing.T) {
-	router := newTestRouterWithAuth(nil, fakeAuthService{err: errors.New("database unavailable")})
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/example/sign-in", nil))
-	if response.Code != http.StatusInternalServerError {
-		t.Fatalf("POST example sign-in: got %d, want %d", response.Code, http.StatusInternalServerError)
-	}
-	assertProblemResponse(t, response, "internal_error")
 }

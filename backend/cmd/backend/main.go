@@ -20,6 +20,7 @@ import (
 	"syscall"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -43,6 +44,20 @@ func run() error {
 	}
 	defer pool.Close()
 
+	opts, err := redis.ParseURL(cfg.Redis.URL)
+	if err != nil {
+		log.Error("failed to parse Redis URL", logger.Err(err))
+		return err
+	}
+
+	rdb := redis.NewClient(opts)
+	defer func() { _ = rdb.Close() }()
+
+	if err = rdb.Ping(ctx).Err(); err != nil {
+		log.Error("failed to connect to Redis", logger.Err(err))
+		return err
+	}
+
 	rec, err := voice.NewModel(&voice.Config{
 		ModelPath:    cfg.ArsModel.ModelPath,
 		NumThreads:   cfg.ArsModel.NumThreads,
@@ -54,8 +69,8 @@ func run() error {
 	}
 	defer rec.Close()
 
-	repo := storage.NewRepository(pool)
-	services := service.New(repo, cfg.Database.QueryTimeout, rec)
+	repo := storage.NewRepository(pool, rdb)
+	services := service.New(repo, cfg.Database.QueryTimeout, cfg.Auth.SessionTTL, rec)
 	handler := handlers.NewServer(log, services)
 	router := chi.NewRouter()
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {

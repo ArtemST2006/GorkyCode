@@ -10,6 +10,7 @@ import (
 type Repositories interface {
 	HealthRepository
 	AuthRepository
+	SessionStore
 }
 
 // Services groups application services for HTTP wiring.
@@ -19,9 +20,9 @@ type Services struct {
 }
 
 // New constructs all services from the repository bundle.
-func New(repo Repositories, queryTimeout time.Duration, _ *voice.Recognizer) *Services {
+func New(repo Repositories, queryTimeout, sessionTTL time.Duration, _ *voice.Recognizer) *Services {
 	return &Services{
 		HealthService: NewHealthService(repo, queryTimeout),
-		AuthService:   NewAuthService(repo, queryTimeout),
+		AuthService:   NewAuthService(repo, repo, queryTimeout, sessionTTL),
 	}
 }

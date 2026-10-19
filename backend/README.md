@@ -1,31 +1,24 @@
 # Backend
 
-Для запуска вне Docker нужен Go 1.23+ и установленные компилятор C (Clang/GCC) с поддержкой CGO.
+Для запуска вне Docker нужен Go 1.26.7+ и компилятор C (Clang/GCC) с поддержкой CGO.
 
 ## Локальный запуск
-Для локального запуска сначала скопируйте `backend/.env.example` в
-`backend/.env` и поднимите PostgreSQL командой `docker-compose up -d postgres`
-из корня проекта. 
-
-Затем накати миграции make migrate
-
-Затем запустите `make run` из каталога `backend`.
-`make run` экспортирует переменные из `.env`; YAML: `backend/config/local.yaml`.
-
 1. Поднимите зависимости из корня проекта:
    ```bash
    docker compose up -d postgres redis
    ```
 2. Скопируйте конфигурацию окружения:
    ```bash
+   cd backend
    cp .env.example .env
    ```
-3. Скачайте и распакуйте модель распознавания речи (ASR Sherpa ONNX):
+3. Примените миграции PostgreSQL командой `make migrate` из каталога `backend`.
+4. Скачайте и распакуйте модель распознавания речи (ASR Sherpa ONNX):
    ```bash
    make download-model
    ```
    Модель будет загружена и распакована в каталог `model/asr-model`.
-4. Запустите сервис:
+5. Запустите сервис:
    ```bash
    make run
    ```
@@ -48,7 +41,11 @@
 
 - `GET /health` — проверка работоспособности HTTP-сервера.
 - `GET /ready` — проверка готовности сервиса (включая подключение к PostgreSQL).
-- `POST /api/v1/example/sign-in` — пример реализации сквозного вызова HTTP → service → repository.
+- `POST /api/v1/auth/sign-up` — регистрация, возвращает пользователя и access token.
+- `POST /api/v1/auth/sign-in` — вход по email и паролю, возвращает пользователя и access token.
+- `POST /api/v1/auth/sign-out` — завершает сессию токена из `Authorization: Bearer <token>`.
+
+Access token — случайная строка; сессии хранятся в Redis (`REDIS_URL`) со сроком жизни `AUTH_SESSION_TTL` (по умолчанию 24h).
 
 ## Разработка
 
