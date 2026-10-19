@@ -10,7 +10,10 @@ RUN CGO_ENABLED=1 go build -buildvcs=false -trimpath -o /out/backend ./cmd/backe
 # забираем .so библиотеки sherpa и onnxruntime из module cache
 RUN mkdir -p /out/lib && \
     SHERPA_DIR="$(go list -m -f '{{.Dir}}' github.com/k2-fsa/sherpa-onnx-go-linux)" && \
-    find "$SHERPA_DIR/lib" -name '*.so*' -exec cp -L {} /out/lib/ \;
+    SHERPA_LIB_DIR="$SHERPA_DIR/lib/$(uname -m)-unknown-linux-gnu" && \
+    test -d "$SHERPA_LIB_DIR" && \
+    find "$SHERPA_LIB_DIR" -maxdepth 1 -name '*.so*' -exec cp -L {} /out/lib/ \; && \
+    chmod 755 /out/lib/*.so*
 
 FROM debian:bookworm-slim
 

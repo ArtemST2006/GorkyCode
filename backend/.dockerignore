@@ -2,5 +2,6 @@
 .env
 .env.*
 bin/
+model/
 coverage.out
 coverage.html

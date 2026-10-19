@@ -5,7 +5,7 @@
 ## Локальный запуск
 1. Поднимите зависимости из корня проекта:
    ```bash
-   docker compose up -d postgres redis
+   docker-compose up -d postgres redis
    ```
 2. Скопируйте конфигурацию окружения:
    ```bash
