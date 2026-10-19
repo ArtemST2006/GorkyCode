@@ -217,7 +217,7 @@ func expiresInSeconds(ttl time.Duration) int32 {
 
 func toAPIUser(user *model.User) api.User {
 	return api.User{
-		ID:        user.ID,
+		Id:        user.ID,
 		Name:      user.Name,
 		Email:     openapi_types.Email(user.Email),
 		Timezone:  user.Timezone,

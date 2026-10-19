@@ -103,7 +103,7 @@ func assertAuthResponse(t *testing.T, response *httptest.ResponseRecorder, want 
 	if body.AccessToken != want.AccessToken || body.TokenType != api.Bearer || body.ExpiresIn != 86400 {
 		t.Fatalf("unexpected token fields: %+v", body)
 	}
-	if body.User.ID != want.User.ID || string(body.User.Email) != want.User.Email || !body.User.CreatedAt.Equal(want.User.CreatedAt) {
+	if body.User.Id != want.User.ID || string(body.User.Email) != want.User.Email || !body.User.CreatedAt.Equal(want.User.CreatedAt) {
 		t.Fatalf("unexpected user: %+v", body.User)
 	}
 	if strings.Contains(response.Body.String(), "password") {

@@ -198,11 +198,11 @@ type TaskAudioRequest struct {
 	// конфигурацией backend; другие аудиоформаты отклоняются.
 	File openapi_types.File `json:"file"`
 
-	// TaskID Необязательное текстовое поле для продолжения диалога.
-	TaskID *openapi_types.UUID `json:"task_id,omitempty"`
+	// TaskId Необязательное текстовое поле для продолжения диалога.
+	TaskId *openapi_types.UUID `json:"task_id,omitempty"`
 
-	// UserID Текстовое поле multipart/form-data.
-	UserID openapi_types.UUID `json:"user_id"`
+	// UserId Текстовое поле multipart/form-data.
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // TaskClarificationResponse defines model for TaskClarificationResponse.
@@ -211,9 +211,9 @@ type TaskClarificationResponse struct {
 	Message string                          `json:"message"`
 	Status  TaskClarificationResponseStatus `json:"status"`
 
-	// TaskID Клиент возвращает этот ID в следующем запросе.
-	TaskID openapi_types.UUID `json:"task_id"`
-	UserID openapi_types.UUID `json:"user_id"`
+	// TaskId Клиент возвращает этот ID в следующем запросе.
+	TaskId openapi_types.UUID `json:"task_id"`
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // TaskClarificationResponseStatus defines model for TaskClarificationResponse.Status.
@@ -232,9 +232,9 @@ type TaskCollectionResponse struct {
 	Message string                       `json:"message"`
 	Status  TaskCollectionResponseStatus `json:"status"`
 
-	// TaskID ID обработки запроса; новую запись tasks не обозначает.
-	TaskID openapi_types.UUID `json:"task_id"`
-	UserID openapi_types.UUID `json:"user_id"`
+	// TaskId ID обработки запроса; новую запись tasks не обозначает.
+	TaskId openapi_types.UUID `json:"task_id"`
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // TaskCollectionResponseStatus defines model for TaskCollectionResponse.Status.
@@ -246,9 +246,9 @@ type TaskCreatedResponse struct {
 	Message string                    `json:"message"`
 	Status  TaskCreatedResponseStatus `json:"status"`
 
-	// TaskID Совпадает с id созданной записи в tasks.
-	TaskID openapi_types.UUID `json:"task_id"`
-	UserID openapi_types.UUID `json:"user_id"`
+	// TaskId Совпадает с id созданной записи в tasks.
+	TaskId openapi_types.UUID `json:"task_id"`
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // TaskCreatedResponseStatus defines model for TaskCreatedResponse.Status.
@@ -262,14 +262,14 @@ type TaskItem struct {
 
 	// Date Отсутствует или null, если дата не задана.
 	Date       *openapi_types.Date `json:"date,omitempty"`
-	ID         openapi_types.UUID  `json:"id"`
+	Id         openapi_types.UUID  `json:"id"`
 	RecordType TaskItemRecordType  `json:"record_type"`
 	Status     TaskItemStatus      `json:"status"`
 
 	// Time Локальное время HH:MM; отсутствует или null, если не задано.
 	Time   *string            `json:"time,omitempty"`
 	Title  string             `json:"title"`
-	UserID openapi_types.UUID `json:"user_id"`
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // TaskItemRecordType defines model for TaskItem.RecordType.
@@ -280,20 +280,20 @@ type TaskItemStatus string
 
 // TaskTextRequest defines model for TaskTextRequest.
 type TaskTextRequest struct {
-	// TaskID Передаётся только при ответе на уточнение. Backend ищет context
+	// TaskId Передаётся только при ответе на уточнение. Backend ищет context
 	// в Redis по паре user_id и task_id.
-	TaskID *openapi_types.UUID `json:"task_id,omitempty"`
+	TaskId *openapi_types.UUID `json:"task_id,omitempty"`
 
 	// Text После удаления пробелов по краям строка должна быть непустой.
 	Text   string             `json:"text"`
-	UserID openapi_types.UUID `json:"user_id"`
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // User defines model for User.
 type User struct {
 	CreatedAt time.Time           `json:"created_at"`
 	Email     openapi_types.Email `json:"email"`
-	ID        openapi_types.UUID  `json:"id"`
+	Id        openapi_types.UUID  `json:"id"`
 	Name      string              `json:"name"`
 
 	// Timezone Example: Europe/Moscow
