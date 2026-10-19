@@ -30,5 +30,6 @@ func (s *HealthService) Ready(ctx context.Context) error {
 	if err := s.repo.Ping(queryCtx); err != nil {
 		return fmt.Errorf("check PostgreSQL readiness: %w", err)
 	}
+
 	return nil
 }

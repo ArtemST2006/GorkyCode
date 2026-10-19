@@ -12,6 +12,21 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AuthResponseTokenType.
+const (
+	Bearer AuthResponseTokenType = "Bearer"
+)
+
+// Valid indicates whether the value is a known member of the AuthResponseTokenType enum.
+func (e AuthResponseTokenType) Valid() bool {
+	switch e {
+	case Bearer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthResponseStatus.
 const (
 	HealthResponseStatusOk          HealthResponseStatus = "ok"
@@ -32,8 +47,17 @@ func (e HealthResponseStatus) Valid() bool {
 
 // AuthResponse defines model for AuthResponse.
 type AuthResponse struct {
-	User User `json:"user"`
+	// AccessToken Токен для заголовка Authorization.
+	AccessToken string `json:"access_token"`
+
+	// ExpiresIn Срок действия access token в секундах.
+	ExpiresIn int32                 `json:"expires_in"`
+	TokenType AuthResponseTokenType `json:"token_type"`
+	User      User                  `json:"user"`
 }
+
+// AuthResponseTokenType defines model for AuthResponse.TokenType.
+type AuthResponseTokenType string
 
 // ExampleSignInResponse defines model for ExampleSignInResponse.
 type ExampleSignInResponse struct {
@@ -114,6 +138,9 @@ type InternalError = Problem
 // NotFound Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type NotFound = Problem
 
+// SessionRequired Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type SessionRequired = Problem
+
 // TooManyRequests Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type TooManyRequests = Problem
 
@@ -134,6 +161,9 @@ type ServerInterface interface {
 	// AuthSignIn Вход по email и паролю
 	// (POST /api/v1/auth/sign-in)
 	AuthSignIn(w http.ResponseWriter, r *http.Request)
+	// AuthSignOut Выход из аккаунта
+	// (POST /api/v1/auth/sign-out)
+	AuthSignOut(w http.ResponseWriter, r *http.Request)
 	// AuthSignUp Регистрация пользователя
 	// (POST /api/v1/auth/sign-up)
 	AuthSignUp(w http.ResponseWriter, r *http.Request)
@@ -155,6 +185,12 @@ type Unimplemented struct{}
 // AuthSignIn Вход по email и паролю
 // (POST /api/v1/auth/sign-in)
 func (_ Unimplemented) AuthSignIn(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// AuthSignOut Выход из аккаунта
+// (POST /api/v1/auth/sign-out)
+func (_ Unimplemented) AuthSignOut(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -196,6 +232,20 @@ func (siw *ServerInterfaceWrapper) AuthSignIn(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AuthSignIn(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthSignOut operation middleware
+func (siw *ServerInterfaceWrapper) AuthSignOut(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthSignOut(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -385,6 +435,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/auth/sign-in", wrapper.AuthSignIn)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/auth/sign-out", wrapper.AuthSignOut)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/example/sign-in", wrapper.SignIn)

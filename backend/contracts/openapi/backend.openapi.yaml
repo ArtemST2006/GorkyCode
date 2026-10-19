@@ -38,7 +38,7 @@ paths:
     post:
       tags: [Auth]
       summary: Регистрация пользователя
-      description: Создаёт пользователя и возвращает его данные. Email сравнивается без учёта регистра.
+      description: Создаёт пользователя и возвращает access token. Email сравнивается без учёта регистра.
       operationId: authSignUp
       requestBody:
         required: true
@@ -49,6 +49,12 @@ paths:
       responses:
         '201':
           description: Пользователь создан и авторизован
+          headers:
+            Cache-Control:
+              description: Ответ с токеном не должен кешироваться.
+              schema:
+                type: string
+                enum: [no-store]
           content:
             application/json:
               schema:
@@ -76,6 +82,12 @@ paths:
       responses:
         '200':
           description: Пользователь авторизован
+          headers:
+            Cache-Control:
+              description: Ответ с токеном не должен кешироваться.
+              schema:
+                type: string
+                enum: [no-store]
           content:
             application/json:
               schema:
@@ -84,6 +96,26 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /api/v1/auth/sign-out:
+    post:
+      tags: [Auth]
+      summary: Выход из аккаунта
+      description: >-
+        Завершает сессию, к которой привязан переданный access token. После
+        этого токен больше не принимается. Повторный вызов с тем же токеном
+        возвращает 401, так как сессии уже нет.
+      operationId: authSignOut
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Сессия завершена
+        '401':
+          $ref: '#/components/responses/SessionRequired'
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
@@ -104,6 +136,11 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Access token, полученный из sign-up или sign-in.
   schemas:
     SignUpRequest:
       type: object
@@ -150,10 +187,22 @@ components:
     AuthResponse:
       type: object
       additionalProperties: false
-      required: [user]
+      required: [user, access_token, token_type, expires_in]
       properties:
         user:
           $ref: '#/components/schemas/User'
+        access_token:
+          type: string
+          minLength: 1
+          description: Токен для заголовка Authorization.
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Срок действия access token в секундах.
     User:
       type: object
       additionalProperties: false
@@ -234,6 +283,17 @@ components:
             title: Unauthorized
             status: 401
             code: invalid_credentials
+    SessionRequired:
+      description: Нет access token или сессия истекла либо завершена; code = unauthorized.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Unauthorized
+            status: 401
+            code: unauthorized
     NotFound:
       description: Ресурс не найден
       content:

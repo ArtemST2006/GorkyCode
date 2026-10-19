@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"gorkycode/backend/internal/http-server/apierr"
-	"gorkycode/backend/internal/model"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -24,17 +22,6 @@ type fakeReadinessService struct {
 
 func (f fakeReadinessService) Ready(context.Context) error {
 	return f.err
-}
-
-type fakeAuthService struct {
-	user  *model.User
-	email string
-	err   error
-}
-
-func (f *fakeAuthService) SignIn(_ context.Context, email, _ string) (*model.User, error) {
-	f.email = email
-	return f.user, f.err
 }
 
 type fakeServices struct {
@@ -75,7 +62,7 @@ func TestReadyReportsServiceStatus(t *testing.T) {
 }
 
 func newTestRouter(err error) http.Handler {
-	return newTestRouterWithAuth(err, &fakeAuthService{user: &model.User{}})
+	return newTestRouterWithAuth(err, &fakeAuthService{})
 }
 
 func newTestRouterWithAuth(err error, auth *fakeAuthService) http.Handler {
@@ -139,25 +126,5 @@ func assertProblemResponse(t *testing.T, response *httptest.ResponseRecorder, co
 	}
 	if problem.Code != code || int(problem.Status) != response.Code {
 		t.Fatalf("unexpected problem: %+v", problem)
-	}
-}
-
-func TestAuthSignInInvalidCredentials(t *testing.T) {
-	auth := &fakeAuthService{err: model.ErrInvalidCredentials}
-	router := newTestRouterWithAuth(nil, auth)
-
-	body := strings.NewReader(`{"email":"artem@example.com","password":"wrong"}`)
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/sign-in", body)
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-
-	router.ServeHTTP(response, request)
-
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("POST sign-in: got %d, want %d", response.Code, http.StatusUnauthorized)
-	}
-	assertProblemResponse(t, response, "invalid_credentials")
-	if auth.email != "artem@example.com" {
-		t.Fatalf("service got email %q", auth.email)
 	}
 }

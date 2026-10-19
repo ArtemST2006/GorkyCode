@@ -45,6 +45,11 @@ func InvalidCredentials(detail string) api.Problem {
 	return newProblem(http.StatusUnauthorized, "invalid_credentials", "invalid-credentials", "Invalid credentials", detail)
 }
 
+// Unauthorized reports a missing, expired or ended session.
+func Unauthorized(detail string) api.Problem {
+	return newProblem(http.StatusUnauthorized, "unauthorized", "unauthorized", "Unauthorized", detail)
+}
+
 // RequestTimeout reports a request that took too long to complete.
 func RequestTimeout(detail string) api.Problem {
 	return newProblem(http.StatusRequestTimeout, "request_timeout", "request-timeout", "Request timeout", detail)

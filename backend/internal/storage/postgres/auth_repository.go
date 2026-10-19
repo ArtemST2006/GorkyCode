@@ -8,10 +8,14 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// AuthRepository reads users for authentication.
+// uniqueViolation is the PostgreSQL error code for a broken unique constraint.
+const uniqueViolation = "23505"
+
+// AuthRepository reads and creates users for authentication.
 type AuthRepository struct {
 	pool *pgxpool.Pool
 	sb   sq.StatementBuilderType
@@ -36,7 +40,7 @@ func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (*mod
 		Where("lower(email) = lower(?)", email).
 		ToSql()
 	if err != nil {
-		return nil, fmt.Errorf("build query: %w", err)
+		return nil, fmt.Errorf("build select user query: %w", err)
 	}
 
 	err = r.pool.QueryRow(ctx, query, args...).
@@ -51,8 +55,34 @@ func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (*mod
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, model.ErrUserNotFound
 		}
-		return nil, fmt.Errorf("run query: %w", err)
+		return nil, fmt.Errorf("select user by email: %w", err)
 	}
 
 	return user, nil
+}
+
+// CreateUser inserts the user and fills its generated ID and creation time.
+// It returns model.ErrEmailTaken when a user with the same email already exists.
+func (r *AuthRepository) CreateUser(ctx context.Context, user *model.User) error {
+	query, args, err := r.sb.
+		Insert("users").
+		Columns("name", "email", "password_hash", "timezone").
+		Values(user.Name, user.Email, user.PasswordHash, user.Timezone).
+		Suffix("RETURNING id, created_at").
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build insert user query: %w", err)
+	}
+
+	err = r.pool.QueryRow(ctx, query, args...).Scan(&user.ID, &user.CreatedAt)
+	if err != nil {
+		// users_email_unique compares lower(email), so the race between two
+		// sign-ups with the same email is settled by the database.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
+			return model.ErrEmailTaken
+		}
+		return fmt.Errorf("insert user: %w", err)
+	}
+	return nil
 }

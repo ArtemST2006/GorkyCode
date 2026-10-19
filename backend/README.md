@@ -48,7 +48,11 @@
 
 - `GET /health` — проверка работоспособности HTTP-сервера.
 - `GET /ready` — проверка готовности сервиса (включая подключение к PostgreSQL).
-- `POST /api/v1/example/sign-in` — пример реализации сквозного вызова HTTP → service → repository.
+- `POST /api/v1/auth/sign-up` — регистрация, возвращает пользователя и access token.
+- `POST /api/v1/auth/sign-in` — вход по email и паролю, возвращает пользователя и access token.
+- `POST /api/v1/auth/sign-out` — завершает сессию токена из `Authorization: Bearer <token>`.
+
+Access token — случайная строка; сессии хранятся в Redis (`REDIS_URL`) со сроком жизни `AUTH_SESSION_TTL` (по умолчанию 24h).
 
 ## Разработка
 

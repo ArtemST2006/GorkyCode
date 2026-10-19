@@ -18,6 +18,8 @@ type Config struct {
 	HTTPServer      HTTPServer    `yaml:"http-server"`
 	Database        Database      `yaml:"database"`
 	ArsModel        ArsModel      `yaml:"ars_model"`
+	Redis           Redis         `yaml:"redis"`
+	Auth            Auth          `yaml:"auth"`
 }
 
 // HTTPServer holds HTTP listener settings.
@@ -45,6 +47,16 @@ type ArsModel struct {
 	NumThreads   int    `yaml:"num_threads" env-default:"2"`
 	DecodeMethod string `yaml:"decode_method" env-default:"greedy_search"`
 	Provider     string `yaml:"provider" env-default:"cpu"`
+}
+
+// Redis holds Redis connection settings.
+type Redis struct {
+	URL string `yaml:"url" env:"REDIS_URL" env-required:"true"`
+}
+
+// Auth holds session settings.
+type Auth struct {
+	SessionTTL time.Duration `yaml:"session_ttl" env:"AUTH_SESSION_TTL" env-default:"24h"`
 }
 
 // Load reads CONFIG_PATH when set, then applies environment variables.

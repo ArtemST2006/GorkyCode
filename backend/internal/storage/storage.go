@@ -3,8 +3,10 @@ package storage
 
 import (
 	"gorkycode/backend/internal/storage/postgres"
+	"gorkycode/backend/internal/storage/redis"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 // Repository groups storage dependencies used by the service layer.
@@ -13,12 +15,14 @@ import (
 type Repository struct {
 	*postgres.HealthRepository
 	*postgres.AuthRepository
+	*redis.SessionRepository
 }
 
 // NewRepository creates repositories over the shared PostgreSQL pool.
-func NewRepository(pool *pgxpool.Pool) *Repository {
+func NewRepository(pool *pgxpool.Pool, redisClient *goredis.Client) *Repository {
 	return &Repository{
-		HealthRepository: postgres.NewHealthRepository(pool),
-		AuthRepository:   postgres.NewAuthRepository(pool),
+		HealthRepository:  postgres.NewHealthRepository(pool),
+		AuthRepository:    postgres.NewAuthRepository(pool),
+		SessionRepository: redis.NewSessionRepository(redisClient),
 	}
 }
