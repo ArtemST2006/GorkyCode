@@ -2,7 +2,9 @@ FROM golang:1.26-bookworm AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+ENV GOPROXY=https://goproxy.cn,direct \
+    GOPRIVATE=github.com/k2-fsa/sherpa-onnx-go*
+RUN go mod download && go mod verify
 
 COPY . .
 RUN CGO_ENABLED=1 go build -buildvcs=false -trimpath -o /out/backend ./cmd/backend

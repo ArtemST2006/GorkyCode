@@ -11,18 +11,21 @@ type Repositories interface {
 	HealthRepository
 	AuthRepository
 	SessionStore
+	DraftStore
 }
 
 // Services groups application services for HTTP wiring.
 type Services struct {
 	*HealthService
 	*AuthService
+	*TaskProcess
 }
 
 // New constructs all services from the repository bundle.
-func New(repo Repositories, queryTimeout, sessionTTL time.Duration, _ *voice.Recognizer) *Services {
+func New(repo Repositories, queryTimeout, sessionTTL time.Duration, rec *voice.Recognizer, aiServiceURL string) *Services {
 	return &Services{
 		HealthService: NewHealthService(repo, queryTimeout),
 		AuthService:   NewAuthService(repo, repo, queryTimeout, sessionTTL),
+		TaskProcess:   NewTaskProcess(rec, repo, aiServiceURL),
 	}
 }
