@@ -40,6 +40,26 @@ func Internal() api.Problem {
 	return newProblem(http.StatusInternalServerError, "internal_error", "internal-error", "Internal server error", "")
 }
 
+// TaskInternal reports a task processing error with the neutral detail required by its API contract.
+func TaskInternal() api.Problem {
+	return newProblem(http.StatusInternalServerError, "internal_error", "internal-error", "Internal server error", "Извините, возникли внутренние проблемы.")
+}
+
+// PayloadTooLarge reports an audio upload over the configured limit.
+func PayloadTooLarge() api.Problem {
+	return newProblem(http.StatusRequestEntityTooLarge, "payload_too_large", "payload-too-large", "Payload too large", "WAV-файл слишком большой.")
+}
+
+// BadGateway reports an invalid response from STT or AI-service.
+func BadGateway() api.Problem {
+	return newProblem(http.StatusBadGateway, "bad_gateway", "bad-gateway", "Bad gateway", "Ошибка обработки команды.")
+}
+
+// GatewayTimeout reports a timeout in STT or AI-service.
+func GatewayTimeout() api.Problem {
+	return newProblem(http.StatusGatewayTimeout, "gateway_timeout", "gateway-timeout", "Gateway timeout", "Сервис обработки не ответил вовремя.")
+}
+
 // InvalidCredentials reports a wrong email or password.
 func InvalidCredentials(detail string) api.Problem {
 	return newProblem(http.StatusUnauthorized, "invalid_credentials", "invalid-credentials", "Invalid credentials", detail)

@@ -162,16 +162,16 @@ paths:
                     user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
                     task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
                     status: ok
-                    message: Встреча с Иваном назначена на 19 октября в 15:00
+                    message: Встреча с Иваном назначена на 21 октября в 15:00
                     data:
                       event:
                         id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
                         user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
                         record_type: meeting
                         title: Встреча с Иваном
-                        date: '2026-10-19'
+                        date: '2026-10-21'
                         time: '15:00'
-                        created_at: '2026-10-18T12:00:20+03:00'
+                        created_at: '2026-10-20T12:00:00+03:00'
                         status: active
                 task:
                   summary: Создана задача с обязательными датой и временем

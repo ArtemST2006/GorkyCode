@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"gorkycode/backend/internal/generated/ai"
 	"gorkycode/backend/internal/http-server/handlers"
@@ -25,6 +26,11 @@ type DraftStore interface {
 	GetDraft(ctx context.Context, key string) (string, error)
 }
 
+// TimezoneStore supplies the timezone saved during registration.
+type TimezoneStore interface {
+	GetUserTimezone(ctx context.Context, userID uuid.UUID) (string, error)
+}
+
 // STT converts an audio stream into text.
 type STT interface {
 	Transcribe(ctx context.Context, file io.Reader) (string, error)
@@ -32,17 +38,19 @@ type STT interface {
 
 // TaskProcess turns a text or audio command into an AI-service request.
 type TaskProcess struct {
-	rec   STT
-	draft DraftStore
-	aiURL string
+	rec       STT
+	draft     DraftStore
+	timezones TimezoneStore
+	aiURL     string
 }
 
 // NewTaskProcess constructs a task processor with the given dependencies.
-func NewTaskProcess(rec STT, draft DraftStore, aiURL string) *TaskProcess {
+func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, aiURL string) *TaskProcess {
 	return &TaskProcess{
-		rec:   rec,
-		draft: draft,
-		aiURL: aiURL,
+		rec:       rec,
+		draft:     draft,
+		timezones: timezones,
+		aiURL:     aiURL,
 	}
 }
 
@@ -67,20 +75,31 @@ func createReq(ctx context.Context, aiURL string, req *ai.JobRequest) (model.AiR
 
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(httpReq)
 	if err != nil {
-		return result, fmt.Errorf("request AI service: %w", err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			return result, fmt.Errorf("%w: request AI service: %v", model.ErrGatewayTimeout, err)
+		}
+		return result, fmt.Errorf("%w: request AI service: %v", model.ErrBadGateway, err)
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return result, fmt.Errorf("AI service returned status %d", resp.StatusCode)
+		switch resp.StatusCode {
+		case http.StatusServiceUnavailable:
+			return result, fmt.Errorf("%w: AI service returned status %d", model.ErrServiceUnavailable, resp.StatusCode)
+		case http.StatusGatewayTimeout:
+			return result, fmt.Errorf("%w: AI service returned status %d", model.ErrGatewayTimeout, resp.StatusCode)
+		default:
+			return result, fmt.Errorf("%w: AI service returned status %d", model.ErrBadGateway, resp.StatusCode)
+		}
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return result, fmt.Errorf("decode AI response: %w", err)
+		return result, fmt.Errorf("%w: decode AI response: %v", model.ErrBadGateway, err)
 	}
 
 	return result, nil
@@ -106,8 +125,11 @@ func (t *TaskProcess) extractText(
 
 		text, err := t.rec.Transcribe(ctx, file)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return "", req.UserId, req.TaskId, fmt.Errorf("%w: transcribe audio: %v", model.ErrGatewayTimeout, err)
+			}
 			return "", req.UserId, req.TaskId,
-				fmt.Errorf("transcribe audio: %w", err)
+				fmt.Errorf("%w: transcribe audio: %v", model.ErrBadGateway, err)
 		}
 
 		return text, req.UserId, req.TaskId, nil
@@ -150,14 +172,16 @@ func prepareAIRequest(
 	taskID openapitypes.UUID,
 	text string,
 	taskContext ai.JobRequestContext,
+	timezone string,
+	location *time.Location,
 ) *ai.JobRequest {
 	return &ai.JobRequest{
 		UserId:      userID,
 		TaskId:      taskID,
 		Text:        text,
 		Context:     taskContext,
-		RequestTime: time.Now(),
-		Timezone:    "Europe/Moscow",
+		RequestTime: time.Now().In(location),
+		Timezone:    timezone,
 	}
 }
 
@@ -184,7 +208,7 @@ func (t *TaskProcess) processAIResult(
 			return nil, fmt.Errorf("invalid intent %s", result.Intent)
 		}
 
-	case "need_clarification":
+	case "needs_clarification":
 		// TODO: вернуть клиенту сообщение с просьбой уточнить данные.
 		panic("not implemented")
 
@@ -202,12 +226,26 @@ func (t *TaskProcess) Process(
 	if err != nil {
 		return nil, err
 	}
+	if userID == uuid.Nil || strings.TrimSpace(text) == "" {
+		return nil, errors.New("invalid task request")
+	}
+	timezone, err := t.timezones.GetUserTimezone(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user timezone: %w", err)
+	}
+	location, err := time.LoadLocation(timezone)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user timezone: %w", err)
+	}
 
 	var taskContext ai.JobRequestContext
 
 	if taskID == nil {
 		id := uuid.New()
 		taskID = &id
+		if err := taskContext.FromEmptyContext(ai.EmptyContext{}); err != nil {
+			return nil, fmt.Errorf("prepare empty context: %w", err)
+		}
 	} else {
 		taskContext, err = t.getTaskContext(ctx, userID, taskID)
 		if err != nil {
@@ -220,6 +258,8 @@ func (t *TaskProcess) Process(
 		*taskID,
 		text,
 		taskContext,
+		timezone,
+		location,
 	)
 
 	result, err := createReq(ctx, t.aiURL, aiReq)
@@ -227,5 +267,8 @@ func (t *TaskProcess) Process(
 		return nil, fmt.Errorf("create AI request: %w", err)
 	}
 
+	if err := validateAIResult(result, aiReq); err != nil {
+		return nil, fmt.Errorf("%w: %v", model.ErrBadGateway, err)
+	}
 	return t.processAIResult(result)
 }

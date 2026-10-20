@@ -12,6 +12,7 @@ type Repositories interface {
 	AuthRepository
 	SessionStore
 	DraftStore
+	TimezoneStore
 }
 
 // Services groups application services for HTTP wiring.
@@ -26,6 +27,6 @@ func New(repo Repositories, queryTimeout, sessionTTL time.Duration, rec *voice.R
 	return &Services{
 		HealthService: NewHealthService(repo, queryTimeout),
 		AuthService:   NewAuthService(repo, repo, queryTimeout, sessionTTL),
-		TaskProcess:   NewTaskProcess(rec, repo, aiServiceURL),
+		TaskProcess:   NewTaskProcess(rec, repo, repo, aiServiceURL),
 	}
 }

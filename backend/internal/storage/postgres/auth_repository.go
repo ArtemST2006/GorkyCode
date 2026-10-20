@@ -7,6 +7,7 @@ import (
 	"gorkycode/backend/internal/model"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -59,6 +60,19 @@ func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (*mod
 	}
 
 	return user, nil
+}
+
+// GetUserTimezone returns the IANA timezone stored for a user.
+func (r *AuthRepository) GetUserTimezone(ctx context.Context, userID uuid.UUID) (string, error) {
+	var timezone string
+	err := r.pool.QueryRow(ctx, "SELECT timezone FROM users WHERE id = $1", userID).Scan(&timezone)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", model.ErrUserNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("select user timezone: %w", err)
+	}
+	return timezone, nil
 }
 
 // CreateUser inserts the user and fills its generated ID and creation time.

@@ -4,11 +4,9 @@ package model
 import (
 	"encoding/json"
 	"errors"
-	"gorkycode/backend/internal/generated/ai"
 	"time"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 var (
@@ -22,6 +20,12 @@ var (
 	ErrDraftNotFound = errors.New("draft not found")
 	// ErrEmailTaken is returned when a user with the same email already exists.
 	ErrEmailTaken = errors.New("email already taken")
+	// ErrBadGateway marks an invalid response from STT or AI-service.
+	ErrBadGateway = errors.New("upstream service failure")
+	// ErrGatewayTimeout marks an upstream timeout.
+	ErrGatewayTimeout = errors.New("upstream service timeout")
+	// ErrServiceUnavailable marks an unavailable upstream service.
+	ErrServiceUnavailable = errors.New("upstream service unavailable")
 )
 
 // User is a registered user.
@@ -42,13 +46,11 @@ type AuthResult struct {
 }
 
 type AiRes struct {
-	Action  json.RawMessage           `json:"action"`
-	Context ai.ReadyContext           `json:"context"`
-	Intent  ai.ReadyCreateEventIntent `json:"intent"`
-
-	// Message Финальное сообщение формирует backend после выполнения action.
-	Message *ai.ReadyCreateEventMessage `json:"message"`
-	Status  ai.ReadyCreateEventStatus   `json:"status"`
-	TaskId  openapi_types.UUID          `json:"task_id"`
-	UserId  openapi_types.UUID          `json:"user_id"`
+	Action  json.RawMessage `json:"action"`
+	Context json.RawMessage `json:"context"`
+	Intent  string          `json:"intent"`
+	Message json.RawMessage `json:"message"`
+	Status  string          `json:"status"`
+	TaskId  uuid.UUID       `json:"task_id"`
+	UserId  uuid.UUID       `json:"user_id"`
 }

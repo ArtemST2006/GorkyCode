@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"gorkycode/backend/internal/http-server/apierr"
+	"gorkycode/backend/internal/model"
 	"log/slog"
 	"mime"
 	"mime/multipart"
@@ -41,12 +42,18 @@ func parseTaskAudioRequest(r *http.Request) (*api.TaskAudioRequest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid 'user_id': %w", err)
 	}
+	if userID == uuid.Nil {
+		return nil, errors.New("invalid 'user_id'")
+	}
 	req.UserId = userID
 
 	if rawTask := r.FormValue("task_id"); rawTask != "" {
 		taskID, err := uuid.Parse(rawTask)
 		if err != nil {
 			return nil, fmt.Errorf("invalid 'task_id': %w", err)
+		}
+		if taskID == uuid.Nil {
+			return nil, errors.New("invalid 'task_id'")
 		}
 		req.TaskId = &taskID
 	}
@@ -82,6 +89,21 @@ func validateFile(file *multipart.FileHeader) error {
 	}
 }
 
+func writeTaskError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, model.ErrDraftNotFound), errors.Is(err, model.ErrUserNotFound):
+		apierr.Write(w, r, apierr.NotFound("Запрос или пользователь не найден."))
+	case errors.Is(err, model.ErrGatewayTimeout):
+		apierr.Write(w, r, apierr.GatewayTimeout())
+	case errors.Is(err, model.ErrBadGateway):
+		apierr.Write(w, r, apierr.BadGateway())
+	case errors.Is(err, model.ErrServiceUnavailable), errors.Is(err, context.DeadlineExceeded):
+		apierr.Write(w, r, apierr.Unavailable("Сервис временно недоступен."))
+	default:
+		apierr.Write(w, r, apierr.TaskInternal())
+	}
+}
+
 // ProcessTask handles text (JSON) and voice (multipart WAV) task commands.
 func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 	const op = "task.aggregatorHandler"
@@ -111,11 +133,15 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &req) {
 			return
 		}
+		if req.UserId == uuid.Nil || (req.TaskId != nil && *req.TaskId == uuid.Nil) || strings.TrimSpace(req.Text) == "" {
+			apierr.Write(w, r, apierr.InvalidRequest("user_id, task_id или text не соответствуют контракту"))
+			return
+		}
 
 		result, err := s.services.Process(ctx, &req)
 		if err != nil {
 			log.ErrorContext(ctx, "Error processing task", slog.Any("err", err))
-			apierr.Write(w, r, apierr.Internal())
+			writeTaskError(w, r, err)
 			return
 		}
 
@@ -129,7 +155,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 			encErr = writeJSON(w, http.StatusCreated, res)
 		default:
 			log.ErrorContext(ctx, "Unexpected result type", slog.Any("type", res))
-			apierr.Write(w, r, apierr.Internal())
+			apierr.Write(w, r, apierr.TaskInternal())
 			return
 		}
 		if encErr != nil {
@@ -139,7 +165,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 	case "multipart/form-data":
 		if err := r.ParseMultipartForm(maxTaskProcessReadSize); err != nil {
 			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-				apierr.Write(w, r, apierr.InvalidRequest("Request body too large"))
+				apierr.Write(w, r, apierr.PayloadTooLarge())
 				return
 			}
 			log.ErrorContext(ctx, "Failed to parse multipart form", slog.Any("err", err))
@@ -160,7 +186,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 		result, err := s.services.Process(ctx, req)
 		if err != nil {
 			log.ErrorContext(ctx, "Error processing task audio request", slog.Any("err", err))
-			apierr.Write(w, r, apierr.Internal())
+			writeTaskError(w, r, err)
 			return
 		}
 
@@ -174,7 +200,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 			encErr = writeJSON(w, http.StatusCreated, res)
 		default:
 			log.ErrorContext(ctx, "Unexpected result type", slog.Any("type", res))
-			apierr.Write(w, r, apierr.Internal())
+			apierr.Write(w, r, apierr.TaskInternal())
 			return
 		}
 		if encErr != nil {
@@ -183,6 +209,6 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		log.ErrorContext(ctx, "Unsupported 'Content-Type'", slog.String("type", mediaType))
-		w.WriteHeader(http.StatusUnsupportedMediaType)
+		apierr.Write(w, r, apierr.InvalidRequest("Unsupported Content-Type"))
 	}
 }

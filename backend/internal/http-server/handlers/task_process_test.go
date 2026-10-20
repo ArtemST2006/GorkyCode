@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	api "gorkycode/backend/internal/generated"
+	"gorkycode/backend/internal/model"
 )
 
 // fakeTaskProcess returns what the test configured and records its arguments.
@@ -157,6 +158,8 @@ func TestProcessTaskRejectsInvalidJSON(t *testing.T) {
 		body string
 	}{
 		{name: "malformed", body: `{"user_id":`},
+		{name: "missing required fields", body: `{}`},
+		{name: "blank text", body: fmt.Sprintf(`{"user_id":%q,"text":"   "}`, uuid.New())},
 		{name: "unknown field", body: fmt.Sprintf(`{"user_id":%q,"text":"привет","debug":true}`, uuid.New())},
 		{name: "trailing data", body: fmt.Sprintf(`{"user_id":%q,"text":"привет"}{}`, uuid.New())},
 		{name: "too large", body: fmt.Sprintf(`{"text":%q}`, strings.Repeat("a", maxAuthBodyBytes))},
@@ -193,9 +196,10 @@ func TestProcessTaskRequiresKnownContentType(t *testing.T) {
 		request.Header.Set("Content-Type", "text/plain")
 		response := httptest.NewRecorder()
 		newTaskServer(process).ProcessTask(response, request)
-		if response.Code != http.StatusUnsupportedMediaType {
-			t.Fatalf("POST /api/task: got %d, want %d", response.Code, http.StatusUnsupportedMediaType)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("POST /api/task: got %d, want %d", response.Code, http.StatusBadRequest)
 		}
+		assertProblemResponse(t, response, "invalid_request")
 	})
 
 	if process.called {
@@ -204,14 +208,30 @@ func TestProcessTaskRequiresKnownContentType(t *testing.T) {
 }
 
 func TestProcessTaskMapsServiceError(t *testing.T) {
-	process := &fakeTaskProcess{err: errors.New("ai service unavailable")}
-
-	response := doTaskJSON(t, process, fmt.Sprintf(`{"user_id":%q,"text":"привет"}`, uuid.New()))
-
-	if response.Code != http.StatusInternalServerError {
-		t.Fatalf("POST /api/task: got %d, want %d", response.Code, http.StatusInternalServerError)
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{"internal", errors.New("unexpected"), http.StatusInternalServerError, "internal_error"},
+		{"upstream", model.ErrBadGateway, http.StatusBadGateway, "bad_gateway"},
+		{"timeout", model.ErrGatewayTimeout, http.StatusGatewayTimeout, "gateway_timeout"},
+		{"unavailable", model.ErrServiceUnavailable, http.StatusServiceUnavailable, "service_unavailable"},
+		{"missing draft", model.ErrDraftNotFound, http.StatusNotFound, "not_found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			process := &fakeTaskProcess{err: tc.err}
+			response := doTaskJSON(t, process, fmt.Sprintf(`{"user_id":%q,"text":"привет"}`, uuid.New()))
+			if response.Code != tc.status {
+				t.Fatalf("POST /api/task: got %d, want %d", response.Code, tc.status)
+			}
+			assertProblemResponse(t, response, tc.code)
+			if tc.status == http.StatusInternalServerError && !strings.Contains(response.Body.String(), "Извините, возникли внутренние проблемы.") {
+				t.Fatalf("500 response lacks neutral detail: %s", response.Body.String())
+			}
+		})
 	}
-	assertProblemResponse(t, response, "internal_error")
 }
 
 func TestProcessTaskAudioSuccess(t *testing.T) {

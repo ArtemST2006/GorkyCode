@@ -46,6 +46,18 @@ type fakeDraftStore struct {
 	key    string
 }
 
+type fakeTimezoneStore struct {
+	timezone string
+	err      error
+}
+
+func (f *fakeTimezoneStore) GetUserTimezone(_ context.Context, _ uuid.UUID) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.timezone, nil
+}
+
 func (f *fakeDraftStore) GetDraft(_ context.Context, key string) (string, error) {
 	f.called = true
 	f.key = key
@@ -85,7 +97,7 @@ func newTestTaskProcess(t *testing.T, stt STT, draft DraftStore, aiHandler http.
 	t.Helper()
 	server := httptest.NewServer(aiHandler)
 	t.Cleanup(server.Close)
-	return NewTaskProcess(stt, draft, server.URL)
+	return NewTaskProcess(stt, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, server.URL)
 }
 
 // newAudioRequest builds a TaskAudioRequest whose file is backed by a multipart header.
@@ -168,6 +180,26 @@ func TestTaskProcessGeneratesTaskIDForFirstRequest(t *testing.T) {
 
 	if got.TaskId == uuid.Nil {
 		t.Fatal("AI task_id must be generated for the first request")
+	}
+	contextJSON, err := json.Marshal(got.Context)
+	if err != nil || string(contextJSON) != "{}" {
+		t.Fatalf("AI context = %s, %v; want {}", contextJSON, err)
+	}
+}
+
+func TestTaskProcessUsesSavedTimezone(t *testing.T) {
+	got := &ai.JobRequest{}
+	stub := &aiStub{t: t, status: http.StatusOK, body: `{"status":"invalid"}`, got: got}
+	server := httptest.NewServer(stub)
+	t.Cleanup(server.Close)
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Asia/Tokyo"}, server.URL)
+
+	_, _ = process.Process(t.Context(), &api.TaskTextRequest{UserId: uuid.New(), Text: "привет"})
+	if got.Timezone != "Asia/Tokyo" {
+		t.Fatalf("AI timezone = %q, want Asia/Tokyo", got.Timezone)
+	}
+	if _, offset := got.RequestTime.Zone(); offset != 9*60*60 {
+		t.Fatalf("AI request_time offset = %d, want +09:00", offset)
 	}
 }
 
@@ -292,7 +324,7 @@ func TestTaskProcessReportsAIErrors(t *testing.T) {
 }
 
 func TestTaskProcessRejectsUnsupportedRequest(t *testing.T) {
-	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, "http://127.0.0.1:1")
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Europe/Moscow"}, "http://127.0.0.1:1")
 
 	_, err := process.Process(t.Context(), "plain text")
 
