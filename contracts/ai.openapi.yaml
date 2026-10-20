@@ -76,7 +76,7 @@ paths:
                 value:
                   user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
                   task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
-                  text: Создай задачу купить молоко
+                  text: Создай задачу купить молоко завтра в 18:00
                   request_time: '2026-10-18T12:01:00+03:00'
                   timezone: Europe/Moscow
                   context:
@@ -181,10 +181,12 @@ paths:
                     action:
                       record_type: task
                       title: Купить молоко
+                      date: '2026-10-19'
+                      time: '18:00'
                     context:
                       recent_messages:
                         - role: user
-                          text: Создай задачу купить молоко
+                          text: Создай задачу купить молоко завтра в 18:00
                       draft: null
         '400':
           $ref: '#/components/responses/BadRequest'
@@ -499,17 +501,16 @@ components:
               $ref: '#/components/schemas/SearchEventsAction'
     CreateEventAction:
       description: |
-        Для task дата и время необязательны. Для meeting и reminder оба поля
-        обязательны. Если у task указано time, обязательно указать date:
-        это ограничение есть и в PostgreSQL. Backend проверяет
-        бизнес-ограничения до сохранения.
+        Для task, meeting и reminder обязательны record_type, title, date и time.
+        draft при уточнении может быть неполным; при ready action всегда полный.
+        Backend проверяет дату и время до сохранения.
       oneOf:
         - $ref: '#/components/schemas/TaskAction'
         - $ref: '#/components/schemas/TimedEventAction'
     TaskAction:
       type: object
       additionalProperties: false
-      required: [record_type, title]
+      required: [record_type, title, date, time]
       properties:
         record_type:
           type: string
@@ -556,10 +557,16 @@ components:
       type: object
       additionalProperties: false
       required: [query]
+      description: |
+        Backend ищет по title без требования точного совпадения: как минимум
+        подстроку без учёта регистра. Поиск близких по смыслу формулировок
+        можно добавить отдельно. Если указаны обе границы периода, backend
+        проверяет date_from < date_to_exclusive.
       properties:
         query:
           type: string
           minLength: 1
+          description: После удаления пробелов по краям строка должна быть непустой.
         date_from:
           type: string
           format: date

@@ -49,7 +49,11 @@ paths:
         передаёт. Backend вызывает STT только для аудио, проверяет ответ AI
         и выполняет разрешённое действие по intent. Ответ 201 подтверждает
         создание только после сохранения записи. Для списка и поиска используется
-        ответ 200 с data.items.
+        ответ 200 с data.items. При ready/create_event агрегатор передаёт
+        проверенный action внутреннему сервису создания. Только после записи
+        в PostgreSQL возвращается 201 с полной созданной записью в data.event.
+        task_id обозначает диалог, data.event.id — отдельный ID записи.
+        Повторная обработка того же task_id не гарантирует идемпотентность.
       requestBody:
         required: true
         content:
@@ -76,7 +80,9 @@ paths:
                 contentType: audio/wav, audio/x-wav
       responses:
         '200':
-          description: Требуется уточнение либо получен результат списка/поиска
+          description: |
+            Уточняющий вопрос либо результат list_events/search_events.
+            Отсутствие найденных записей — успешный ответ с data.items: [].
           content:
             application/json:
               schema:
@@ -108,17 +114,99 @@ paths:
                           time: '15:00'
                           created_at: '2026-10-18T12:00:20+03:00'
                           status: active
+                listEventsEmpty:
+                  summary: На выбранный период записей нет
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 8513f479-309c-4816-b5bc-53c1217c5571
+                    status: ok
+                    message: На выбранный период событий нет.
+                    data:
+                      items: []
+                searchEvents:
+                  summary: Найдена завершённая встреча с Иваном
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7f37f1d2-61ef-47cb-a64c-91a87db0a455
+                    status: ok
+                    message: Найдена встреча с Иваном.
+                    data:
+                      items:
+                        - id: ef906c03-d7c2-41d6-bac4-694db14cc07a
+                          user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                          record_type: meeting
+                          title: Встреча с Иваном
+                          date: '2026-10-19'
+                          time: '15:00'
+                          created_at: '2026-10-18T12:00:20+03:00'
+                          status: completed
+                searchEventsEmpty:
+                  summary: Поиск ничего не нашёл
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                    status: ok
+                    message: По запросу ничего не найдено.
+                    data:
+                      items: []
         '201':
-          description: Событие создано и сохранено
+          description: Событие создано и сохранено; data.event содержит фактическую запись PostgreSQL
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskCreatedResponse'
-              example:
-                user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
-                task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
-                status: ok
-                message: Встреча с Иваном назначена на 19 октября в 15:00
+              examples:
+                meeting:
+                  summary: Создана встреча
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: ok
+                    message: Встреча с Иваном назначена на 19 октября в 15:00
+                    data:
+                      event:
+                        id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                        user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                        record_type: meeting
+                        title: Встреча с Иваном
+                        date: '2026-10-19'
+                        time: '15:00'
+                        created_at: '2026-10-18T12:00:20+03:00'
+                        status: active
+                task:
+                  summary: Создана задача с обязательными датой и временем
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 8513f479-309c-4816-b5bc-53c1217c5571
+                    status: ok
+                    message: Задача купить молоко запланирована на 21 октября в 18:00
+                    data:
+                      event:
+                        id: ef906c03-d7c2-41d6-bac4-694db14cc07a
+                        user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                        record_type: task
+                        title: Купить молоко
+                        date: '2026-10-21'
+                        time: '18:00'
+                        created_at: '2026-10-20T12:01:00+03:00'
+                        status: active
+                reminder:
+                  summary: Создано напоминание
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7f37f1d2-61ef-47cb-a64c-91a87db0a455
+                    status: ok
+                    message: Напоминание позвонить маме установлено на 21 октября в 19:00
+                    data:
+                      event:
+                        id: 8db88c06-625b-4e86-9f49-050e021c48ad
+                        user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                        record_type: reminder
+                        title: Позвонить маме
+                        date: '2026-10-21'
+                        time: '19:00'
+                        created_at: '2026-10-20T12:02:00+03:00'
+                        status: active
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -126,7 +214,7 @@ paths:
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '500':
-          $ref: '#/components/responses/InternalError'
+          $ref: '#/components/responses/TaskInternalError'
         '502':
           $ref: '#/components/responses/BadGateway'
         '503':
@@ -285,7 +373,7 @@ components:
     TaskCreatedResponse:
       type: object
       additionalProperties: false
-      required: [user_id, task_id, status, message]
+      required: [user_id, task_id, status, message, data]
       properties:
         user_id:
           type: string
@@ -293,7 +381,7 @@ components:
         task_id:
           type: string
           format: uuid
-          description: Совпадает с id созданной записи в tasks.
+          description: ID обработки диалога; не является ID созданной записи.
         status:
           type: string
           enum: [ok]
@@ -301,10 +389,56 @@ components:
           type: string
           minLength: 1
           description: Подтверждение по результату сохранения, сформированное backend.
+        data:
+          $ref: '#/components/schemas/TaskCreatedData'
+    TaskCreatedData:
+      type: object
+      additionalProperties: false
+      required: [event]
+      properties:
+        event:
+          $ref: '#/components/schemas/TaskCreatedEvent'
+    TaskCreatedEvent:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, record_type, title, date, time, created_at, status]
+      description: |
+        Полная созданная запись. Backend преобразует tasks.type из значений
+        PostgreSQL в record_type API. Для новых записей date и time обязательны,
+        хотя колонки таблицы допускают NULL для ранее сохранённых записей.
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        record_type:
+          type: string
+          enum: [task, reminder, meeting]
+        title:
+          type: string
+          minLength: 1
+        date:
+          type: string
+          format: date
+        time:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        created_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active]
     TaskCollectionResponse:
       type: object
       additionalProperties: false
       required: [user_id, task_id, status, message, data]
+      description: |
+        Ответ фронтенду после выполнения list_events или search_events.
+        Агрегатор добавляет user_id, task_id, status и message к результату
+        внутреннего сервиса в data.
       properties:
         user_id:
           type: string
@@ -326,11 +460,28 @@ components:
       type: object
       additionalProperties: false
       required: [items]
+      description: |
+        Результат, который внутренние Go-сервисы list_events и search_events
+        возвращают агрегатору. Записи берутся из PostgreSQL и ограничены
+        user_id текущего запроса. Сервисы возвращают только items;
+        агрегатор формирует сообщение и обёртку ответа фронтенду.
+        Если записей нет, items — пустой массив. Оба сервиса учитывают
+        записи со статусами active и completed.
       properties:
         items:
           type: array
           items:
             $ref: '#/components/schemas/TaskItem'
+      example:
+        items:
+          - id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+            user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+            record_type: meeting
+            title: Встреча с Иваном
+            date: '2026-10-19'
+            time: '15:00'
+            created_at: '2026-10-18T12:00:20+03:00'
+            status: active
     TaskItem:
       type: object
       additionalProperties: false
@@ -481,6 +632,24 @@ components:
         code:
           type: string
   responses:
+    TaskInternalError:
+      description: |
+        Ошибка внутреннего сервиса обработки задачи, включая некорректные
+        данные AI, дошедшие до него, или сбой PostgreSQL. Причина логируется;
+        клиент получает человекочитаемое нейтральное сообщение в detail.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                required: [detail]
+          example:
+            type: about:blank
+            title: Internal Server Error
+            status: 500
+            code: internal_error
+            detail: Извините, возникли внутренние проблемы.
     BadRequest:
       description: Некорректный запрос
       content:

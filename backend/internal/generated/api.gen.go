@@ -255,13 +255,31 @@ type TaskClarificationResponse struct {
 // TaskClarificationResponseStatus defines model for TaskClarificationResponse.Status.
 type TaskClarificationResponseStatus string
 
-// TaskCollection defines model for TaskCollection.
+// TaskCollection Результат, который внутренние Go-сервисы list_events и search_events
+// возвращают агрегатору. Записи берутся из PostgreSQL и ограничены
+// user_id текущего запроса. Сервисы возвращают только items;
+// агрегатор формирует сообщение и обёртку ответа фронтенду.
+// Если записей нет, items — пустой массив. Оба сервиса учитывают
+// записи со статусами active и completed.
+//
+// Example: {"items":[{"created_at":"2026-10-18T12:00:20+03:00","date":"2026-10-19","id":"0e083fa1-c33e-4c44-85e6-5b977ae17808","record_type":"meeting","status":"active","time":"15:00","title":"Встреча с Иваном","user_id":"b80e93e1-9945-48e0-8460-3ee68bcfb402"}]}
 type TaskCollection struct {
 	Items []TaskItem `json:"items"`
 }
 
-// TaskCollectionResponse defines model for TaskCollectionResponse.
+// TaskCollectionResponse Ответ фронтенду после выполнения list_events или search_events.
+// Агрегатор добавляет user_id, task_id, status и message к результату
+// внутреннего сервиса в data.
 type TaskCollectionResponse struct {
+	// Data Результат, который внутренние Go-сервисы list_events и search_events
+	// возвращают агрегатору. Записи берутся из PostgreSQL и ограничены
+	// user_id текущего запроса. Сервисы возвращают только items;
+	// агрегатор формирует сообщение и обёртку ответа фронтенду.
+	// Если записей нет, items — пустой массив. Оба сервиса учитывают
+	// записи со статусами active и completed.
+	//
+	//
+	// Example: {"items":[{"created_at":"2026-10-18T12:00:20+03:00","date":"2026-10-19","id":"0e083fa1-c33e-4c44-85e6-5b977ae17808","record_type":"meeting","status":"active","time":"15:00","title":"Встреча с Иваном","user_id":"b80e93e1-9945-48e0-8460-3ee68bcfb402"}]}
 	Data TaskCollection `json:"data"`
 
 	// Message Сводка результата, сформированная backend.

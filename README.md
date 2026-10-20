@@ -45,6 +45,8 @@ GET /health проверяет процесс, GET /ready — доступнос
 
 Контракты HTTP API лежат в `contracts/backend.openapi.yaml` и
 `contracts/ai.openapi.yaml`. Команда `make generate` из каталога `backend`
-генерирует Go-типы и маршруты backend из первого файла.
+генерирует Go-типы и маршруты backend из первого файла, Go-типы и клиент
+AI-сервиса — из второго. Для отдельной генерации доступны
+`make generate-backend` и `make generate-ai`.
 
 См. backend/README.md и ai-service/README.md.

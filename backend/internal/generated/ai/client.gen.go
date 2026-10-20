@@ -665,6 +665,10 @@ type ReadyResponse struct {
 
 // ReadySearchEvents defines model for ReadySearchEvents.
 type ReadySearchEvents struct {
+	// Action Backend ищет по title без требования точного совпадения: как минимум
+	// подстроку без учёта регистра. Поиск близких по смыслу формулировок
+	// можно добавить отдельно. Если указаны обе границы периода, backend
+	// проверяет date_from < date_to_exclusive.
 	Action  SearchEventsAction      `json:"action"`
 	Context ReadyContext            `json:"context"`
 	Intent  ReadySearchEventsIntent `json:"intent"`
@@ -694,11 +698,16 @@ type RecordType string
 // RecordTypes Если поле отсутствует, backend учитывает все типы.
 type RecordTypes = []RecordType
 
-// SearchEventsAction defines model for SearchEventsAction.
+// SearchEventsAction Backend ищет по title без требования точного совпадения: как минимум
+// подстроку без учёта регистра. Поиск близких по смыслу формулировок
+// можно добавить отдельно. Если указаны обе границы периода, backend
+// проверяет date_from < date_to_exclusive.
 type SearchEventsAction struct {
 	DateFrom        *openapi_types.Date `json:"date_from,omitempty"`
 	DateToExclusive *openapi_types.Date `json:"date_to_exclusive,omitempty"`
-	Query           string              `json:"query"`
+
+	// Query После удаления пробелов по краям строка должна быть непустой.
+	Query string `json:"query"`
 
 	// RecordTypes Если поле отсутствует, backend учитывает все типы.
 	RecordTypes *RecordTypes `json:"record_types,omitempty"`
