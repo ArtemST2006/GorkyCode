@@ -3,14 +3,13 @@ package redis
 import (
 	"context"
 	"errors"
+	"gorkycode/backend/internal/model"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
-
-	"gorkycode/backend/internal/model"
 )
 
 func TestSessionRepositoryWithRedis(t *testing.T) {

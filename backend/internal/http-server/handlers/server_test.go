@@ -29,6 +29,10 @@ type fakeServices struct {
 	*fakeAuthService
 }
 
+func (fakeServices) Process(context.Context, TaskRequest) (TaskResult, error) {
+	return nil, errors.New("task processing is not configured")
+}
+
 func TestHealthDoesNotDependOnDatabase(t *testing.T) {
 	router := newTestRouter(errors.New("database unavailable"))
 	response := httptest.NewRecorder()

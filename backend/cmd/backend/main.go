@@ -70,7 +70,7 @@ func run() error {
 	defer rec.Close()
 
 	repo := storage.NewRepository(pool, rdb)
-	services := service.New(repo, cfg.Database.QueryTimeout, cfg.Auth.SessionTTL, rec)
+	services := service.New(repo, cfg.Database.QueryTimeout, cfg.Auth.SessionTTL, rec, cfg.AIServiceURL)
 	handler := handlers.NewServer(log, services)
 	router := chi.NewRouter()
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {

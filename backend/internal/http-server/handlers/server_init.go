@@ -13,6 +13,7 @@ import (
 type Services interface {
 	ReadinessService
 	Auth
+	TaskProcess
 }
 
 // Server implements the HTTP operations from the OpenAPI contract.

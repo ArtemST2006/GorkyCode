@@ -18,6 +18,7 @@ type Config struct {
 	HTTPServer      HTTPServer    `yaml:"http-server"`
 	Database        Database      `yaml:"database"`
 	ArsModel        ArsModel      `yaml:"ars_model"`
+	AIServiceURL    string        `yaml:"ai_service_url" env:"AI_SERVICE_URL" env-default:"http://localhost:8090"`
 	Redis           Redis         `yaml:"redis"`
 	Auth            Auth          `yaml:"auth"`
 }
