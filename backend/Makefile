@@ -19,7 +19,7 @@ export
 GOOSE = $(GOOSE_BIN) -dir $(MIGRATIONS_DIR)
 
 .DEFAULT_GOAL := help
-.PHONY: help install build run format lint tidy-check test test-asr migrate migrate-down migrate-status migrate-create generate download-model clean-model
+.PHONY: help install build run format lint tidy-check test test-asr migrate migrate-down migrate-status migrate-create generate generate-backend generate-ai download-model clean-model
 
 help: ## Показать список команд
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -66,12 +66,22 @@ migrate-create: ## Создать SQL-миграцию: make migrate-create NAME
 	@test -n "$(NAME)" || { echo "Укажите имя: make migrate-create NAME=create_tasks"; exit 1; }
 	$(GOOSE) create $(NAME) sql
 
-generate: ## Сгенерировать Go-типы и маршруты из OpenAPI
+generate: generate-backend generate-ai ## Сгенерировать Go-код для backend и AI-клиента
+
+generate-backend: ## Сгенерировать Go-типы и маршруты backend
 	$(OAPI_CODEGEN) \
 		-generate types,chi-server,skip-prune \
 		-package api \
 		-o internal/generated/api.gen.go \
 		../contracts/backend.openapi.yaml
+
+generate-ai: ## Сгенерировать Go-типы и клиент AI-сервиса
+	@mkdir -p internal/generated/ai
+	$(OAPI_CODEGEN) \
+		-generate types,client \
+		-package ai \
+		-o internal/generated/ai/client.gen.go \
+		../contracts/ai.openapi.yaml
 
 download-model: ## Скачать и распаковать модель распознавания речи
 	@echo "Скачивание модели в $(MODEL_DIR)..."

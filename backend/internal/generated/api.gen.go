@@ -77,6 +77,42 @@ func (e TaskCollectionResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for TaskCreatedEventRecordType.
+const (
+	TaskCreatedEventRecordTypeMeeting  TaskCreatedEventRecordType = "meeting"
+	TaskCreatedEventRecordTypeReminder TaskCreatedEventRecordType = "reminder"
+	TaskCreatedEventRecordTypeTask     TaskCreatedEventRecordType = "task"
+)
+
+// Valid indicates whether the value is a known member of the TaskCreatedEventRecordType enum.
+func (e TaskCreatedEventRecordType) Valid() bool {
+	switch e {
+	case TaskCreatedEventRecordTypeMeeting:
+		return true
+	case TaskCreatedEventRecordTypeReminder:
+		return true
+	case TaskCreatedEventRecordTypeTask:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TaskCreatedEventStatus.
+const (
+	TaskCreatedEventStatusActive TaskCreatedEventStatus = "active"
+)
+
+// Valid indicates whether the value is a known member of the TaskCreatedEventStatus enum.
+func (e TaskCreatedEventStatus) Valid() bool {
+	switch e {
+	case TaskCreatedEventStatusActive:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskCreatedResponseStatus.
 const (
 	TaskCreatedResponseStatusOk TaskCreatedResponseStatus = "ok"
@@ -94,19 +130,19 @@ func (e TaskCreatedResponseStatus) Valid() bool {
 
 // Defines values for TaskItemRecordType.
 const (
-	Meeting  TaskItemRecordType = "meeting"
-	Reminder TaskItemRecordType = "reminder"
-	Task     TaskItemRecordType = "task"
+	TaskItemRecordTypeMeeting  TaskItemRecordType = "meeting"
+	TaskItemRecordTypeReminder TaskItemRecordType = "reminder"
+	TaskItemRecordTypeTask     TaskItemRecordType = "task"
 )
 
 // Valid indicates whether the value is a known member of the TaskItemRecordType enum.
 func (e TaskItemRecordType) Valid() bool {
 	switch e {
-	case Meeting:
+	case TaskItemRecordTypeMeeting:
 		return true
-	case Reminder:
+	case TaskItemRecordTypeReminder:
 		return true
-	case Task:
+	case TaskItemRecordTypeTask:
 		return true
 	default:
 		return false
@@ -115,16 +151,16 @@ func (e TaskItemRecordType) Valid() bool {
 
 // Defines values for TaskItemStatus.
 const (
-	Active    TaskItemStatus = "active"
-	Completed TaskItemStatus = "completed"
+	TaskItemStatusActive    TaskItemStatus = "active"
+	TaskItemStatusCompleted TaskItemStatus = "completed"
 )
 
 // Valid indicates whether the value is a known member of the TaskItemStatus enum.
 func (e TaskItemStatus) Valid() bool {
 	switch e {
-	case Active:
+	case TaskItemStatusActive:
 		return true
-	case Completed:
+	case TaskItemStatusCompleted:
 		return true
 	default:
 		return false
@@ -240,13 +276,43 @@ type TaskCollectionResponse struct {
 // TaskCollectionResponseStatus defines model for TaskCollectionResponse.Status.
 type TaskCollectionResponseStatus string
 
+// TaskCreatedData defines model for TaskCreatedData.
+type TaskCreatedData struct {
+	// Event Полная созданная запись. Backend преобразует tasks.type из значений
+	// PostgreSQL в record_type API. Для новых записей date и time обязательны,
+	// хотя колонки таблицы допускают NULL для ранее сохранённых записей.
+	Event TaskCreatedEvent `json:"event"`
+}
+
+// TaskCreatedEvent Полная созданная запись. Backend преобразует tasks.type из значений
+// PostgreSQL в record_type API. Для новых записей date и time обязательны,
+// хотя колонки таблицы допускают NULL для ранее сохранённых записей.
+type TaskCreatedEvent struct {
+	CreatedAt  time.Time                  `json:"created_at"`
+	Date       openapi_types.Date         `json:"date"`
+	Id         openapi_types.UUID         `json:"id"`
+	RecordType TaskCreatedEventRecordType `json:"record_type"`
+	Status     TaskCreatedEventStatus     `json:"status"`
+	Time       string                     `json:"time"`
+	Title      string                     `json:"title"`
+	UserId     openapi_types.UUID         `json:"user_id"`
+}
+
+// TaskCreatedEventRecordType defines model for TaskCreatedEvent.RecordType.
+type TaskCreatedEventRecordType string
+
+// TaskCreatedEventStatus defines model for TaskCreatedEvent.Status.
+type TaskCreatedEventStatus string
+
 // TaskCreatedResponse defines model for TaskCreatedResponse.
 type TaskCreatedResponse struct {
+	Data TaskCreatedData `json:"data"`
+
 	// Message Подтверждение по результату сохранения, сформированное backend.
 	Message string                    `json:"message"`
 	Status  TaskCreatedResponseStatus `json:"status"`
 
-	// TaskId Совпадает с id созданной записи в tasks.
+	// TaskId ID обработки диалога; не является ID созданной записи.
 	TaskId openapi_types.UUID `json:"task_id"`
 	UserId openapi_types.UUID `json:"user_id"`
 }
@@ -323,6 +389,16 @@ type PayloadTooLarge = Problem
 
 // SessionRequired Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type SessionRequired = Problem
+
+// TaskInternalError defines model for TaskInternalError.
+type TaskInternalError struct {
+	Code     string  `json:"code"`
+	Detail   string  `json:"detail"`
+	Instance *string `json:"instance,omitempty"`
+	Status   int32   `json:"status"`
+	Title    string  `json:"title"`
+	Type     string  `json:"type"`
+}
 
 // TooManyRequests Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type TooManyRequests = Problem
