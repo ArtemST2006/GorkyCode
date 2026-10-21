@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"gorkycode/backend/internal/http-server/apierr"
+	"gorkycode/backend/internal/model"
 	"io"
 	"log/slog"
 	"net/http"
@@ -29,7 +30,7 @@ type fakeServices struct {
 	*fakeAuthService
 }
 
-func (fakeServices) Process(context.Context, TaskRequest) (TaskResult, error) {
+func (fakeServices) Process(context.Context, model.TaskRequest) (model.TaskResult, error) {
 	return nil, errors.New("task processing is not configured")
 }
 

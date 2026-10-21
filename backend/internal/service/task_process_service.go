@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"gorkycode/backend/internal/generated/ai"
-	"gorkycode/backend/internal/http-server/handlers"
 	"gorkycode/backend/internal/model"
 	"io"
 	"net/http"
@@ -36,22 +35,32 @@ type STT interface {
 	Transcribe(ctx context.Context, file io.Reader) (string, error)
 }
 
+// EventCreator handles ready event creation requests from the AI service.
+type EventCreator interface {
+	CreateEvent(ctx context.Context, result model.AiRes) (model.TaskResult, error)
+}
+
 // TaskProcess turns a text or audio command into an AI-service request.
 type TaskProcess struct {
 	rec       STT
 	draft     DraftStore
 	timezones TimezoneStore
 	aiURL     string
+	events    EventCreator
 }
 
 // NewTaskProcess constructs a task processor with the given dependencies.
-func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, aiURL string) *TaskProcess {
-	return &TaskProcess{
+func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, aiURL string, events ...EventCreator) *TaskProcess {
+	process := &TaskProcess{
 		rec:       rec,
 		draft:     draft,
 		timezones: timezones,
 		aiURL:     aiURL,
 	}
+	if len(events) > 0 {
+		process.events = events[0]
+	}
+	return process
 }
 
 // createReq отправляет запрос AI-сервису.
@@ -79,9 +88,9 @@ func createReq(ctx context.Context, aiURL string, req *ai.JobRequest) (model.AiR
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return result, fmt.Errorf("%w: request AI service: %v", model.ErrGatewayTimeout, err)
+			return result, fmt.Errorf("%w: request AI service: %w", model.ErrGatewayTimeout, err)
 		}
-		return result, fmt.Errorf("%w: request AI service: %v", model.ErrBadGateway, err)
+		return result, fmt.Errorf("%w: request AI service: %w", model.ErrBadGateway, err)
 	}
 	defer func() {
 		_ = resp.Body.Close()
@@ -99,7 +108,7 @@ func createReq(ctx context.Context, aiURL string, req *ai.JobRequest) (model.AiR
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return result, fmt.Errorf("%w: decode AI response: %v", model.ErrBadGateway, err)
+		return result, fmt.Errorf("%w: decode AI response: %w", model.ErrBadGateway, err)
 	}
 
 	return result, nil
@@ -126,10 +135,10 @@ func (t *TaskProcess) extractText(
 		text, err := t.rec.Transcribe(ctx, file)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				return "", req.UserId, req.TaskId, fmt.Errorf("%w: transcribe audio: %v", model.ErrGatewayTimeout, err)
+				return "", req.UserId, req.TaskId, fmt.Errorf("%w: transcribe audio: %w", model.ErrGatewayTimeout, err)
 			}
 			return "", req.UserId, req.TaskId,
-				fmt.Errorf("%w: transcribe audio: %v", model.ErrBadGateway, err)
+				fmt.Errorf("%w: transcribe audio: %w", model.ErrBadGateway, err)
 		}
 
 		return text, req.UserId, req.TaskId, nil
@@ -187,14 +196,17 @@ func prepareAIRequest(
 
 // processAIResult обрабатывает результат AI-сервиса.
 func (t *TaskProcess) processAIResult(
+	ctx context.Context,
 	result model.AiRes,
-) (handlers.TaskResult, error) {
+) (model.TaskResult, error) {
 	switch result.Status {
 	case "ready":
 		switch result.Intent {
 		case "create_event":
-			// TODO: вызвать обработчик создания события.
-			panic("not implemented")
+			if t.events == nil {
+				return nil, errors.New("event creation handler is not configured")
+			}
+			return t.events.CreateEvent(ctx, result)
 
 		case "list_events":
 			// TODO: вызвать обработчик получения списка событий.
@@ -220,8 +232,8 @@ func (t *TaskProcess) processAIResult(
 // Process handles a text or audio command and returns the HTTP-facing result.
 func (t *TaskProcess) Process(
 	ctx context.Context,
-	req handlers.TaskRequest,
-) (handlers.TaskResult, error) {
+	req model.TaskRequest,
+) (model.TaskResult, error) {
 	text, userID, taskID, err := t.extractText(ctx, req)
 	if err != nil {
 		return nil, err
@@ -243,7 +255,7 @@ func (t *TaskProcess) Process(
 	if taskID == nil {
 		id := uuid.New()
 		taskID = &id
-		if err := taskContext.FromEmptyContext(ai.EmptyContext{}); err != nil {
+		if err = taskContext.FromEmptyContext(ai.EmptyContext{}); err != nil {
 			return nil, fmt.Errorf("prepare empty context: %w", err)
 		}
 	} else {
@@ -268,7 +280,7 @@ func (t *TaskProcess) Process(
 	}
 
 	if err := validateAIResult(result, aiReq); err != nil {
-		return nil, fmt.Errorf("%w: %v", model.ErrBadGateway, err)
+		return nil, fmt.Errorf("%w: %w", model.ErrBadGateway, err)
 	}
-	return t.processAIResult(result)
+	return t.processAIResult(ctx, result)
 }

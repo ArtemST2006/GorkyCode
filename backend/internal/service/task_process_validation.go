@@ -19,7 +19,7 @@ func validateAIResult(result model.AiRes, request *ai.JobRequest) error {
 	if result.Intent != "create_event" && result.Intent != "list_events" && result.Intent != "search_events" {
 		return fmt.Errorf("invalid intent %s", result.Intent)
 	}
-	if result.UserId != request.UserId || result.TaskId != request.TaskId {
+	if result.UserID != request.UserId || result.TaskID != request.TaskId {
 		return errors.New("AI response user_id or task_id does not match request")
 	}
 
@@ -103,10 +103,10 @@ func validateReadyAction(intent string, action map[string]json.RawMessage) error
 		if err != nil || (recordType != "task" && recordType != "reminder" && recordType != "meeting") {
 			return errors.New("invalid record_type")
 		}
-		if _, err := getString("title"); err != nil {
+		if _, err = getString("title"); err != nil {
 			return err
 		}
-		if _, err := checkDate("date"); err != nil {
+		if _, err = checkDate("date"); err != nil {
 			return err
 		}
 		value, err := getString("time")
