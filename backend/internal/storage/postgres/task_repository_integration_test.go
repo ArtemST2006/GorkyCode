@@ -44,14 +44,14 @@ func TestTaskRepositoryListEventsWithPostgres(t *testing.T) {
 		time   any
 		status string
 	}{
-		{owner, "встреча", "before period", "2026-10-19", "10:00", "active"},
-		{owner, "задача", "first day without time", "2026-10-20", nil, "completed"},
-		{owner, "встреча", "first day afternoon", "2026-10-20", "15:30", "active"},
-		{owner, "напоминание", "first day morning", "2026-10-20", "09:05", "active"},
-		{owner, "задача", "last day", "2026-10-21", "23:59", "active"},
-		{owner, "встреча", "period end", "2026-10-22", "00:00", "active"},
-		{owner, "задача", "undated", nil, nil, "active"},
-		{stranger, "встреча", "stranger inside period", "2026-10-20", "12:00", "active"},
+		{owner, "meeting", "before period", "2026-10-19", "10:00", "active"},
+		{owner, "task", "first day without time", "2026-10-20", nil, "completed"},
+		{owner, "meeting", "first day afternoon", "2026-10-20", "15:30", "active"},
+		{owner, "reminder", "first day morning", "2026-10-20", "09:05", "active"},
+		{owner, "task", "last day", "2026-10-21", "23:59", "active"},
+		{owner, "meeting", "period end", "2026-10-22", "00:00", "active"},
+		{owner, "task", "undated", nil, nil, "active"},
+		{stranger, "meeting", "stranger inside period", "2026-10-20", "12:00", "active"},
 	}
 	for _, task := range inserts {
 		if _, err = pool.Exec(ctx,
@@ -77,7 +77,7 @@ func TestTaskRepositoryListEventsWithPostgres(t *testing.T) {
 		}
 
 		withoutTime, morning := got[0], got[1]
-		if withoutTime.Time != nil || withoutTime.Status != "completed" || withoutTime.Type != "задача" {
+		if withoutTime.Time != nil || withoutTime.Status != "completed" || withoutTime.Type != "task" {
 			t.Fatalf("task without time = %+v", withoutTime)
 		}
 		if morning.Time == nil || *morning.Time != "09:05" {
@@ -92,7 +92,7 @@ func TestTaskRepositoryListEventsWithPostgres(t *testing.T) {
 	})
 
 	t.Run("type filter", func(t *testing.T) {
-		got, err := repo.ListEvents(ctx, owner, from, to, []string{"встреча", "напоминание"})
+		got, err := repo.ListEvents(ctx, owner, from, to, []string{"meeting", "reminder"})
 		if err != nil {
 			t.Fatal(err)
 		}

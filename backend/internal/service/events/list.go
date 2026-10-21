@@ -82,30 +82,22 @@ func (l *Lister) ListEvents(ctx context.Context, userID uuid.UUID, action json.R
 	return api.TaskCollection{Items: items}, nil
 }
 
+// toDBType validates a record type from the AI action. tasks.type stores the
+// same values as the API, so a known type is passed to storage unchanged.
 func toDBType(rt ai.RecordType) (string, error) {
-	switch rt {
-	case ai.RecordTypeMeeting:
-		return "встреча", nil
-	case ai.RecordTypeTask:
-		return "задача", nil
-	case ai.RecordTypeReminder:
-		return "напоминание", nil
-	default:
+	if !rt.Valid() {
 		return "", fmt.Errorf("%w: unknown record type %q", model.ErrInvalidAction, rt)
 	}
+	return string(rt), nil
 }
 
+// toAPIType validates a record type read from tasks.type.
 func toAPIType(dbType string) (api.TaskItemRecordType, error) {
-	switch dbType {
-	case "встреча":
-		return api.TaskItemRecordTypeMeeting, nil
-	case "задача":
-		return api.TaskItemRecordTypeTask, nil
-	case "напоминание":
-		return api.TaskItemRecordTypeReminder, nil
-	default:
+	recordType := api.TaskItemRecordType(dbType)
+	if !recordType.Valid() {
 		return "", fmt.Errorf("unknown task type %q in storage", dbType)
 	}
+	return recordType, nil
 }
 
 // toItem converts a stored task into its API representation.

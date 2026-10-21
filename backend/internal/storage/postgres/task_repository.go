@@ -26,8 +26,8 @@ func NewTaskRepository(pool *pgxpool.Pool) *TaskRepository {
 }
 
 // ListEvents returns the user's dated tasks with from <= date < to, ordered by
-// date and time. Empty types means all record types; types use the values
-// stored in tasks.type. Tasks without a date never match a period.
+// date and time. Empty types means all record types; types are tasks.type
+// values (meeting, task, reminder). Tasks without a date never match a period.
 func (r *TaskRepository) ListEvents(
 	ctx context.Context,
 	userID uuid.UUID,

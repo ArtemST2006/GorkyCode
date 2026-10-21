@@ -53,9 +53,9 @@ func TestListEventsPassesQueryToStore(t *testing.T) {
 			action: `{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"}`,
 		},
 		{
-			name:      "record types mapped to storage values",
+			name:      "record types passed to storage",
 			action:    `{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21","record_types":["meeting","task","reminder"]}`,
-			wantTypes: []string{"встреча", "задача", "напоминание"},
+			wantTypes: []string{"meeting", "task", "reminder"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -87,9 +87,9 @@ func TestListEventsConvertsTasks(t *testing.T) {
 	meetingTime := "15:00"
 	createdAt := time.Date(2026, 10, 18, 12, 0, 20, 0, time.UTC)
 	tasks := []model.Task{
-		{ID: uuid.New(), UserID: userID, Type: "встреча", Title: "Встреча с Иваном", Date: &meetingDate, Time: &meetingTime, Status: "active", CreatedAt: createdAt},
-		{ID: uuid.New(), UserID: userID, Type: "задача", Title: "Отчёт", Status: "completed", CreatedAt: createdAt},
-		{ID: uuid.New(), UserID: userID, Type: "напоминание", Title: "Позвонить", Date: &meetingDate, Status: "active", CreatedAt: createdAt},
+		{ID: uuid.New(), UserID: userID, Type: "meeting", Title: "Встреча с Иваном", Date: &meetingDate, Time: &meetingTime, Status: "active", CreatedAt: createdAt},
+		{ID: uuid.New(), UserID: userID, Type: "task", Title: "Отчёт", Status: "completed", CreatedAt: createdAt},
+		{ID: uuid.New(), UserID: userID, Type: "reminder", Title: "Позвонить", Date: &meetingDate, Status: "active", CreatedAt: createdAt},
 	}
 	store := &fakeTaskLister{tasks: tasks}
 
@@ -203,8 +203,8 @@ func TestListEventsRejectsUnknownStoredValues(t *testing.T) {
 		name string
 		task model.Task
 	}{
-		{name: "unknown type", task: model.Task{Type: "праздник", Status: "active"}},
-		{name: "unknown status", task: model.Task{Type: "задача", Status: "deleted"}},
+		{name: "unknown type", task: model.Task{Type: "birthday", Status: "active"}},
+		{name: "unknown status", task: model.Task{Type: "task", Status: "deleted"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &fakeTaskLister{tasks: []model.Task{tc.task}}
