@@ -40,6 +40,11 @@ type EventCreator interface {
 	CreateEvent(ctx context.Context, result model.AiRes) (model.TaskResult, error)
 }
 
+// EventLister lists events for a given user.
+type EventLister interface {
+	ListEvents(ctx context.Context, userID uuid.UUID, action json.RawMessage) (api.TaskCollection, error)
+}
+
 // TaskProcess turns a text or audio command into an AI-service request.
 type TaskProcess struct {
 	rec       STT
@@ -47,15 +52,17 @@ type TaskProcess struct {
 	timezones TimezoneStore
 	aiURL     string
 	events    EventCreator
+	lister    EventLister
 }
 
 // NewTaskProcess constructs a task processor with the given dependencies.
-func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, aiURL string, events ...EventCreator) *TaskProcess {
+func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, aiURL string, lister EventLister, events ...EventCreator) *TaskProcess {
 	process := &TaskProcess{
 		rec:       rec,
 		draft:     draft,
 		timezones: timezones,
 		aiURL:     aiURL,
+		lister:    lister,
 	}
 	if len(events) > 0 {
 		process.events = events[0]
@@ -209,8 +216,24 @@ func (t *TaskProcess) processAIResult(
 			return t.events.CreateEvent(ctx, result)
 
 		case "list_events":
-			// TODO: вызвать обработчик получения списка событий.
-			panic("not implemented")
+			if t.lister == nil {
+				return nil, errors.New("event listing handler is not configured")
+			}
+			collection, err := t.lister.ListEvents(ctx, result.UserID, result.Action)
+			if err != nil {
+				return nil, fmt.Errorf("list events: %w", err)
+			}
+			message := "На выбранный период событий нет."
+			if len(collection.Items) > 0 {
+				message = fmt.Sprintf("Найдено событий: %d", len(collection.Items))
+			}
+			return &api.TaskCollectionResponse{
+				Data:    collection,
+				UserId:  result.UserID,
+				TaskId:  result.TaskID,
+				Status:  api.TaskCollectionResponseStatusOk,
+				Message: message,
+			}, nil
 
 		case "search_events":
 			// TODO: вызвать обработчик поиска событий.

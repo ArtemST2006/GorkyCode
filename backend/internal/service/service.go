@@ -2,6 +2,7 @@
 package service
 
 import (
+	"gorkycode/backend/internal/service/events"
 	"gorkycode/backend/internal/voice"
 	"time"
 )
@@ -13,6 +14,7 @@ type Repositories interface {
 	SessionStore
 	DraftStore
 	TimezoneStore
+	events.TaskLister
 }
 
 // Services groups application services for HTTP wiring.
@@ -27,6 +29,6 @@ func New(repo Repositories, queryTimeout, sessionTTL time.Duration, rec *voice.R
 	return &Services{
 		HealthService: NewHealthService(repo, queryTimeout),
 		AuthService:   NewAuthService(repo, repo, queryTimeout, sessionTTL),
-		TaskProcess:   NewTaskProcess(rec, repo, repo, aiServiceURL),
+		TaskProcess:   NewTaskProcess(rec, repo, repo, aiServiceURL, events.NewLister(repo)),
 	}
 }

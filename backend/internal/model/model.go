@@ -26,6 +26,8 @@ var (
 	ErrGatewayTimeout = errors.New("upstream service timeout")
 	// ErrServiceUnavailable marks an unavailable upstream service.
 	ErrServiceUnavailable = errors.New("upstream service unavailable")
+	// ErrInvalidAction marks an invalid action returned by the AI service.
+	ErrInvalidAction = errors.New("invalid action")
 )
 
 // User is a registered user.
