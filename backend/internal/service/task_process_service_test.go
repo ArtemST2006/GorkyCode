@@ -7,12 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"gorkycode/backend/internal/generated/ai"
+	"gorkycode/backend/internal/model"
+	services "gorkycode/backend/internal/service/internal_services"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	openapitypes "github.com/oapi-codegen/runtime/types"
@@ -64,6 +67,38 @@ func (f *fakeDraftStore) GetDraft(_ context.Context, key string) (string, error)
 	return f.value, f.err
 }
 
+func (f *fakeDraftStore) PutDraft(_ context.Context, key, value string) error {
+	f.called = true
+	f.key = key
+	f.value = value
+	return f.err
+}
+
+type fakeTaskCreator struct {
+	err error
+
+	called bool
+	cmd    services.CreateTaskCommand
+}
+
+func (f *fakeTaskCreator) Create(_ context.Context, cmd services.CreateTaskCommand) (*model.Task, error) {
+	f.called = true
+	f.cmd = cmd
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &model.Task{
+		Id:        uuid.New(),
+		UserId:    cmd.UserID,
+		TaskType:  cmd.RecordType,
+		Title:     cmd.Title,
+		Date:      cmd.Date,
+		Time:      cmd.Time,
+		CreatedAt: time.Now(),
+		Status:    "active",
+	}, nil
+}
+
 // aiStub records the request body and replies with the configured response.
 type aiStub struct {
 	t      *testing.T
@@ -97,7 +132,7 @@ func newTestTaskProcess(t *testing.T, stt STT, draft DraftStore, aiHandler http.
 	t.Helper()
 	server := httptest.NewServer(aiHandler)
 	t.Cleanup(server.Close)
-	return NewTaskProcess(stt, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, server.URL)
+	return NewTaskProcess(stt, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, server.URL)
 }
 
 // newAudioRequest builds a TaskAudioRequest whose file is backed by a multipart header.
@@ -192,7 +227,7 @@ func TestTaskProcessUsesSavedTimezone(t *testing.T) {
 	stub := &aiStub{t: t, status: http.StatusOK, body: `{"status":"invalid"}`, got: got}
 	server := httptest.NewServer(stub)
 	t.Cleanup(server.Close)
-	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Asia/Tokyo"}, server.URL)
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Asia/Tokyo"}, &fakeTaskCreator{}, server.URL)
 
 	_, _ = process.Process(t.Context(), &api.TaskTextRequest{UserId: uuid.New(), Text: "привет"})
 	if got.Timezone != "Asia/Tokyo" {
@@ -200,6 +235,97 @@ func TestTaskProcessUsesSavedTimezone(t *testing.T) {
 	}
 	if _, offset := got.RequestTime.Zone(); offset != 9*60*60 {
 		t.Fatalf("AI request_time offset = %d, want +09:00", offset)
+	}
+}
+
+func TestTaskProcessCreatesEvent(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	creator := &fakeTaskCreator{}
+	server := httptest.NewServer(&aiStub{
+		t:      t,
+		status: http.StatusOK,
+		body: `{"user_id":"` + userID.String() + `","task_id":"` + taskID.String() + `",` +
+			`"status":"ready","intent":"create_event","message":null,` +
+			`"action":{"record_type":"meeting","title":"Встреча с Иваном","date":"2026-10-21","time":"15:00"},` +
+			`"context":{"recent_messages":[],"draft":null}}`,
+	})
+	t.Cleanup(server.Close)
+
+	process := NewTaskProcess(
+		&fakeSTT{},
+		&fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`},
+		&fakeTimezoneStore{timezone: "Asia/Tokyo"},
+		creator,
+		server.URL,
+	)
+
+	result, err := process.Process(t.Context(), &api.TaskTextRequest{
+		UserId: userID,
+		TaskId: &taskID,
+		Text:   "встреча с Иваном 21 октября в 15:00",
+	})
+	if err != nil {
+		t.Fatalf("Process() error: %v", err)
+	}
+	if !creator.called {
+		t.Fatal("Create() was not called")
+	}
+	if creator.cmd.UserID != userID || creator.cmd.RecordType != "meeting" || creator.cmd.Title != "Встреча с Иваном" {
+		t.Fatalf("Create() command = %+v", creator.cmd)
+	}
+	if got := creator.cmd.Date.Format("2006-01-02"); got != "2026-10-21" {
+		t.Fatalf("Create() date = %s, want 2026-10-21", got)
+	}
+	if _, offset := creator.cmd.Date.Zone(); offset != 9*60*60 {
+		t.Fatalf("Create() date offset = %d, want +09:00", offset)
+	}
+	if got := creator.cmd.Time.Format("15:04"); got != "15:00" {
+		t.Fatalf("Create() time = %s, want 15:00", got)
+	}
+
+	response, ok := result.(*api.TaskCreatedResponse)
+	if !ok {
+		t.Fatalf("Process() result = %T, want *api.TaskCreatedResponse", result)
+	}
+	if response.UserId != userID || response.TaskId != taskID {
+		t.Fatalf("response ids = %s/%s, want %s/%s", response.UserId, response.TaskId, userID, taskID)
+	}
+	if response.Data.Event.RecordType != api.TaskCreatedEventRecordTypeMeeting {
+		t.Fatalf("response record_type = %s, want meeting", response.Data.Event.RecordType)
+	}
+	if response.Data.Event.Title != "Встреча с Иваном" {
+		t.Fatalf("response title = %s", response.Data.Event.Title)
+	}
+}
+
+func TestTaskProcessReportsCreateErrors(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	server := httptest.NewServer(&aiStub{
+		t:      t,
+		status: http.StatusOK,
+		body: `{"user_id":"` + userID.String() + `","task_id":"` + taskID.String() + `",` +
+			`"status":"ready","intent":"create_event","message":null,` +
+			`"action":{"record_type":"meeting","title":"Встреча","date":"2026-10-21","time":"15:00"},` +
+			`"context":{"recent_messages":[],"draft":null}}`,
+	})
+	t.Cleanup(server.Close)
+
+	process := NewTaskProcess(
+		&fakeSTT{},
+		&fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`},
+		&fakeTimezoneStore{timezone: "Europe/Moscow"},
+		&fakeTaskCreator{err: errors.New("database unavailable")},
+		server.URL,
+	)
+
+	_, err := process.Process(t.Context(), &api.TaskTextRequest{
+		UserId: userID,
+		TaskId: &taskID,
+		Text:   "встреча 21 октября в 15:00",
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "create task") {
+		t.Fatalf("Process() error = %v, want create task", err)
 	}
 }
 
@@ -324,7 +450,7 @@ func TestTaskProcessReportsAIErrors(t *testing.T) {
 }
 
 func TestTaskProcessRejectsUnsupportedRequest(t *testing.T) {
-	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Europe/Moscow"}, "http://127.0.0.1:1")
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, "http://127.0.0.1:1")
 
 	_, err := process.Process(t.Context(), "plain text")
 
