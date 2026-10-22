@@ -103,7 +103,7 @@ paths:
                     user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
                     task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
                     status: ok
-                    message: На завтра запланирована встреча с Иваном.
+                    message: Проверил события на завтра.
                     data:
                       items:
                         - id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
@@ -120,7 +120,7 @@ paths:
                     user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
                     task_id: 8513f479-309c-4816-b5bc-53c1217c5571
                     status: ok
-                    message: На выбранный период событий нет.
+                    message: Проверил события на завтра.
                     data:
                       items: []
                 searchEvents:
@@ -129,7 +129,7 @@ paths:
                     user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
                     task_id: 7f37f1d2-61ef-47cb-a64c-91a87db0a455
                     status: ok
-                    message: Найдена встреча с Иваном.
+                    message: Поиск встреч с Иваном завершён.
                     data:
                       items:
                         - id: ef906c03-d7c2-41d6-bac4-694db14cc07a
@@ -146,7 +146,7 @@ paths:
                     user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
                     task_id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
                     status: ok
-                    message: По запросу ничего не найдено.
+                    message: Поиск встреч с Иваном завершён.
                     data:
                       items: []
         '201':
@@ -162,7 +162,7 @@ paths:
                     user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
                     task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
                     status: ok
-                    message: Встреча с Иваном назначена на 21 октября в 15:00
+                    message: Встреча с Иваном назначена на завтра в 15:00.
                     data:
                       event:
                         id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
@@ -179,7 +179,7 @@ paths:
                     user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
                     task_id: 8513f479-309c-4816-b5bc-53c1217c5571
                     status: ok
-                    message: Задача купить молоко запланирована на 21 октября в 18:00
+                    message: Задача купить молоко создана на завтра в 18:00.
                     data:
                       event:
                         id: ef906c03-d7c2-41d6-bac4-694db14cc07a
@@ -388,7 +388,7 @@ components:
         message:
           type: string
           minLength: 1
-          description: Подтверждение по результату сохранения, сформированное backend.
+          description: Сообщение AI-service, переданное backend без изменений после успешного сохранения.
         data:
           $ref: '#/components/schemas/TaskCreatedData'
     TaskCreatedData:
@@ -437,8 +437,8 @@ components:
       required: [user_id, task_id, status, message, data]
       description: |
         Ответ фронтенду после выполнения list_events или search_events.
-        Агрегатор добавляет user_id, task_id, status и message к результату
-        внутреннего сервиса в data.
+        Агрегатор добавляет user_id, task_id и status к результату внутреннего
+        сервиса в data и передаёт message от AI-service без изменений.
       properties:
         user_id:
           type: string
@@ -453,7 +453,10 @@ components:
         message:
           type: string
           minLength: 1
-          description: Сводка результата, сформированная backend.
+          description: |
+            Сообщение AI-service, переданное backend без изменений после
+            успешного выполнения поиска или получения списка. Количество
+            записей и наличие совпадений определяются по data.items.
         data:
           $ref: '#/components/schemas/TaskCollection'
     TaskCollection:
@@ -464,7 +467,8 @@ components:
         Результат, который внутренние Go-сервисы list_events и search_events
         возвращают агрегатору. Записи берутся из PostgreSQL и ограничены
         user_id текущего запроса. Сервисы возвращают только items;
-        агрегатор формирует сообщение и обёртку ответа фронтенду.
+        агрегатор формирует обёртку ответа фронтенду и передаёт message от
+        AI-service без изменений.
         Если записей нет, items — пустой массив. Оба сервиса учитывают
         записи со статусами active и completed.
       properties:

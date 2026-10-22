@@ -31,7 +31,8 @@ paths:
         user_id и task_id возвращаются без изменений. Относительные даты
         вычисляются по request_time и timezone. При needs_clarification
         backend сохраняет context и задаёт пользователю message. При ready
-        backend валидирует action, выполняет его и сам формирует подтверждение.
+        backend валидирует action, выполняет его и после успешного выполнения
+        передаёт пользователю message без изменений.
         Если пользователь сменил тему во время уточнения, AI не переносит
         старый draft в новое действие и возвращает context только новой темы.
         user_id и task_id при этом остаются прежними; backend перезаписывает
@@ -123,7 +124,7 @@ paths:
                     task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
                     status: ready
                     intent: create_event
-                    message: null
+                    message: Встреча с Иваном назначена на завтра в 15:00.
                     action:
                       record_type: meeting
                       title: Встреча с Иваном
@@ -145,7 +146,7 @@ paths:
                     task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
                     status: ready
                     intent: list_events
-                    message: null
+                    message: Проверил события на завтра.
                     action:
                       date_from: '2026-10-19'
                       date_to_exclusive: '2026-10-20'
@@ -161,7 +162,7 @@ paths:
                     task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
                     status: ready
                     intent: search_events
-                    message: null
+                    message: Поиск встреч с Иваном завершён.
                     action:
                       query: Иван
                       record_types: [meeting]
@@ -177,7 +178,7 @@ paths:
                     task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
                     status: ready
                     intent: create_event
-                    message: null
+                    message: Задача купить молоко создана на завтра в 18:00.
                     action:
                       record_type: task
                       title: Купить молоко
@@ -190,6 +191,64 @@ paths:
                       draft: null
         '400':
           $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+        default:
+          $ref: '#/components/responses/TechnicalError'
+  /api/embed:
+    post:
+      tags: [AI]
+      operationId: embedText
+      summary: Получить вектор текста для поиска задач
+      description: |
+        Backend передаёт исходный текст записи (document) либо поискового
+        запроса (query). AI-service применяет нужную для модели подготовку
+        текста и возвращает L2-нормализованный вектор. Вызов не создаёт
+        записи и не обращается к PostgreSQL или Redis.
+
+        Векторы document и query сравнимы только при одинаковых model и
+        model_version. Максимальный размер тела
+        запроса — 16 КиБ.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+            examples:
+              document:
+                summary: Текст сохранённой задачи
+                value:
+                  purpose: document
+                  text: Подготовить презентацию для команды
+              query:
+                summary: Поисковый запрос пользователя
+                value:
+                  purpose: query
+                  text: Найди задачу про слайды
+      responses:
+        '200':
+          description: Вектор вычислен; длина и версия модели пригодны для проверки backend
+          headers:
+            Cache-Control:
+              description: Ответ не должен сохраняться промежуточными кешами.
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
@@ -230,6 +289,47 @@ components:
           type: string
         instance:
           type: string
+    EmbeddingRequest:
+      type: object
+      additionalProperties: false
+      required: [purpose, text]
+      properties:
+        purpose:
+          type: string
+          enum: [document, query]
+          description: |
+            Роль текста в поиске. Backend передаёт исходный текст без
+            модельных префиксов; AI-service добавляет их при необходимости.
+        text:
+          type: string
+          minLength: 1
+          description: После удаления пробелов по краям строка должна быть непустой.
+    EmbeddingResponse:
+      type: object
+      additionalProperties: false
+      required: [embedding, model, model_version]
+      properties:
+        embedding:
+          type: array
+          minItems: 384
+          maxItems: 384
+          description: |
+            L2-нормализованный вектор из 384 конечных чисел. Нулевой вектор
+            недопустим. Backend проверяет размер и значения до записи в БД.
+          items:
+            type: number
+            format: float
+        model:
+          type: string
+          minLength: 1
+          description: Идентификатор модели, использованной для вычисления вектора.
+          example: intfloat/multilingual-e5-small
+        model_version:
+          type: string
+          minLength: 1
+          description: |
+            Неизменяемый идентификатор версии весов, токенизатора и способа
+            подготовки и нормализации. При изменении требуется переиндексация.
     JobRequest:
       type: object
       additionalProperties: false
@@ -449,9 +549,13 @@ components:
           enum: [ready]
         message:
           type: string
-          nullable: true
-          enum: [null]
-          description: Финальное сообщение формирует backend после выполнения action. # поменять на соо от AI
+          minLength: 1
+          description: |
+            Сообщение для пользователя от AI-service. Backend передаёт его
+            без изменений только после успешного выполнения action. Для
+            list_events и search_events сообщение не утверждает, сколько
+            записей найдено: AI-service не видит результат запроса к БД.
+            После удаления пробелов по краям строка должна быть непустой.
         context:
           $ref: '#/components/schemas/ReadyContext'
     ReadyContext:
@@ -592,6 +696,18 @@ components:
   responses:
     BadRequest:
       description: Некорректный JSON или нарушен контракт запроса
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PayloadTooLarge:
+      description: Тело запроса превышает 16 КиБ
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnsupportedMediaType:
+      description: Content-Type отличается от application/json
       content:
         application/problem+json:
           schema:
