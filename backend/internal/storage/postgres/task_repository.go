@@ -76,6 +76,33 @@ func (r *TaskRepository) SearchEvents(
 	return r.fetchTasks(ctx, q)
 }
 
+// CreateTask inserts a task and fills its ID, creation time and status.
+func (r *TaskRepository) CreateTask(ctx context.Context, task *model.Task) error {
+	if task == nil || task.Date == nil || task.Time == nil {
+		return fmt.Errorf("task date and time are required")
+	}
+	if task.Type != "task" && task.Type != "reminder" && task.Type != "meeting" {
+		return fmt.Errorf("unsupported task type %q", task.Type)
+	}
+
+	query, args, err := r.sb.
+		Insert("tasks").
+		Columns("user_id", "type", "title", "date", "time").
+		Values(task.UserID, task.Type, task.Title, *task.Date, *task.Time).
+		Suffix("RETURNING id, created_at, status").
+		ToSql()
+	if err != nil {
+		return err
+	}
+
+	err = r.pool.QueryRow(ctx, query, args...).Scan(&task.ID, &task.CreatedAt, &task.Status)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func escapeLike(query string) string {
 	replacer := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")
 	return replacer.Replace(query)

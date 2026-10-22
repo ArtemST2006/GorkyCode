@@ -2,7 +2,6 @@
 package service
 
 import (
-	"gorkycode/backend/internal/service/events"
 	"gorkycode/backend/internal/service/subservice"
 	"gorkycode/backend/internal/voice"
 	"time"
@@ -16,8 +15,8 @@ type Repositories interface {
 	DraftStore
 	TimezoneStore
 	subservice.TaskCreateRepository
-	events.TaskLister
-	events.TaskSearcher
+	subservice.TaskLister
+	subservice.TaskSearcher
 }
 
 // Services groups application services for HTTP wiring.
@@ -31,7 +30,7 @@ type Services struct {
 // New constructs all services from the repository bundle.
 func New(repo Repositories, queryTimeout, sessionTTL time.Duration, rec *voice.Recognizer, aiServiceURL string) *Services {
 	taskCreate := subservice.NewTaskCreateService(repo)
-	eventReader := events.NewLister(repo)
+	eventReader := subservice.NewLister(repo)
 	return &Services{
 		HealthService: NewHealthService(repo, queryTimeout),
 		AuthService:   NewAuthService(repo, repo, queryTimeout, sessionTTL),

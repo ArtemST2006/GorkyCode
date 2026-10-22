@@ -451,7 +451,7 @@ components:
           type: string
           nullable: true
           enum: [null]
-          description: Финальное сообщение формирует backend после выполнения action.
+          description: Финальное сообщение формирует backend после выполнения action. # поменять на соо от AI
         context:
           $ref: '#/components/schemas/ReadyContext'
     ReadyContext:

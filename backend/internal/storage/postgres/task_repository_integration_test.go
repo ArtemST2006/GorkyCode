@@ -3,7 +3,7 @@ package postgres
 import (
 	"context"
 	"gorkycode/backend/internal/model"
-	"gorkycode/backend/internal/service/events"
+	"gorkycode/backend/internal/service/subservice"
 	"os"
 	"slices"
 	"testing"
@@ -14,7 +14,7 @@ import (
 )
 
 // TaskRepository must satisfy the storage interface of the list_events service.
-var _ events.TaskLister = (*TaskRepository)(nil)
+var _ subservice.TaskLister = (*TaskRepository)(nil)
 
 func TestTaskRepositoryListEventsWithPostgres(t *testing.T) {
 	url := os.Getenv("POSTGRES_TEST_URL")
@@ -188,7 +188,7 @@ func TestCreateTaskIsVisibleToListEvents(t *testing.T) {
 	date := time.Date(2026, 10, 21, 0, 0, 0, 0, location)
 	clock := "15:00"
 	task := &model.Task{UserID: owner, Type: "meeting", Title: "Встреча с Иваном", Date: &date, Time: &clock}
-	if err = NewTaskCreateRepository(pool).CreateTask(ctx, task); err != nil {
+	if err = NewTaskRepository(pool).CreateTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
 	if task.ID == uuid.Nil || task.Status != "active" || task.CreatedAt.IsZero() {

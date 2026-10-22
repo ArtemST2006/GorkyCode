@@ -1,5 +1,5 @@
-// Package events lists and searches user events stored in the tasks table.
-package events
+// Package subservice contains internal application services.
+package subservice
 
 import (
 	"context"
