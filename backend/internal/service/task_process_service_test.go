@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"gorkycode/backend/internal/generated/ai"
 	"gorkycode/backend/internal/model"
-	services "gorkycode/backend/internal/service/internal_services"
+	services "gorkycode/backend/internal/service/subservice"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -87,13 +87,14 @@ func (f *fakeTaskCreator) Create(_ context.Context, cmd services.CreateTaskComma
 	if f.err != nil {
 		return nil, f.err
 	}
+	clock := cmd.Time.Format("15:04")
 	return &model.Task{
-		Id:        uuid.New(),
-		UserId:    cmd.UserID,
-		TaskType:  cmd.RecordType,
+		ID:        uuid.New(),
+		UserID:    cmd.UserID,
+		Type:      cmd.RecordType,
 		Title:     cmd.Title,
-		Date:      cmd.Date,
-		Time:      cmd.Time,
+		Date:      &cmd.Date,
+		Time:      &clock,
 		CreatedAt: time.Now(),
 		Status:    "active",
 	}, nil
@@ -132,7 +133,7 @@ func newTestTaskProcess(t *testing.T, stt STT, draft DraftStore, aiHandler http.
 	t.Helper()
 	server := httptest.NewServer(aiHandler)
 	t.Cleanup(server.Close)
-	return NewTaskProcess(stt, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, server.URL)
+	return NewTaskProcess(stt, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, nil, server.URL)
 }
 
 // newAudioRequest builds a TaskAudioRequest whose file is backed by a multipart header.
@@ -227,7 +228,7 @@ func TestTaskProcessUsesSavedTimezone(t *testing.T) {
 	stub := &aiStub{t: t, status: http.StatusOK, body: `{"status":"invalid"}`, got: got}
 	server := httptest.NewServer(stub)
 	t.Cleanup(server.Close)
-	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Asia/Tokyo"}, &fakeTaskCreator{}, server.URL)
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Asia/Tokyo"}, &fakeTaskCreator{}, nil, server.URL)
 
 	_, _ = process.Process(t.Context(), &api.TaskTextRequest{UserId: uuid.New(), Text: "привет"})
 	if got.Timezone != "Asia/Tokyo" {
@@ -247,7 +248,7 @@ func TestTaskProcessCreatesEvent(t *testing.T) {
 		body: `{"user_id":"` + userID.String() + `","task_id":"` + taskID.String() + `",` +
 			`"status":"ready","intent":"create_event","message":null,` +
 			`"action":{"record_type":"meeting","title":"Встреча с Иваном","date":"2026-10-21","time":"15:00"},` +
-			`"context":{"recent_messages":[],"draft":null}}`,
+			`"context":{"recent_messages":[{"role":"user","text":"встреча с Иваном"}],"draft":null}}`,
 	})
 	t.Cleanup(server.Close)
 
@@ -256,6 +257,7 @@ func TestTaskProcessCreatesEvent(t *testing.T) {
 		&fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`},
 		&fakeTimezoneStore{timezone: "Asia/Tokyo"},
 		creator,
+		nil,
 		server.URL,
 	)
 
@@ -306,7 +308,7 @@ func TestTaskProcessReportsCreateErrors(t *testing.T) {
 		body: `{"user_id":"` + userID.String() + `","task_id":"` + taskID.String() + `",` +
 			`"status":"ready","intent":"create_event","message":null,` +
 			`"action":{"record_type":"meeting","title":"Встреча","date":"2026-10-21","time":"15:00"},` +
-			`"context":{"recent_messages":[],"draft":null}}`,
+			`"context":{"recent_messages":[{"role":"user","text":"встреча"}],"draft":null}}`,
 	})
 	t.Cleanup(server.Close)
 
@@ -315,6 +317,7 @@ func TestTaskProcessReportsCreateErrors(t *testing.T) {
 		&fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`},
 		&fakeTimezoneStore{timezone: "Europe/Moscow"},
 		&fakeTaskCreator{err: errors.New("database unavailable")},
+		nil,
 		server.URL,
 	)
 
@@ -450,11 +453,162 @@ func TestTaskProcessReportsAIErrors(t *testing.T) {
 }
 
 func TestTaskProcessRejectsUnsupportedRequest(t *testing.T) {
-	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, "http://127.0.0.1:1")
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, nil, "http://127.0.0.1:1")
 
 	_, err := process.Process(t.Context(), "plain text")
 
 	if err == nil || !strings.Contains(err.Error(), "unsupported request type") {
 		t.Fatalf("Process() error = %v, want unsupported request type", err)
+	}
+}
+
+// fakeEventLister returns what the test configured and records its arguments.
+type fakeEventLister struct {
+	collection api.TaskCollection
+	err        error
+
+	userID uuid.UUID
+	action json.RawMessage
+}
+
+func (f *fakeEventLister) SearchEvents(_ context.Context, userID uuid.UUID, action json.RawMessage) (api.TaskCollection, error) {
+	f.userID, f.action = userID, action
+	return f.collection, f.err
+}
+
+func (f *fakeEventLister) ListEvents(_ context.Context, userID uuid.UUID, action json.RawMessage) (api.TaskCollection, error) {
+	f.userID, f.action = userID, action
+	return f.collection, f.err
+}
+
+func TestProcessAIResultListEvents(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	action := json.RawMessage(`{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"}`)
+	aiResult := model.AiRes{Status: "ready", Intent: "list_events", Action: action, UserID: userID, TaskID: taskID}
+	item := api.TaskItem{Id: uuid.New(), UserId: userID, RecordType: api.TaskItemRecordTypeMeeting, Title: "Встреча", Status: api.TaskItemStatusActive}
+
+	for _, tc := range []struct {
+		name        string
+		items       []api.TaskItem
+		wantMessage string
+	}{
+		{name: "found", items: []api.TaskItem{item}, wantMessage: "Найдено событий: 1"},
+		{name: "empty", items: []api.TaskItem{}, wantMessage: "На выбранный период событий нет."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lister := &fakeEventLister{collection: api.TaskCollection{Items: tc.items}}
+			process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, lister, "")
+
+			result, err := process.processAIResult(t.Context(), aiResult, time.UTC)
+			if err != nil {
+				t.Fatalf("processAIResult() error = %v", err)
+			}
+
+			if lister.userID != userID || string(lister.action) != string(action) {
+				t.Fatalf("lister got user %s, action %s", lister.userID, lister.action)
+			}
+			response, ok := result.(*api.TaskCollectionResponse)
+			if !ok {
+				t.Fatalf("result type = %T, want *api.TaskCollectionResponse", result)
+			}
+			if response.UserId != userID || response.TaskId != taskID || response.Status != api.TaskCollectionResponseStatusOk {
+				t.Fatalf("response = %+v", response)
+			}
+			if response.Message != tc.wantMessage {
+				t.Fatalf("message = %q, want %q", response.Message, tc.wantMessage)
+			}
+			if len(response.Data.Items) != len(tc.items) {
+				t.Fatalf("items = %v, want %v", response.Data.Items, tc.items)
+			}
+		})
+	}
+}
+
+func TestProcessAIResultListEventsErrors(t *testing.T) {
+	aiResult := model.AiRes{Status: "ready", Intent: "list_events", Action: json.RawMessage(`{}`), UserID: uuid.New(), TaskID: uuid.New()}
+
+	t.Run("lister error", func(t *testing.T) {
+		process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, &fakeEventLister{err: model.ErrInvalidAction}, "")
+
+		_, err := process.processAIResult(t.Context(), aiResult, time.UTC)
+
+		if !errors.Is(err, model.ErrInvalidAction) {
+			t.Fatalf("processAIResult() error = %v, want ErrInvalidAction", err)
+		}
+	})
+
+	t.Run("lister not configured", func(t *testing.T) {
+		process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, nil, "")
+
+		_, err := process.processAIResult(t.Context(), aiResult, time.UTC)
+
+		if err == nil || !strings.Contains(err.Error(), "not configured") {
+			t.Fatalf("processAIResult() error = %v, want not configured", err)
+		}
+	})
+}
+
+func TestTaskProcessClarificationRoundTrip(t *testing.T) {
+	userID := uuid.New()
+	draft := &fakeDraftStore{}
+	reader := &fakeEventLister{collection: api.TaskCollection{Items: []api.TaskItem{}}}
+	var taskID uuid.UUID
+	var secondContext ai.JobRequestContext
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var request ai.JobRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			taskID = request.TaskId
+			_, _ = fmt.Fprintf(w, `{"user_id":%q,"task_id":%q,"status":"needs_clarification","intent":"create_event","message":"Во сколько?","action":null,"context":{"recent_messages":[{"role":"user","text":"Встреча с Иваном завтра"},{"role":"assistant","text":"Во сколько?"}],"draft":{"record_type":"meeting","title":"Встреча с Иваном"}}}`, userID, taskID)
+			return
+		}
+		secondContext = request.Context
+		_, _ = fmt.Fprintf(w, `{"user_id":%q,"task_id":%q,"status":"ready","intent":"list_events","message":null,"action":{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"},"context":{"recent_messages":[{"role":"user","text":"Что у меня завтра?"}],"draft":null}}`, userID, taskID)
+	}))
+	t.Cleanup(server.Close)
+	process := NewTaskProcess(&fakeSTT{}, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, reader, server.URL)
+
+	first, err := process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, Text: "Встреча с Иваном завтра"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clarification, ok := first.(*api.TaskClarificationResponse)
+	if !ok || clarification.TaskId == uuid.Nil || clarification.Message != "Во сколько?" {
+		t.Fatalf("clarification = %#v", first)
+	}
+	if draft.value == "" || draft.key != fmt.Sprintf("task_draft:%s:%s", userID, taskID) {
+		t.Fatalf("saved draft = %q at %q", draft.value, draft.key)
+	}
+	second, err := process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, TaskId: &taskID, Text: "Что у меня завтра?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := second.(*api.TaskCollectionResponse); !ok || calls != 2 {
+		t.Fatalf("second result = %T, AI calls = %d", second, calls)
+	}
+	contextJSON, err := json.Marshal(secondContext)
+	if err != nil || !strings.Contains(string(contextJSON), `"title":"Встреча с Иваном"`) {
+		t.Fatalf("AI continuation context = %s, %v", contextJSON, err)
+	}
+}
+
+func TestProcessAIResultSearchEvents(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	action := json.RawMessage(`{"query":"Иван"}`)
+	reader := &fakeEventLister{collection: api.TaskCollection{Items: []api.TaskItem{{Title: "Встреча с Иваном"}}}}
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, reader, "")
+	result, err := process.processAIResult(t.Context(), model.AiRes{Status: "ready", Intent: "search_events", Action: action, UserID: userID, TaskID: taskID}, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, ok := result.(*api.TaskCollectionResponse)
+	if !ok || response.Message != "Найдено событий: 1" || reader.userID != userID || string(reader.action) != string(action) {
+		t.Fatalf("search response = %#v, reader = %+v", result, reader)
 	}
 }

@@ -1,4 +1,5 @@
-package service
+// Package utils validates AI responses before the backend performs actions.
+package utils
 
 import (
 	"bytes"
@@ -11,15 +12,15 @@ import (
 	"time"
 )
 
-// validateAIResult checks the fields the backend relies on before dispatching.
-func validateAIResult(result model.AiRes, request *ai.JobRequest) error {
+// ValidateAIResult checks the fields the backend relies on before dispatching.
+func ValidateAIResult(result model.AiRes, request *ai.JobRequest) error {
 	if result.Status != "ready" && result.Status != "needs_clarification" {
 		return fmt.Errorf("invalid AI status %s", result.Status)
 	}
 	if result.Intent != "create_event" && result.Intent != "list_events" && result.Intent != "search_events" {
 		return fmt.Errorf("invalid intent %s", result.Intent)
 	}
-	if result.UserId != request.UserId || result.TaskId != request.TaskId {
+	if result.UserID != request.UserId || result.TaskID != request.TaskId {
 		return errors.New("AI response user_id or task_id does not match request")
 	}
 
@@ -27,9 +28,17 @@ func validateAIResult(result model.AiRes, request *ai.JobRequest) error {
 	if err := json.Unmarshal(result.Context, &contextFields); err != nil || contextFields == nil {
 		return errors.New("invalid AI context")
 	}
+	if len(contextFields) != 2 {
+		return errors.New("AI context contains unsupported fields")
+	}
 	var messages []ai.DialogueMessage
-	if raw := bytes.TrimSpace(contextFields["recent_messages"]); len(raw) == 0 || raw[0] != '[' || json.Unmarshal(raw, &messages) != nil {
+	if raw := bytes.TrimSpace(contextFields["recent_messages"]); len(raw) == 0 || raw[0] != '[' || json.Unmarshal(raw, &messages) != nil || len(messages) == 0 {
 		return errors.New("AI context is missing recent_messages")
+	}
+	for _, message := range messages {
+		if !message.Role.Valid() || strings.TrimSpace(message.Text) == "" {
+			return errors.New("AI context contains an invalid message")
+		}
 	}
 	draft := bytes.TrimSpace(contextFields["draft"])
 	if len(draft) == 0 {
@@ -60,6 +69,20 @@ func validateAIResult(result model.AiRes, request *ai.JobRequest) error {
 }
 
 func validateReadyAction(intent string, action map[string]json.RawMessage) error {
+	allowed := map[string]bool{}
+	switch intent {
+	case "create_event":
+		allowed = map[string]bool{"record_type": true, "title": true, "date": true, "time": true}
+	case "list_events":
+		allowed = map[string]bool{"date_from": true, "date_to_exclusive": true, "record_types": true}
+	case "search_events":
+		allowed = map[string]bool{"query": true, "date_from": true, "date_to_exclusive": true, "record_types": true}
+	}
+	for name := range action {
+		if !allowed[name] {
+			return fmt.Errorf("unsupported action field %s", name)
+		}
+	}
 	getString := func(name string) (string, error) {
 		var value string
 		if err := json.Unmarshal(action[name], &value); err != nil || strings.TrimSpace(value) == "" {
@@ -103,10 +126,10 @@ func validateReadyAction(intent string, action map[string]json.RawMessage) error
 		if err != nil || (recordType != "task" && recordType != "reminder" && recordType != "meeting") {
 			return errors.New("invalid record_type")
 		}
-		if _, err := getString("title"); err != nil {
+		if _, err = getString("title"); err != nil {
 			return err
 		}
-		if _, err := checkDate("date"); err != nil {
+		if _, err = checkDate("date"); err != nil {
 			return err
 		}
 		value, err := getString("time")

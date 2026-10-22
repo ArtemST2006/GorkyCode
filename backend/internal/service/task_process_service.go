@@ -1,15 +1,14 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"gorkycode/backend/internal/generated/ai"
-	"gorkycode/backend/internal/http-server/handlers"
 	"gorkycode/backend/internal/model"
-	services "gorkycode/backend/internal/service/internal_services"
+	services "gorkycode/backend/internal/service/subservice"
+	"gorkycode/backend/internal/service/utils"
 	"io"
 	"net/http"
 	"strings"
@@ -43,22 +42,30 @@ type TaskCreator interface {
 	Create(ctx context.Context, cmd services.CreateTaskCommand) (*model.Task, error)
 }
 
+// EventReader lists and searches the user's stored events.
+type EventReader interface {
+	ListEvents(ctx context.Context, userID uuid.UUID, action json.RawMessage) (api.TaskCollection, error)
+	SearchEvents(ctx context.Context, userID uuid.UUID, action json.RawMessage) (api.TaskCollection, error)
+}
+
 // TaskProcess turns a text or audio command into an AI-service request.
 type TaskProcess struct {
 	rec       STT
 	draft     DraftStore
 	timezones TimezoneStore
 	creator   TaskCreator
+	reader    EventReader
 	aiURL     string
 }
 
 // NewTaskProcess constructs a task processor with the given dependencies.
-func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, creator TaskCreator, aiURL string) *TaskProcess {
+func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, creator TaskCreator, reader EventReader, aiURL string) *TaskProcess {
 	return &TaskProcess{
 		rec:       rec,
 		draft:     draft,
 		timezones: timezones,
 		creator:   creator,
+		reader:    reader,
 		aiURL:     aiURL,
 	}
 }
@@ -66,31 +73,16 @@ func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, creator 
 // createReq отправляет запрос AI-сервису.
 func createReq(ctx context.Context, aiURL string, req *ai.JobRequest) (model.AiRes, error) {
 	var result model.AiRes
-
-	body, err := json.Marshal(req)
+	client, err := ai.NewClient(aiURL, ai.WithHTTPClient(&http.Client{Timeout: 20 * time.Second}))
 	if err != nil {
-		return result, fmt.Errorf("marshal request: %w", err)
+		return result, fmt.Errorf("create AI client: %w", err)
 	}
-
-	httpReq, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		strings.TrimRight(aiURL, "/")+"/api/job",
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return result, fmt.Errorf("create request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(httpReq)
+	resp, err := client.ProcessJob(ctx, *req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return result, fmt.Errorf("%w: request AI service: %v", model.ErrGatewayTimeout, err)
+			return result, fmt.Errorf("%w: request AI service: %w", model.ErrGatewayTimeout, err)
 		}
-		return result, fmt.Errorf("%w: request AI service: %v", model.ErrBadGateway, err)
+		return result, fmt.Errorf("%w: request AI service: %w", model.ErrBadGateway, err)
 	}
 	defer func() {
 		_ = resp.Body.Close()
@@ -107,8 +99,13 @@ func createReq(ctx context.Context, aiURL string, req *ai.JobRequest) (model.AiR
 		}
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return result, fmt.Errorf("%w: decode AI response: %v", model.ErrBadGateway, err)
+	decoder := json.NewDecoder(resp.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&result); err != nil {
+		return result, fmt.Errorf("%w: decode AI response: %w", model.ErrBadGateway, err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return result, fmt.Errorf("%w: AI response contains trailing data", model.ErrBadGateway)
 	}
 
 	return result, nil
@@ -135,10 +132,10 @@ func (t *TaskProcess) extractText(
 		text, err := t.rec.Transcribe(ctx, file)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				return "", req.UserId, req.TaskId, fmt.Errorf("%w: transcribe audio: %v", model.ErrGatewayTimeout, err)
+				return "", req.UserId, req.TaskId, fmt.Errorf("%w: transcribe audio: %w", model.ErrGatewayTimeout, err)
 			}
 			return "", req.UserId, req.TaskId,
-				fmt.Errorf("%w: transcribe audio: %v", model.ErrBadGateway, err)
+				fmt.Errorf("%w: transcribe audio: %w", model.ErrBadGateway, err)
 		}
 
 		return text, req.UserId, req.TaskId, nil
@@ -219,7 +216,7 @@ func parseCreateTaskCommand(result model.AiRes, location *time.Location) (servic
 	}
 
 	return services.CreateTaskCommand{
-		UserID:     result.UserId,
+		UserID:     result.UserID,
 		RecordType: action.RecordType,
 		Title:      action.Title,
 		Date:       date,
@@ -232,11 +229,14 @@ func (t *TaskProcess) processAIResult(
 	ctx context.Context,
 	result model.AiRes,
 	location *time.Location,
-) (handlers.TaskResult, error) {
+) (model.TaskResult, error) {
 	switch result.Status {
 	case "ready":
 		switch result.Intent {
 		case "create_event":
+			if t.creator == nil {
+				return nil, errors.New("event creation handler is not configured")
+			}
 			cmd, err := parseCreateTaskCommand(result, location)
 			if err != nil {
 				return nil, fmt.Errorf("%w: %w", model.ErrBadGateway, err)
@@ -246,41 +246,88 @@ func (t *TaskProcess) processAIResult(
 			if err != nil {
 				return nil, fmt.Errorf("create task: %w", err)
 			}
+			if task == nil || task.Date == nil || task.Time == nil {
+				return nil, errors.New("created task is missing date or time")
+			}
 
 			return &api.TaskCreatedResponse{
 				Data: api.TaskCreatedData{
 					Event: api.TaskCreatedEvent{
 						CreatedAt:  task.CreatedAt,
-						Date:       openapitypes.Date{Time: task.Date},
-						Id:         task.Id,
+						Date:       openapitypes.Date{Time: *task.Date},
+						Id:         task.ID,
 						RecordType: api.TaskCreatedEventRecordType(cmd.RecordType),
 						Status:     api.TaskCreatedEventStatus(task.Status),
-						Time:       task.Time.Format("15:04"),
+						Time:       *task.Time,
 						Title:      task.Title,
-						UserId:     task.UserId,
+						UserId:     task.UserID,
 					},
 				},
 				Message: "Запись успешно создана.",
 				Status:  api.TaskCreatedResponseStatusOk,
-				TaskId:  result.TaskId,
-				UserId:  result.UserId,
+				TaskId:  result.TaskID,
+				UserId:  result.UserID,
 			}, nil
 
 		case "list_events":
-			// TODO: вызвать обработчик получения списка событий.
-			panic("not implemented")
+			if t.reader == nil {
+				return nil, errors.New("event listing handler is not configured")
+			}
+			collection, err := t.reader.ListEvents(ctx, result.UserID, result.Action)
+			if err != nil {
+				return nil, fmt.Errorf("list events: %w", err)
+			}
+			message := "На выбранный период событий нет."
+			if len(collection.Items) > 0 {
+				message = fmt.Sprintf("Найдено событий: %d", len(collection.Items))
+			}
+			return &api.TaskCollectionResponse{
+				Data:    collection,
+				UserId:  result.UserID,
+				TaskId:  result.TaskID,
+				Status:  api.TaskCollectionResponseStatusOk,
+				Message: message,
+			}, nil
 
 		case "search_events":
-			// TODO: вызвать обработчик поиска событий.
-			panic("not implemented")
+			if t.reader == nil {
+				return nil, errors.New("event search handler is not configured")
+			}
+			collection, err := t.reader.SearchEvents(ctx, result.UserID, result.Action)
+			if err != nil {
+				return nil, fmt.Errorf("search events: %w", err)
+			}
+			message := "По запросу ничего не найдено."
+			if len(collection.Items) > 0 {
+				message = fmt.Sprintf("Найдено событий: %d", len(collection.Items))
+			}
+			return &api.TaskCollectionResponse{
+				Data:    collection,
+				UserId:  result.UserID,
+				TaskId:  result.TaskID,
+				Status:  api.TaskCollectionResponseStatusOk,
+				Message: message,
+			}, nil
 
 		default:
 			return nil, fmt.Errorf("invalid intent %s", result.Intent)
 		}
 
 	case "needs_clarification":
-		// TODO: вернуть клиенту сообщение с просьбой уточнить данные.
-		panic("not implemented")
+		key := fmt.Sprintf("task_draft:%s:%s", result.UserID, result.TaskID)
+		if err := t.draft.PutDraft(ctx, key, string(result.Context)); err != nil {
+			return nil, fmt.Errorf("save draft context: %w", err)
+		}
+		var message string
+		if err := json.Unmarshal(result.Message, &message); err != nil {
+			return nil, fmt.Errorf("%w: invalid clarification message: %w", model.ErrBadGateway, err)
+		}
+		return &api.TaskClarificationResponse{
+			UserId:  result.UserID,
+			TaskId:  result.TaskID,
+			Status:  api.NeedsClarification,
+			Message: message,
+		}, nil
 
 	default:
 		return nil, fmt.Errorf("invalid AI status %s", result.Status)
@@ -290,8 +337,8 @@ func (t *TaskProcess) processAIResult(
 // Process handles a text or audio command and returns the HTTP-facing result.
 func (t *TaskProcess) Process(
 	ctx context.Context,
-	req handlers.TaskRequest,
-) (handlers.TaskResult, error) {
+	req model.TaskRequest,
+) (model.TaskResult, error) {
 	text, userID, taskID, err := t.extractText(ctx, req)
 	if err != nil {
 		return nil, err
@@ -313,7 +360,7 @@ func (t *TaskProcess) Process(
 	if taskID == nil {
 		id := uuid.New()
 		taskID = &id
-		if err := taskContext.FromEmptyContext(ai.EmptyContext{}); err != nil {
+		if err = taskContext.FromEmptyContext(ai.EmptyContext{}); err != nil {
 			return nil, fmt.Errorf("prepare empty context: %w", err)
 		}
 	} else {
@@ -337,8 +384,8 @@ func (t *TaskProcess) Process(
 		return nil, fmt.Errorf("create AI request: %w", err)
 	}
 
-	if err := validateAIResult(result, aiReq); err != nil {
-		return nil, fmt.Errorf("%w: %v", model.ErrBadGateway, err)
+	if err := utils.ValidateAIResult(result, aiReq); err != nil {
+		return nil, fmt.Errorf("%w: %w", model.ErrBadGateway, err)
 	}
 	return t.processAIResult(ctx, result, location)
 }

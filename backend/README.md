@@ -44,6 +44,7 @@
 - `POST /api/v1/auth/sign-up` — регистрация, возвращает пользователя и access token.
 - `POST /api/v1/auth/sign-in` — вход по email и паролю, возвращает пользователя и access token.
 - `POST /api/v1/auth/sign-out` — завершает сессию токена из `Authorization: Bearer <token>`.
+- `POST /api/task` — обрабатывает текстовую команду или WAV-файл через AI-сервис; поддерживает уточнение, создание, список и поиск записей.
 
 Access token — случайная строка; сессии хранятся в Redis (`REDIS_URL`) со сроком жизни `AUTH_SESSION_TTL` (по умолчанию 24h).
 

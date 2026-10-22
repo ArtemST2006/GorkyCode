@@ -21,15 +21,9 @@ import (
 
 const maxTaskProcessReadSize = 20 << 20 // 20 MiB
 
-// TaskResult is a response returned by the task processing service.
-type TaskResult any
-
-// TaskRequest is a parsed text or audio task request.
-type TaskRequest any
-
 // TaskProcess handles text and audio commands.
 type TaskProcess interface {
-	Process(ctx context.Context, req TaskRequest) (TaskResult, error)
+	Process(ctx context.Context, req model.TaskRequest) (model.TaskResult, error)
 }
 
 func parseTaskAudioRequest(r *http.Request) (*api.TaskAudioRequest, error) {
@@ -95,7 +89,7 @@ func writeTaskError(w http.ResponseWriter, r *http.Request, err error) {
 		apierr.Write(w, r, apierr.NotFound("Запрос или пользователь не найден."))
 	case errors.Is(err, model.ErrGatewayTimeout):
 		apierr.Write(w, r, apierr.GatewayTimeout())
-	case errors.Is(err, model.ErrBadGateway):
+	case errors.Is(err, model.ErrBadGateway), errors.Is(err, model.ErrInvalidAction):
 		apierr.Write(w, r, apierr.BadGateway())
 	case errors.Is(err, model.ErrServiceUnavailable), errors.Is(err, context.DeadlineExceeded):
 		apierr.Write(w, r, apierr.Unavailable("Сервис временно недоступен."))

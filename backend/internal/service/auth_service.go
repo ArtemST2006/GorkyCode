@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"gorkycode/backend/internal/model"
@@ -136,4 +138,16 @@ func (s *AuthService) startSession(ctx context.Context, user *model.User) (*mode
 		return nil, fmt.Errorf("store session: %w", err)
 	}
 	return &model.AuthResult{User: *user, AccessToken: token, ExpiresIn: s.sessionTTL}, nil
+}
+
+// sessionTokenBytes is the amount of randomness in a session token.
+const sessionTokenBytes = 32
+
+// newSessionToken returns a random opaque session token.
+func newSessionToken() (string, error) {
+	token := make([]byte, sessionTokenBytes)
+	if _, err := rand.Read(token); err != nil {
+		return "", fmt.Errorf("read random bytes: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(token), nil
 }

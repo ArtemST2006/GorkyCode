@@ -16,6 +16,7 @@ type Repository struct {
 	*postgres.HealthRepository
 	*postgres.AuthRepository
 	*postgres.TaskCreateRepository
+	*postgres.TaskRepository
 	*redis.SessionRepository
 	*redis.TaskProcess
 }
@@ -26,6 +27,7 @@ func NewRepository(pool *pgxpool.Pool, redisClient *goredis.Client) *Repository 
 		HealthRepository:     postgres.NewHealthRepository(pool),
 		AuthRepository:       postgres.NewAuthRepository(pool),
 		TaskCreateRepository: postgres.NewTaskCreateRepository(pool),
+		TaskRepository:       postgres.NewTaskRepository(pool),
 		SessionRepository:    redis.NewSessionRepository(redisClient),
 		TaskProcess:          redis.NewTaskProcess(redisClient),
 	}

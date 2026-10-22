@@ -3,14 +3,13 @@ package postgres
 import (
 	"context"
 	"errors"
+	"gorkycode/backend/internal/model"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"gorkycode/backend/internal/model"
 )
 
 func TestAuthRepositoryWithPostgres(t *testing.T) {
@@ -24,14 +23,14 @@ func TestAuthRepositoryWithPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if err := pool.Ping(ctx); err != nil {
+	if err = pool.Ping(ctx); err != nil {
 		t.Fatal(err)
 	}
 
 	repo := NewAuthRepository(pool)
 	email := uuid.NewString() + "@example.com"
 	user := &model.User{Name: "Auth test", Email: email, PasswordHash: "test hash", Timezone: "Europe/Moscow"}
-	if err := repo.CreateUser(ctx, user); err != nil {
+	if err = repo.CreateUser(ctx, user); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", user.ID) })

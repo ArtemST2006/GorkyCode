@@ -403,8 +403,8 @@ components:
       additionalProperties: false
       required: [id, user_id, record_type, title, date, time, created_at, status]
       description: |
-        Полная созданная запись. Backend преобразует tasks.type из значений
-        PostgreSQL в record_type API. Для новых записей date и time обязательны,
+        Полная созданная запись. record_type совпадает со значением колонки
+        tasks.type в PostgreSQL. Для новых записей date и time обязательны,
         хотя колонки таблицы допускают NULL для ранее сохранённых записей.
       properties:
         id:
@@ -488,8 +488,8 @@ components:
       required: [id, user_id, record_type, title, created_at, status]
       description: |
         Представление записи tasks для клиента. Значения record_type на API
-        совпадают с AI-контрактом; backend преобразует их из значений колонки
-        tasks.type в PostgreSQL.
+        совпадают с AI-контрактом и со значениями колонки tasks.type
+        в PostgreSQL (meeting, task, reminder).
       properties:
         id:
           type: string

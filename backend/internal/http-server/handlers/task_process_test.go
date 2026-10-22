@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gorkycode/backend/internal/model"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -17,21 +18,20 @@ import (
 	"github.com/google/uuid"
 
 	api "gorkycode/backend/internal/generated"
-	"gorkycode/backend/internal/model"
 )
 
 // fakeTaskProcess returns what the test configured and records its arguments.
 type fakeTaskProcess struct {
-	result TaskResult
+	result model.TaskResult
 	err    error
 
 	called bool
-	req    TaskRequest
+	req    model.TaskRequest
 }
 
 var _ TaskProcess = (*fakeTaskProcess)(nil)
 
-func (f *fakeTaskProcess) Process(_ context.Context, req TaskRequest) (TaskResult, error) {
+func (f *fakeTaskProcess) Process(_ context.Context, req model.TaskRequest) (model.TaskResult, error) {
 	f.called = true
 	f.req = req
 	return f.result, f.err
@@ -132,7 +132,7 @@ func TestProcessTaskTextSuccess(t *testing.T) {
 func TestProcessTaskMapsResultTypes(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		result   TaskResult
+		result   model.TaskResult
 		wantCode int
 	}{
 		{name: "clarification", result: &api.TaskClarificationResponse{}, wantCode: http.StatusOK},
@@ -216,6 +216,7 @@ func TestProcessTaskMapsServiceError(t *testing.T) {
 	}{
 		{"internal", errors.New("unexpected"), http.StatusInternalServerError, "internal_error"},
 		{"upstream", model.ErrBadGateway, http.StatusBadGateway, "bad_gateway"},
+		{"invalid AI action", model.ErrInvalidAction, http.StatusBadGateway, "bad_gateway"},
 		{"timeout", model.ErrGatewayTimeout, http.StatusGatewayTimeout, "gateway_timeout"},
 		{"unavailable", model.ErrServiceUnavailable, http.StatusServiceUnavailable, "service_unavailable"},
 		{"missing draft", model.ErrDraftNotFound, http.StatusNotFound, "not_found"},

@@ -26,6 +26,8 @@ var (
 	ErrGatewayTimeout = errors.New("upstream service timeout")
 	// ErrServiceUnavailable marks an unavailable upstream service.
 	ErrServiceUnavailable = errors.New("upstream service unavailable")
+	// ErrInvalidAction marks an invalid action returned by the AI service.
+	ErrInvalidAction = errors.New("invalid action")
 )
 
 // User is a registered user.
@@ -45,23 +47,19 @@ type AuthResult struct {
 	ExpiresIn   time.Duration
 }
 
+// AiRes is a response returned by the AI service.
 type AiRes struct {
 	Action  json.RawMessage `json:"action"`
 	Context json.RawMessage `json:"context"`
 	Intent  string          `json:"intent"`
 	Message json.RawMessage `json:"message"`
 	Status  string          `json:"status"`
-	TaskId  uuid.UUID       `json:"task_id"`
-	UserId  uuid.UUID       `json:"user_id"`
+	TaskID  uuid.UUID       `json:"task_id"`
+	UserID  uuid.UUID       `json:"user_id"`
 }
 
-type Task struct {
-	Id        uuid.UUID
-	UserId    uuid.UUID
-	TaskType  string
-	Title     string
-	Date      time.Time
-	Time      time.Time
-	CreatedAt time.Time
-	Status    string
-}
+// TaskResult is a response returned by the task processing service.
+type TaskResult any
+
+// TaskRequest is a parsed text or audio task request.
+type TaskRequest any

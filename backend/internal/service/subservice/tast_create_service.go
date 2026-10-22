@@ -1,5 +1,5 @@
-// Package service contains internal application services.
-package service
+// Package subservice contains internal application services.
+package subservice
 
 import (
 	"context"
@@ -35,12 +35,13 @@ func NewTaskCreateService(rep TaskCreateRepository) *TaskCreate {
 
 // Create saves a task and returns the stored record.
 func (s *TaskCreate) Create(ctx context.Context, cmd CreateTaskCommand) (*model.Task, error) {
+	clock := cmd.Time.Format("15:04")
 	task := &model.Task{
-		UserId:   cmd.UserID,
-		TaskType: cmd.RecordType,
-		Title:    cmd.Title,
-		Date:     cmd.Date,
-		Time:     cmd.Time,
+		UserID: cmd.UserID,
+		Type:   cmd.RecordType,
+		Title:  cmd.Title,
+		Date:   &cmd.Date,
+		Time:   &clock,
 	}
 
 	if err := s.rep.CreateTask(ctx, task); err != nil {

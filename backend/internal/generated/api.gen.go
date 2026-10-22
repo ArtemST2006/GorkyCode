@@ -296,14 +296,14 @@ type TaskCollectionResponseStatus string
 
 // TaskCreatedData defines model for TaskCreatedData.
 type TaskCreatedData struct {
-	// Event Полная созданная запись. Backend преобразует tasks.type из значений
-	// PostgreSQL в record_type API. Для новых записей date и time обязательны,
+	// Event Полная созданная запись. record_type совпадает со значением колонки
+	// tasks.type в PostgreSQL. Для новых записей date и time обязательны,
 	// хотя колонки таблицы допускают NULL для ранее сохранённых записей.
 	Event TaskCreatedEvent `json:"event"`
 }
 
-// TaskCreatedEvent Полная созданная запись. Backend преобразует tasks.type из значений
-// PostgreSQL в record_type API. Для новых записей date и time обязательны,
+// TaskCreatedEvent Полная созданная запись. record_type совпадает со значением колонки
+// tasks.type в PostgreSQL. Для новых записей date и time обязательны,
 // хотя колонки таблицы допускают NULL для ранее сохранённых записей.
 type TaskCreatedEvent struct {
 	CreatedAt  time.Time                  `json:"created_at"`
@@ -339,8 +339,8 @@ type TaskCreatedResponse struct {
 type TaskCreatedResponseStatus string
 
 // TaskItem Представление записи tasks для клиента. Значения record_type на API
-// совпадают с AI-контрактом; backend преобразует их из значений колонки
-// tasks.type в PostgreSQL.
+// совпадают с AI-контрактом и со значениями колонки tasks.type
+// в PostgreSQL (meeting, task, reminder).
 type TaskItem struct {
 	CreatedAt time.Time `json:"created_at"`
 
