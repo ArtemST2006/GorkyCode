@@ -70,6 +70,11 @@ func Unauthorized(detail string) api.Problem {
 	return newProblem(http.StatusUnauthorized, "unauthorized", "unauthorized", "Unauthorized", detail)
 }
 
+// Forbidden reports that an authenticated user cannot act for another user.
+func Forbidden(detail string) api.Problem {
+	return newProblem(http.StatusForbidden, "forbidden", "forbidden", "Forbidden", detail)
+}
+
 // RequestTimeout reports a request that took too long to complete.
 func RequestTimeout(detail string) api.Problem {
 	return newProblem(http.StatusRequestTimeout, "request_timeout", "request-timeout", "Request timeout", detail)

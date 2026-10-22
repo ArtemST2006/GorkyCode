@@ -48,7 +48,7 @@ services:
       retries: 5
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:0.8.7-pg16-bookworm
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:

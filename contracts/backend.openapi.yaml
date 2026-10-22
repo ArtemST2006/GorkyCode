@@ -39,7 +39,11 @@ paths:
       tags: [Tasks]
       summary: Обработать текстовую или голосовую команду
       operationId: processTask
+      security:
+        - bearerAuth: []
       description: |
+        Требуется Bearer-токен действующей сессии. user_id в JSON или
+        multipart/form-data должен совпадать с владельцем этой сессии.
         При первом запросе клиент не передаёт task_id: backend создаёт UUID и
         передаёт AI-service текст, время запроса, часовой пояс пользователя и
         пустой context. Для ответа на уточнение клиент повторяет запрос с
@@ -209,6 +213,10 @@ paths:
                         status: active
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/SessionRequired'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '413':
@@ -322,6 +330,7 @@ components:
         user_id:
           type: string
           format: uuid
+          description: Должен совпадать с владельцем Bearer-сессии.
         task_id:
           type: string
           format: uuid
@@ -340,7 +349,7 @@ components:
         user_id:
           type: string
           format: uuid
-          description: Текстовое поле multipart/form-data.
+          description: Текстовое поле multipart/form-data; должен совпадать с владельцем Bearer-сессии.
         task_id:
           type: string
           format: uuid
@@ -638,19 +647,16 @@ components:
   responses:
     TaskInternalError:
       description: |
-        Ошибка внутреннего сервиса обработки задачи, включая некорректные
-        данные AI, дошедшие до него, или сбой PostgreSQL. Причина логируется;
-        клиент получает человекочитаемое нейтральное сообщение в detail.
+        Сбой проверки сессии или обработки задачи, включая некорректные данные
+        AI и сбой PostgreSQL. Причина логируется. При ошибке обработки задачи
+        клиент получает нейтральное сообщение в detail.
       content:
         application/problem+json:
           schema:
-            allOf:
-              - $ref: '#/components/schemas/Problem'
-              - type: object
-                required: [detail]
+            $ref: '#/components/schemas/Problem'
           example:
-            type: about:blank
-            title: Internal Server Error
+            type: https://gorkycode.example/problems/internal-error
+            title: Internal server error
             status: 500
             code: internal_error
             detail: Извините, возникли внутренние проблемы.
@@ -696,10 +702,21 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: about:blank
+            type: https://gorkycode.example/problems/unauthorized
             title: Unauthorized
             status: 401
             code: unauthorized
+    Forbidden:
+      description: user_id в запросе не совпадает с владельцем Bearer-сессии; code = forbidden.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://gorkycode.example/problems/forbidden
+            title: Forbidden
+            status: 403
+            code: forbidden
     NotFound:
       description: Ресурс не найден
       content:

@@ -237,7 +237,7 @@ type TaskAudioRequest struct {
 	// TaskId Необязательное текстовое поле для продолжения диалога.
 	TaskId *openapi_types.UUID `json:"task_id,omitempty"`
 
-	// UserId Текстовое поле multipart/form-data.
+	// UserId Текстовое поле multipart/form-data; должен совпадать с владельцем Bearer-сессии.
 	UserId openapi_types.UUID `json:"user_id"`
 }
 
@@ -258,7 +258,8 @@ type TaskClarificationResponseStatus string
 // TaskCollection Результат, который внутренние Go-сервисы list_events и search_events
 // возвращают агрегатору. Записи берутся из PostgreSQL и ограничены
 // user_id текущего запроса. Сервисы возвращают только items;
-// агрегатор формирует сообщение и обёртку ответа фронтенду.
+// агрегатор формирует обёртку ответа фронтенду и передаёт message от
+// AI-service без изменений.
 // Если записей нет, items — пустой массив. Оба сервиса учитывают
 // записи со статусами active и completed.
 //
@@ -268,13 +269,14 @@ type TaskCollection struct {
 }
 
 // TaskCollectionResponse Ответ фронтенду после выполнения list_events или search_events.
-// Агрегатор добавляет user_id, task_id, status и message к результату
-// внутреннего сервиса в data.
+// Агрегатор добавляет user_id, task_id и status к результату внутреннего
+// сервиса в data и передаёт message от AI-service без изменений.
 type TaskCollectionResponse struct {
 	// Data Результат, который внутренние Go-сервисы list_events и search_events
 	// возвращают агрегатору. Записи берутся из PostgreSQL и ограничены
 	// user_id текущего запроса. Сервисы возвращают только items;
-	// агрегатор формирует сообщение и обёртку ответа фронтенду.
+	// агрегатор формирует обёртку ответа фронтенду и передаёт message от
+	// AI-service без изменений.
 	// Если записей нет, items — пустой массив. Оба сервиса учитывают
 	// записи со статусами active и completed.
 	//
@@ -282,7 +284,9 @@ type TaskCollectionResponse struct {
 	// Example: {"items":[{"created_at":"2026-10-18T12:00:20+03:00","date":"2026-10-19","id":"0e083fa1-c33e-4c44-85e6-5b977ae17808","record_type":"meeting","status":"active","time":"15:00","title":"Встреча с Иваном","user_id":"b80e93e1-9945-48e0-8460-3ee68bcfb402"}]}
 	Data TaskCollection `json:"data"`
 
-	// Message Сводка результата, сформированная backend.
+	// Message Сообщение AI-service, переданное backend без изменений после
+	// успешного выполнения поиска или получения списка. Количество
+	// записей и наличие совпадений определяются по data.items.
 	Message string                       `json:"message"`
 	Status  TaskCollectionResponseStatus `json:"status"`
 
@@ -326,7 +330,7 @@ type TaskCreatedEventStatus string
 type TaskCreatedResponse struct {
 	Data TaskCreatedData `json:"data"`
 
-	// Message Подтверждение по результату сохранения, сформированное backend.
+	// Message Сообщение AI-service, переданное backend без изменений после успешного сохранения.
 	Message string                    `json:"message"`
 	Status  TaskCreatedResponseStatus `json:"status"`
 
@@ -369,7 +373,9 @@ type TaskTextRequest struct {
 	TaskId *openapi_types.UUID `json:"task_id,omitempty"`
 
 	// Text После удаления пробелов по краям строка должна быть непустой.
-	Text   string             `json:"text"`
+	Text string `json:"text"`
+
+	// UserId Должен совпадать с владельцем Bearer-сессии.
 	UserId openapi_types.UUID `json:"user_id"`
 }
 
@@ -393,6 +399,9 @@ type BadRequest = Problem
 // Conflict Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type Conflict = Problem
 
+// Forbidden Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type Forbidden = Problem
+
 // GatewayTimeout Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type GatewayTimeout = Problem
 
@@ -408,15 +417,8 @@ type PayloadTooLarge = Problem
 // SessionRequired Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type SessionRequired = Problem
 
-// TaskInternalError defines model for TaskInternalError.
-type TaskInternalError struct {
-	Code     string  `json:"code"`
-	Detail   string  `json:"detail"`
-	Instance *string `json:"instance,omitempty"`
-	Status   int32   `json:"status"`
-	Title    string  `json:"title"`
-	Type     string  `json:"type"`
-}
+// TaskInternalError Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type TaskInternalError = Problem
 
 // TooManyRequests Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type TooManyRequests = Problem

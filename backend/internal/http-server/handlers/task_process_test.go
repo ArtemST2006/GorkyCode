@@ -43,21 +43,22 @@ type taskTestServices struct {
 	*fakeTaskProcess
 }
 
-func newTaskServer(process *fakeTaskProcess) *Server {
+func newTaskServer(process *fakeTaskProcess, auth *fakeAuthService) *Server {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return NewServer(log, taskTestServices{
 		fakeReadinessService: fakeReadinessService{},
-		fakeAuthService:      &fakeAuthService{},
+		fakeAuthService:      auth,
 		fakeTaskProcess:      process,
 	})
 }
 
-func doTaskJSON(t *testing.T, process *fakeTaskProcess, body string) *httptest.ResponseRecorder {
+func doTaskJSON(t *testing.T, process *fakeTaskProcess, auth *fakeAuthService, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/task", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer test-token")
 	response := httptest.NewRecorder()
-	newTaskServer(process).ProcessTask(response, request)
+	newTaskServer(process, auth).ProcessTask(response, request)
 	return response
 }
 
@@ -104,7 +105,8 @@ func TestProcessTaskTextSuccess(t *testing.T) {
 		},
 	}
 
-	response := doTaskJSON(t, process, fmt.Sprintf(`{"user_id":%q,"text":"Назначь встречу"}`, userID))
+	auth := &fakeAuthService{userID: userID}
+	response := doTaskJSON(t, process, auth, fmt.Sprintf(`{"user_id":%q,"text":"Назначь встречу"}`, userID))
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("POST /api/task: got %d, want %d: %s", response.Code, http.StatusOK, response.Body)
@@ -127,6 +129,77 @@ func TestProcessTaskTextSuccess(t *testing.T) {
 	if textReq.Text != "Назначь встречу" || textReq.UserId != userID {
 		t.Fatalf("service got %+v", textReq)
 	}
+	if auth.token != "test-token" {
+		t.Fatalf("authenticated token = %q", auth.token)
+	}
+}
+
+func TestProcessTaskRequiresSession(t *testing.T) {
+	userID := uuid.New()
+	for _, tc := range []struct {
+		name       string
+		header     string
+		authErr    error
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "missing token", wantStatus: http.StatusUnauthorized, wantCode: "unauthorized"},
+		{name: "wrong scheme", header: "Basic test-token", wantStatus: http.StatusUnauthorized, wantCode: "unauthorized"},
+		{name: "expired session", header: "Bearer test-token", authErr: model.ErrSessionNotFound, wantStatus: http.StatusUnauthorized, wantCode: "unauthorized"},
+		{name: "session store error", header: "Bearer test-token", authErr: errors.New("redis unavailable"), wantStatus: http.StatusInternalServerError, wantCode: "internal_error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			process := &fakeTaskProcess{}
+			auth := &fakeAuthService{userID: userID, authErr: tc.authErr}
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/task", strings.NewReader(fmt.Sprintf(`{"user_id":%q,"text":"привет"}`, userID)))
+			request.Header.Set("Content-Type", "application/json")
+			if tc.header != "" {
+				request.Header.Set("Authorization", tc.header)
+			}
+			response := httptest.NewRecorder()
+			newTaskServer(process, auth).ProcessTask(response, request)
+			if response.Code != tc.wantStatus {
+				t.Fatalf("POST /api/task: got %d, want %d: %s", response.Code, tc.wantStatus, response.Body)
+			}
+			assertProblemResponse(t, response, tc.wantCode)
+			if process.called {
+				t.Fatal("task service must not be called without a valid session")
+			}
+		})
+	}
+}
+
+func TestProcessTaskRejectsOtherUser(t *testing.T) {
+	otherUserID := uuid.New()
+	auth := &fakeAuthService{userID: uuid.New()}
+
+	t.Run("text", func(t *testing.T) {
+		process := &fakeTaskProcess{}
+		response := doTaskJSON(t, process, auth, fmt.Sprintf(`{"user_id":%q,"text":"привет"}`, otherUserID))
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("POST /api/task: got %d, want %d: %s", response.Code, http.StatusForbidden, response.Body)
+		}
+		assertProblemResponse(t, response, "forbidden")
+		if process.called {
+			t.Fatal("task service must not be called for another user")
+		}
+	})
+
+	t.Run("audio", func(t *testing.T) {
+		process := &fakeTaskProcess{}
+		request, contentType := newMultipartTaskRequest(t, map[string]string{"user_id": otherUserID.String()}, "voice.wav", []byte("audio-bytes"), true)
+		request.Header.Set("Content-Type", contentType)
+		request.Header.Set("Authorization", "Bearer test-token")
+		response := httptest.NewRecorder()
+		newTaskServer(process, auth).ProcessTask(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("POST /api/task: got %d, want %d: %s", response.Code, http.StatusForbidden, response.Body)
+		}
+		assertProblemResponse(t, response, "forbidden")
+		if process.called {
+			t.Fatal("task service must not be called for another user")
+		}
+	})
 }
 
 func TestProcessTaskMapsResultTypes(t *testing.T) {
@@ -141,7 +214,8 @@ func TestProcessTaskMapsResultTypes(t *testing.T) {
 		{name: "unknown", result: struct{}{}, wantCode: http.StatusInternalServerError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			response := doTaskJSON(t, &fakeTaskProcess{result: tc.result}, fmt.Sprintf(`{"user_id":%q,"text":"привет"}`, uuid.New()))
+			userID := uuid.New()
+			response := doTaskJSON(t, &fakeTaskProcess{result: tc.result}, &fakeAuthService{userID: userID}, fmt.Sprintf(`{"user_id":%q,"text":"привет"}`, userID))
 			if response.Code != tc.wantCode {
 				t.Fatalf("POST /api/task: got %d, want %d: %s", response.Code, tc.wantCode, response.Body)
 			}
@@ -166,7 +240,7 @@ func TestProcessTaskRejectsInvalidJSON(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			process := &fakeTaskProcess{}
-			response := doTaskJSON(t, process, tc.body)
+			response := doTaskJSON(t, process, &fakeAuthService{userID: uuid.New()}, tc.body)
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("POST /api/task: got %d, want %d: %s", response.Code, http.StatusBadRequest, response.Body)
 			}
@@ -180,11 +254,13 @@ func TestProcessTaskRejectsInvalidJSON(t *testing.T) {
 
 func TestProcessTaskRequiresKnownContentType(t *testing.T) {
 	process := &fakeTaskProcess{}
+	auth := &fakeAuthService{userID: uuid.New()}
 
 	t.Run("missing content type", func(t *testing.T) {
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/task", strings.NewReader(`{}`))
+		request.Header.Set("Authorization", "Bearer test-token")
 		response := httptest.NewRecorder()
-		newTaskServer(process).ProcessTask(response, request)
+		newTaskServer(process, auth).ProcessTask(response, request)
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("POST /api/task: got %d, want %d", response.Code, http.StatusBadRequest)
 		}
@@ -194,8 +270,9 @@ func TestProcessTaskRequiresKnownContentType(t *testing.T) {
 	t.Run("unsupported content type", func(t *testing.T) {
 		request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/task", strings.NewReader(`{}`))
 		request.Header.Set("Content-Type", "text/plain")
+		request.Header.Set("Authorization", "Bearer test-token")
 		response := httptest.NewRecorder()
-		newTaskServer(process).ProcessTask(response, request)
+		newTaskServer(process, auth).ProcessTask(response, request)
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("POST /api/task: got %d, want %d", response.Code, http.StatusBadRequest)
 		}
@@ -223,7 +300,8 @@ func TestProcessTaskMapsServiceError(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			process := &fakeTaskProcess{err: tc.err}
-			response := doTaskJSON(t, process, fmt.Sprintf(`{"user_id":%q,"text":"привет"}`, uuid.New()))
+			userID := uuid.New()
+			response := doTaskJSON(t, process, &fakeAuthService{userID: userID}, fmt.Sprintf(`{"user_id":%q,"text":"привет"}`, userID))
 			if response.Code != tc.status {
 				t.Fatalf("POST /api/task: got %d, want %d", response.Code, tc.status)
 			}
@@ -244,9 +322,10 @@ func TestProcessTaskAudioSuccess(t *testing.T) {
 		"task_id": taskID.String(),
 	}, "voice.wav", []byte("audio-bytes"), true)
 	request.Header.Set("Content-Type", contentType)
+	request.Header.Set("Authorization", "Bearer test-token")
 
 	response := httptest.NewRecorder()
-	newTaskServer(process).ProcessTask(response, request)
+	newTaskServer(process, &fakeAuthService{userID: userID}).ProcessTask(response, request)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("POST /api/task: got %d, want %d: %s", response.Code, http.StatusOK, response.Body)
@@ -297,8 +376,9 @@ func TestProcessTaskRejectsInvalidMultipart(t *testing.T) {
 			process := &fakeTaskProcess{}
 			request, contentType := newMultipartTaskRequest(t, tc.fields, tc.filename, []byte("audio"), tc.withFile)
 			request.Header.Set("Content-Type", contentType)
+			request.Header.Set("Authorization", "Bearer test-token")
 			response := httptest.NewRecorder()
-			newTaskServer(process).ProcessTask(response, request)
+			newTaskServer(process, &fakeAuthService{userID: uuid.New()}).ProcessTask(response, request)
 
 			if response.Code != http.StatusBadRequest {
 				t.Fatalf("POST /api/task: got %d, want %d: %s", response.Code, http.StatusBadRequest, response.Body)

@@ -25,29 +25,39 @@ func TestValidateAIResult(t *testing.T) {
 		},
 		{
 			name: "valid create action",
-			body: base + `"status":"ready","intent":"create_event","message":null,"action":{"record_type":"meeting","title":"Встреча","date":"2026-10-21","time":"15:00"},"context":{"recent_messages":[{"role":"user","text":"Встреча"}],"draft":null}}`,
+			body: base + `"status":"ready","intent":"create_event","message":"Встреча назначена.","action":{"record_type":"meeting","title":"Встреча","date":"2026-10-21","time":"15:00"},"context":{"recent_messages":[{"role":"user","text":"Встреча"}],"draft":null}}`,
 		},
 		{
 			name: "valid list action",
-			body: base + `"status":"ready","intent":"list_events","message":null,"action":{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"},"context":{"recent_messages":[{"role":"user","text":"список"}],"draft":null}}`,
+			body: base + `"status":"ready","intent":"list_events","message":"Проверил события.","action":{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"},"context":{"recent_messages":[{"role":"user","text":"список"}],"draft":null}}`,
 		},
 		{
 			name: "valid search action",
+			body: base + `"status":"ready","intent":"search_events","message":"Поиск завершён.","action":{"query":"Иван"},"context":{"recent_messages":[{"role":"user","text":"Иван"}],"draft":null}}`,
+		},
+		{
+			name: "null ready message",
 			body: base + `"status":"ready","intent":"search_events","message":null,"action":{"query":"Иван"},"context":{"recent_messages":[{"role":"user","text":"Иван"}],"draft":null}}`,
+			want: "invalid AI ready message",
+		},
+		{
+			name: "blank ready message",
+			body: base + `"status":"ready","intent":"search_events","message":"   ","action":{"query":"Иван"},"context":{"recent_messages":[{"role":"user","text":"Иван"}],"draft":null}}`,
+			want: "invalid AI ready message",
 		},
 		{
 			name: "empty recent messages",
-			body: base + `"status":"ready","intent":"search_events","message":null,"action":{"query":"Иван"},"context":{"recent_messages":[],"draft":null}}`,
+			body: base + `"status":"ready","intent":"search_events","message":"Поиск завершён.","action":{"query":"Иван"},"context":{"recent_messages":[],"draft":null}}`,
 			want: "recent_messages",
 		},
 		{
 			name: "invalid message role",
-			body: base + `"status":"ready","intent":"search_events","message":null,"action":{"query":"Иван"},"context":{"recent_messages":[{"role":"system","text":"Иван"}],"draft":null}}`,
+			body: base + `"status":"ready","intent":"search_events","message":"Поиск завершён.","action":{"query":"Иван"},"context":{"recent_messages":[{"role":"system","text":"Иван"}],"draft":null}}`,
 			want: "invalid message",
 		},
 		{
 			name: "unknown action field",
-			body: base + `"status":"ready","intent":"search_events","message":null,"action":{"query":"Иван","debug":true},"context":{"recent_messages":[{"role":"user","text":"Иван"}],"draft":null}}`,
+			body: base + `"status":"ready","intent":"search_events","message":"Поиск завершён.","action":{"query":"Иван","debug":true},"context":{"recent_messages":[{"role":"user","text":"Иван"}],"draft":null}}`,
 			want: "invalid AI action",
 		},
 		{
@@ -57,12 +67,12 @@ func TestValidateAIResult(t *testing.T) {
 		},
 		{
 			name: "missing action",
-			body: base + `"status":"ready","intent":"search_events","message":null,"context":{"recent_messages":[{"role":"user","text":"Иван"}],"draft":null}}`,
+			body: base + `"status":"ready","intent":"search_events","message":"Поиск завершён.","context":{"recent_messages":[{"role":"user","text":"Иван"}],"draft":null}}`,
 			want: "invalid AI action",
 		},
 		{
 			name: "invalid list interval",
-			body: base + `"status":"ready","intent":"list_events","message":null,"action":{"date_from":"2026-10-21","date_to_exclusive":"2026-10-20"},"context":{"recent_messages":[{"role":"user","text":"список"}],"draft":null}}`,
+			body: base + `"status":"ready","intent":"list_events","message":"Проверил события.","action":{"date_from":"2026-10-21","date_to_exclusive":"2026-10-20"},"context":{"recent_messages":[{"role":"user","text":"список"}],"draft":null}}`,
 			want: "invalid AI action",
 		},
 	} {

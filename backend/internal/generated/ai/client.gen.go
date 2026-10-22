@@ -171,15 +171,18 @@ func (e DialogueMessageRole) Valid() bool {
 	}
 }
 
-// Defines values for ReadyBaseMessage.
+// Defines values for EmbeddingRequestPurpose.
 const (
-	ReadyBaseMessageLessThannil ReadyBaseMessage = "<nil>"
+	Document EmbeddingRequestPurpose = "document"
+	Query    EmbeddingRequestPurpose = "query"
 )
 
-// Valid indicates whether the value is a known member of the ReadyBaseMessage enum.
-func (e ReadyBaseMessage) Valid() bool {
+// Valid indicates whether the value is a known member of the EmbeddingRequestPurpose enum.
+func (e EmbeddingRequestPurpose) Valid() bool {
 	switch e {
-	case ReadyBaseMessageLessThannil:
+	case Document:
+		return true
+	case Query:
 		return true
 	default:
 		return false
@@ -216,21 +219,6 @@ func (e ReadyCreateEventIntent) Valid() bool {
 	}
 }
 
-// Defines values for ReadyCreateEventMessage.
-const (
-	ReadyCreateEventMessageLessThannil ReadyCreateEventMessage = "<nil>"
-)
-
-// Valid indicates whether the value is a known member of the ReadyCreateEventMessage enum.
-func (e ReadyCreateEventMessage) Valid() bool {
-	switch e {
-	case ReadyCreateEventMessageLessThannil:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ReadyCreateEventStatus.
 const (
 	ReadyCreateEventStatusReady ReadyCreateEventStatus = "ready"
@@ -261,21 +249,6 @@ func (e ReadyListEventsIntent) Valid() bool {
 	}
 }
 
-// Defines values for ReadyListEventsMessage.
-const (
-	ReadyListEventsMessageLessThannil ReadyListEventsMessage = "<nil>"
-)
-
-// Valid indicates whether the value is a known member of the ReadyListEventsMessage enum.
-func (e ReadyListEventsMessage) Valid() bool {
-	switch e {
-	case ReadyListEventsMessageLessThannil:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ReadyListEventsStatus.
 const (
 	ReadyListEventsStatusReady ReadyListEventsStatus = "ready"
@@ -300,21 +273,6 @@ const (
 func (e ReadySearchEventsIntent) Valid() bool {
 	switch e {
 	case ReadySearchEventsIntentSearchEvents:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ReadySearchEventsMessage.
-const (
-	ReadySearchEventsMessageLessThannil ReadySearchEventsMessage = "<nil>"
-)
-
-// Valid indicates whether the value is a known member of the ReadySearchEventsMessage enum.
-func (e ReadySearchEventsMessage) Valid() bool {
-	switch e {
-	case ReadySearchEventsMessageLessThannil:
 		return true
 	default:
 		return false
@@ -510,6 +468,36 @@ type DialogueMessage struct {
 // DialogueMessageRole defines model for DialogueMessage.Role.
 type DialogueMessageRole string
 
+// EmbeddingRequest defines model for EmbeddingRequest.
+type EmbeddingRequest struct {
+	// Purpose Роль текста в поиске. Backend передаёт исходный текст без
+	// модельных префиксов; AI-service добавляет их при необходимости.
+	Purpose EmbeddingRequestPurpose `json:"purpose"`
+
+	// Text После удаления пробелов по краям строка должна быть непустой.
+	Text string `json:"text"`
+}
+
+// EmbeddingRequestPurpose Роль текста в поиске. Backend передаёт исходный текст без
+// модельных префиксов; AI-service добавляет их при необходимости.
+type EmbeddingRequestPurpose string
+
+// EmbeddingResponse defines model for EmbeddingResponse.
+type EmbeddingResponse struct {
+	// Embedding L2-нормализованный вектор из 384 конечных чисел. Нулевой вектор
+	// недопустим. Backend проверяет размер и значения до записи в БД.
+	Embedding []float32 `json:"embedding"`
+
+	// Model Идентификатор модели, использованной для вычисления вектора.
+	//
+	// Example: intfloat/multilingual-e5-small
+	Model string `json:"model"`
+
+	// ModelVersion Неизменяемый идентификатор версии весов, токенизатора и способа
+	// подготовки и нормализации. При изменении требуется переиндексация.
+	ModelVersion string `json:"model_version"`
+}
+
 // EmptyContext defines model for EmptyContext.
 type EmptyContext = map[string]interface{}
 
@@ -590,15 +578,16 @@ type Problem struct {
 type ReadyBase struct {
 	Context ReadyContext `json:"context"`
 
-	// Message Финальное сообщение формирует backend после выполнения action.
-	Message *ReadyBaseMessage  `json:"message"`
+	// Message Сообщение для пользователя от AI-service. Backend передаёт его
+	// без изменений только после успешного выполнения action. Для
+	// list_events и search_events сообщение не утверждает, сколько
+	// записей найдено: AI-service не видит результат запроса к БД.
+	// После удаления пробелов по краям строка должна быть непустой.
+	Message string             `json:"message"`
 	Status  ReadyBaseStatus    `json:"status"`
 	TaskId  openapi_types.UUID `json:"task_id"`
 	UserId  openapi_types.UUID `json:"user_id"`
 }
-
-// ReadyBaseMessage Финальное сообщение формирует backend после выполнения action.
-type ReadyBaseMessage string
 
 // ReadyBaseStatus defines model for ReadyBase.Status.
 type ReadyBaseStatus string
@@ -619,18 +608,19 @@ type ReadyCreateEvent struct {
 	Context ReadyContext           `json:"context"`
 	Intent  ReadyCreateEventIntent `json:"intent"`
 
-	// Message Финальное сообщение формирует backend после выполнения action.
-	Message *ReadyCreateEventMessage `json:"message"`
-	Status  ReadyCreateEventStatus   `json:"status"`
-	TaskId  openapi_types.UUID       `json:"task_id"`
-	UserId  openapi_types.UUID       `json:"user_id"`
+	// Message Сообщение для пользователя от AI-service. Backend передаёт его
+	// без изменений только после успешного выполнения action. Для
+	// list_events и search_events сообщение не утверждает, сколько
+	// записей найдено: AI-service не видит результат запроса к БД.
+	// После удаления пробелов по краям строка должна быть непустой.
+	Message string                 `json:"message"`
+	Status  ReadyCreateEventStatus `json:"status"`
+	TaskId  openapi_types.UUID     `json:"task_id"`
+	UserId  openapi_types.UUID     `json:"user_id"`
 }
 
 // ReadyCreateEventIntent defines model for ReadyCreateEvent.Intent.
 type ReadyCreateEventIntent string
-
-// ReadyCreateEventMessage Финальное сообщение формирует backend после выполнения action.
-type ReadyCreateEventMessage string
 
 // ReadyCreateEventStatus defines model for ReadyCreateEvent.Status.
 type ReadyCreateEventStatus string
@@ -642,18 +632,19 @@ type ReadyListEvents struct {
 	Context ReadyContext          `json:"context"`
 	Intent  ReadyListEventsIntent `json:"intent"`
 
-	// Message Финальное сообщение формирует backend после выполнения action.
-	Message *ReadyListEventsMessage `json:"message"`
-	Status  ReadyListEventsStatus   `json:"status"`
-	TaskId  openapi_types.UUID      `json:"task_id"`
-	UserId  openapi_types.UUID      `json:"user_id"`
+	// Message Сообщение для пользователя от AI-service. Backend передаёт его
+	// без изменений только после успешного выполнения action. Для
+	// list_events и search_events сообщение не утверждает, сколько
+	// записей найдено: AI-service не видит результат запроса к БД.
+	// После удаления пробелов по краям строка должна быть непустой.
+	Message string                `json:"message"`
+	Status  ReadyListEventsStatus `json:"status"`
+	TaskId  openapi_types.UUID    `json:"task_id"`
+	UserId  openapi_types.UUID    `json:"user_id"`
 }
 
 // ReadyListEventsIntent defines model for ReadyListEvents.Intent.
 type ReadyListEventsIntent string
-
-// ReadyListEventsMessage Финальное сообщение формирует backend после выполнения action.
-type ReadyListEventsMessage string
 
 // ReadyListEventsStatus defines model for ReadyListEvents.Status.
 type ReadyListEventsStatus string
@@ -673,18 +664,19 @@ type ReadySearchEvents struct {
 	Context ReadyContext            `json:"context"`
 	Intent  ReadySearchEventsIntent `json:"intent"`
 
-	// Message Финальное сообщение формирует backend после выполнения action.
-	Message *ReadySearchEventsMessage `json:"message"`
-	Status  ReadySearchEventsStatus   `json:"status"`
-	TaskId  openapi_types.UUID        `json:"task_id"`
-	UserId  openapi_types.UUID        `json:"user_id"`
+	// Message Сообщение для пользователя от AI-service. Backend передаёт его
+	// без изменений только после успешного выполнения action. Для
+	// list_events и search_events сообщение не утверждает, сколько
+	// записей найдено: AI-service не видит результат запроса к БД.
+	// После удаления пробелов по краям строка должна быть непустой.
+	Message string                  `json:"message"`
+	Status  ReadySearchEventsStatus `json:"status"`
+	TaskId  openapi_types.UUID      `json:"task_id"`
+	UserId  openapi_types.UUID      `json:"user_id"`
 }
 
 // ReadySearchEventsIntent defines model for ReadySearchEvents.Intent.
 type ReadySearchEventsIntent string
-
-// ReadySearchEventsMessage Финальное сообщение формирует backend после выполнения action.
-type ReadySearchEventsMessage string
 
 // ReadySearchEventsStatus defines model for ReadySearchEvents.Status.
 type ReadySearchEventsStatus string
@@ -776,11 +768,20 @@ type GatewayTimeout = Problem
 // InternalError Техническая ошибка в формате RFC 9457 с кодом приложения.
 type InternalError = Problem
 
+// PayloadTooLarge Техническая ошибка в формате RFC 9457 с кодом приложения.
+type PayloadTooLarge = Problem
+
 // TechnicalError Техническая ошибка в формате RFC 9457 с кодом приложения.
 type TechnicalError = Problem
 
 // Unavailable Техническая ошибка в формате RFC 9457 с кодом приложения.
 type Unavailable = Problem
+
+// UnsupportedMediaType Техническая ошибка в формате RFC 9457 с кодом приложения.
+type UnsupportedMediaType = Problem
+
+// EmbedTextJSONRequestBody defines body for EmbedText for application/json ContentType.
+type EmbedTextJSONRequestBody = EmbeddingRequest
 
 // ProcessJobJSONRequestBody defines body for ProcessJob for application/json ContentType.
 type ProcessJobJSONRequestBody = JobRequest
@@ -1309,12 +1310,45 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
+	// EmbedTextWithBody Получить вектор текста для поиска задач
+	//
+	// Backend передаёт исходный текст записи (document) либо поискового
+	// запроса (query). AI-service применяет нужную для модели подготовку
+	// текста и возвращает L2-нормализованный вектор. Вызов не создаёт
+	// записи и не обращается к PostgreSQL или Redis.
+	//
+	// Векторы document и query сравнимы только при одинаковых model и
+	// model_version. Максимальный размер тела
+	// запроса — 16 КиБ.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/embed (the `EmbedText` operationId).
+	EmbedTextWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EmbedText Получить вектор текста для поиска задач
+	//
+	// Backend передаёт исходный текст записи (document) либо поискового
+	// запроса (query). AI-service применяет нужную для модели подготовку
+	// текста и возвращает L2-нормализованный вектор. Вызов не создаёт
+	// записи и не обращается к PostgreSQL или Redis.
+	//
+	// Векторы document и query сравнимы только при одинаковых model и
+	// model_version. Максимальный размер тела
+	// запроса — 16 КиБ.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/embed (the `EmbedText` operationId).
+	EmbedText(ctx context.Context, body EmbedTextJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ProcessJobWithBody Определить намерение и подготовить действие
 	//
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action, выполняет его и сам формирует подтверждение.
+	// backend валидирует action, выполняет его и после успешного выполнения
+	// передаёт пользователю message без изменений.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
@@ -1331,7 +1365,8 @@ type ClientInterface interface {
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action, выполняет его и сам формирует подтверждение.
+	// backend валидирует action, выполняет его и после успешного выполнения
+	// передаёт пользователю message без изменений.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
@@ -1349,12 +1384,65 @@ type ClientInterface interface {
 	AiHealth(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
+// EmbedTextWithBody Получить вектор текста для поиска задач
+//
+// Backend передаёт исходный текст записи (document) либо поискового
+// запроса (query). AI-service применяет нужную для модели подготовку
+// текста и возвращает L2-нормализованный вектор. Вызов не создаёт
+// записи и не обращается к PostgreSQL или Redis.
+//
+// Векторы document и query сравнимы только при одинаковых model и
+// model_version. Максимальный размер тела
+// запроса — 16 КиБ.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/embed (the `EmbedText` operationId).
+func (c *Client) EmbedTextWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEmbedTextRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EmbedText Получить вектор текста для поиска задач
+//
+// Backend передаёт исходный текст записи (document) либо поискового
+// запроса (query). AI-service применяет нужную для модели подготовку
+// текста и возвращает L2-нормализованный вектор. Вызов не создаёт
+// записи и не обращается к PostgreSQL или Redis.
+//
+// Векторы document и query сравнимы только при одинаковых model и
+// model_version. Максимальный размер тела
+// запроса — 16 КиБ.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/embed (the `EmbedText` operationId).
+func (c *Client) EmbedText(ctx context.Context, body EmbedTextJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEmbedTextRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ProcessJobWithBody Определить намерение и подготовить действие
 //
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action, выполняет его и сам формирует подтверждение.
+// backend валидирует action, выполняет его и после успешного выполнения
+// передаёт пользователю message без изменений.
 // Если пользователь сменил тему во время уточнения, AI не переносит
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
@@ -1381,7 +1469,8 @@ func (c *Client) ProcessJobWithBody(ctx context.Context, contentType string, bod
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action, выполняет его и сам формирует подтверждение.
+// backend валидирует action, выполняет его и после успешного выполнения
+// передаёт пользователю message без изменений.
 // Если пользователь сменил тему во время уточнения, AI не переносит
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
@@ -1416,6 +1505,46 @@ func (c *Client) AiHealth(ctx context.Context, reqEditors ...RequestEditorFn) (*
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewEmbedTextRequest calls the generic EmbedText builder with application/json body
+func NewEmbedTextRequest(server string, body EmbedTextJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEmbedTextRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewEmbedTextRequestWithBody constructs an http.Request for the EmbedText method, with any body, and a specified content type
+func NewEmbedTextRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/embed")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewProcessJobRequest calls the generic ProcessJob builder with application/json body
@@ -1529,12 +1658,45 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// EmbedTextWithBodyWithResponse Получить вектор текста для поиска задач
+	//
+	// Backend передаёт исходный текст записи (document) либо поискового
+	// запроса (query). AI-service применяет нужную для модели подготовку
+	// текста и возвращает L2-нормализованный вектор. Вызов не создаёт
+	// записи и не обращается к PostgreSQL или Redis.
+	//
+	// Векторы document и query сравнимы только при одинаковых model и
+	// model_version. Максимальный размер тела
+	// запроса — 16 КиБ.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/embed (the `EmbedText` operationId).
+	EmbedTextWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EmbedTextResponse, error)
+
+	// EmbedTextWithResponse Получить вектор текста для поиска задач
+	//
+	// Backend передаёт исходный текст записи (document) либо поискового
+	// запроса (query). AI-service применяет нужную для модели подготовку
+	// текста и возвращает L2-нормализованный вектор. Вызов не создаёт
+	// записи и не обращается к PostgreSQL или Redis.
+	//
+	// Векторы document и query сравнимы только при одинаковых model и
+	// model_version. Максимальный размер тела
+	// запроса — 16 КиБ.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/embed (the `EmbedText` operationId).
+	EmbedTextWithResponse(ctx context.Context, body EmbedTextJSONRequestBody, reqEditors ...RequestEditorFn) (*EmbedTextResponse, error)
+
 	// ProcessJobWithBodyWithResponse Определить намерение и подготовить действие
 	//
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action, выполняет его и сам формирует подтверждение.
+	// backend валидирует action, выполняет его и после успешного выполнения
+	// передаёт пользователю message без изменений.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
@@ -1551,7 +1713,8 @@ type ClientWithResponsesInterface interface {
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action, выполняет его и сам формирует подтверждение.
+	// backend валидирует action, выполняет его и после успешного выполнения
+	// передаёт пользователю message без изменений.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
@@ -1569,6 +1732,103 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /health (the `AiHealth` operationId).
 	AiHealthWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AiHealthResponse, error)
+}
+
+// EmbedTextResponse200Headers the declared response headers of an HTTP 200 response for EmbedText
+type EmbedTextResponse200Headers struct {
+	CacheControl *string
+}
+
+type EmbedTextResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EmbeddingResponse
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON413 the response for an HTTP 413 `application/problem+json` response
+	ApplicationproblemJSON413 *PayloadTooLarge
+	// ApplicationproblemJSON415 the response for an HTTP 415 `application/problem+json` response
+	ApplicationproblemJSON415 *UnsupportedMediaType
+	// ApplicationproblemJSON500 the response for an HTTP 500 `application/problem+json` response
+	ApplicationproblemJSON500 *InternalError
+	// ApplicationproblemJSON503 the response for an HTTP 503 `application/problem+json` response
+	ApplicationproblemJSON503 *Unavailable
+	// ApplicationproblemJSON504 the response for an HTTP 504 `application/problem+json` response
+	ApplicationproblemJSON504 *GatewayTimeout
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *TechnicalError
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *EmbedTextResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r EmbedTextResponse) GetJSON200() *EmbeddingResponse {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r EmbedTextResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON413 returns the response for an HTTP 413 `application/problem+json` response
+func (r EmbedTextResponse) GetApplicationproblemJSON413() *PayloadTooLarge {
+	return r.ApplicationproblemJSON413
+}
+
+// GetApplicationproblemJSON415 returns the response for an HTTP 415 `application/problem+json` response
+func (r EmbedTextResponse) GetApplicationproblemJSON415() *UnsupportedMediaType {
+	return r.ApplicationproblemJSON415
+}
+
+// GetApplicationproblemJSON500 returns the response for an HTTP 500 `application/problem+json` response
+func (r EmbedTextResponse) GetApplicationproblemJSON500() *InternalError {
+	return r.ApplicationproblemJSON500
+}
+
+// GetApplicationproblemJSON503 returns the response for an HTTP 503 `application/problem+json` response
+func (r EmbedTextResponse) GetApplicationproblemJSON503() *Unavailable {
+	return r.ApplicationproblemJSON503
+}
+
+// GetApplicationproblemJSON504 returns the response for an HTTP 504 `application/problem+json` response
+func (r EmbedTextResponse) GetApplicationproblemJSON504() *GatewayTimeout {
+	return r.ApplicationproblemJSON504
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r EmbedTextResponse) GetApplicationproblemJSONDefault() *TechnicalError {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r EmbedTextResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r EmbedTextResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EmbedTextResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r EmbedTextResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type ProcessJobResponse struct {
@@ -1688,12 +1948,57 @@ func (r AiHealthResponse) ContentType() string {
 	return ""
 }
 
+// EmbedTextWithBodyWithResponse Получить вектор текста для поиска задач
+//
+// Backend передаёт исходный текст записи (document) либо поискового
+// запроса (query). AI-service применяет нужную для модели подготовку
+// текста и возвращает L2-нормализованный вектор. Вызов не создаёт
+// записи и не обращается к PostgreSQL или Redis.
+//
+// Векторы document и query сравнимы только при одинаковых model и
+// model_version. Максимальный размер тела
+// запроса — 16 КиБ.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/embed (the `EmbedText` operationId).
+func (c *ClientWithResponses) EmbedTextWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EmbedTextResponse, error) {
+	rsp, err := c.EmbedTextWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEmbedTextResponse(rsp)
+}
+
+// EmbedTextWithResponse Получить вектор текста для поиска задач
+//
+// Backend передаёт исходный текст записи (document) либо поискового
+// запроса (query). AI-service применяет нужную для модели подготовку
+// текста и возвращает L2-нормализованный вектор. Вызов не создаёт
+// записи и не обращается к PostgreSQL или Redis.
+//
+// Векторы document и query сравнимы только при одинаковых model и
+// model_version. Максимальный размер тела
+// запроса — 16 КиБ.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/embed (the `EmbedText` operationId).
+func (c *ClientWithResponses) EmbedTextWithResponse(ctx context.Context, body EmbedTextJSONRequestBody, reqEditors ...RequestEditorFn) (*EmbedTextResponse, error) {
+	rsp, err := c.EmbedText(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEmbedTextResponse(rsp)
+}
+
 // ProcessJobWithBodyWithResponse Определить намерение и подготовить действие
 //
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action, выполняет его и сам формирует подтверждение.
+// backend валидирует action, выполняет его и после успешного выполнения
+// передаёт пользователю message без изменений.
 // Если пользователь сменил тему во время уточнения, AI не переносит
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
@@ -1716,7 +2021,8 @@ func (c *ClientWithResponses) ProcessJobWithBodyWithResponse(ctx context.Context
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action, выполняет его и сам формирует подтверждение.
+// backend валидирует action, выполняет его и после успешного выполнения
+// передаёт пользователю message без изменений.
 // Если пользователь сменил тему во время уточнения, AI не переносит
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
@@ -1745,6 +2051,94 @@ func (c *ClientWithResponses) AiHealthWithResponse(ctx context.Context, reqEdito
 		return nil, err
 	}
 	return ParseAiHealthResponse(rsp)
+}
+
+// ParseEmbedTextResponse parses an HTTP response from a EmbedTextWithResponse call
+func ParseEmbedTextResponse(rsp *http.Response) (*EmbedTextResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EmbedTextResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EmbeddingResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest PayloadTooLarge
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 415:
+		var dest UnsupportedMediaType
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON415 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest InternalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Unavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 504:
+		var dest GatewayTimeout
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON504 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest TechnicalError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers EmbedTextResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
 }
 
 // ParseProcessJobResponse parses an HTTP response from a ProcessJobWithResponse call

@@ -230,6 +230,11 @@ func (t *TaskProcess) processAIResult(
 	result model.AiRes,
 	location *time.Location,
 ) (model.TaskResult, error) {
+	var message string
+	if err := json.Unmarshal(result.Message, &message); err != nil || strings.TrimSpace(message) == "" {
+		return nil, fmt.Errorf("%w: invalid AI message", model.ErrBadGateway)
+	}
+
 	switch result.Status {
 	case "ready":
 		switch result.Intent {
@@ -263,7 +268,7 @@ func (t *TaskProcess) processAIResult(
 						UserId:     task.UserID,
 					},
 				},
-				Message: "Запись успешно создана.",
+				Message: message,
 				Status:  api.TaskCreatedResponseStatusOk,
 				TaskId:  result.TaskID,
 				UserId:  result.UserID,
@@ -276,10 +281,6 @@ func (t *TaskProcess) processAIResult(
 			collection, err := t.reader.ListEvents(ctx, result.UserID, result.Action)
 			if err != nil {
 				return nil, fmt.Errorf("list events: %w", err)
-			}
-			message := "На выбранный период событий нет."
-			if len(collection.Items) > 0 {
-				message = fmt.Sprintf("Найдено событий: %d", len(collection.Items))
 			}
 			return &api.TaskCollectionResponse{
 				Data:    collection,
@@ -297,10 +298,6 @@ func (t *TaskProcess) processAIResult(
 			if err != nil {
 				return nil, fmt.Errorf("search events: %w", err)
 			}
-			message := "По запросу ничего не найдено."
-			if len(collection.Items) > 0 {
-				message = fmt.Sprintf("Найдено событий: %d", len(collection.Items))
-			}
 			return &api.TaskCollectionResponse{
 				Data:    collection,
 				UserId:  result.UserID,
@@ -317,10 +314,6 @@ func (t *TaskProcess) processAIResult(
 		key := fmt.Sprintf("task_draft:%s:%s", result.UserID, result.TaskID)
 		if err := t.draft.PutDraft(ctx, key, string(result.Context)); err != nil {
 			return nil, fmt.Errorf("save draft context: %w", err)
-		}
-		var message string
-		if err := json.Unmarshal(result.Message, &message); err != nil {
-			return nil, fmt.Errorf("%w: invalid clarification message: %w", model.ErrBadGateway, err)
 		}
 		return &api.TaskClarificationResponse{
 			UserId:  result.UserID,

@@ -246,7 +246,7 @@ func TestTaskProcessCreatesEvent(t *testing.T) {
 		t:      t,
 		status: http.StatusOK,
 		body: `{"user_id":"` + userID.String() + `","task_id":"` + taskID.String() + `",` +
-			`"status":"ready","intent":"create_event","message":null,` +
+			`"status":"ready","intent":"create_event","message":"Встреча с Иваном назначена на завтра в 15:00.",` +
 			`"action":{"record_type":"meeting","title":"Встреча с Иваном","date":"2026-10-21","time":"15:00"},` +
 			`"context":{"recent_messages":[{"role":"user","text":"встреча с Иваном"}],"draft":null}}`,
 	})
@@ -298,6 +298,9 @@ func TestTaskProcessCreatesEvent(t *testing.T) {
 	if response.Data.Event.Title != "Встреча с Иваном" {
 		t.Fatalf("response title = %s", response.Data.Event.Title)
 	}
+	if response.Message != "Встреча с Иваном назначена на завтра в 15:00." {
+		t.Fatalf("response message = %q", response.Message)
+	}
 }
 
 func TestTaskProcessReportsCreateErrors(t *testing.T) {
@@ -306,7 +309,7 @@ func TestTaskProcessReportsCreateErrors(t *testing.T) {
 		t:      t,
 		status: http.StatusOK,
 		body: `{"user_id":"` + userID.String() + `","task_id":"` + taskID.String() + `",` +
-			`"status":"ready","intent":"create_event","message":null,` +
+			`"status":"ready","intent":"create_event","message":"Встреча назначена.",` +
 			`"action":{"record_type":"meeting","title":"Встреча","date":"2026-10-21","time":"15:00"},` +
 			`"context":{"recent_messages":[{"role":"user","text":"встреча"}],"draft":null}}`,
 	})
@@ -484,7 +487,7 @@ func (f *fakeEventLister) ListEvents(_ context.Context, userID uuid.UUID, action
 func TestProcessAIResultListEvents(t *testing.T) {
 	userID, taskID := uuid.New(), uuid.New()
 	action := json.RawMessage(`{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"}`)
-	aiResult := model.AiRes{Status: "ready", Intent: "list_events", Action: action, UserID: userID, TaskID: taskID}
+	aiResult := model.AiRes{Status: "ready", Intent: "list_events", Action: action, Message: json.RawMessage(`"Проверил события на завтра."`), UserID: userID, TaskID: taskID}
 	item := api.TaskItem{Id: uuid.New(), UserId: userID, RecordType: api.TaskItemRecordTypeMeeting, Title: "Встреча", Status: api.TaskItemStatusActive}
 
 	for _, tc := range []struct {
@@ -492,8 +495,8 @@ func TestProcessAIResultListEvents(t *testing.T) {
 		items       []api.TaskItem
 		wantMessage string
 	}{
-		{name: "found", items: []api.TaskItem{item}, wantMessage: "Найдено событий: 1"},
-		{name: "empty", items: []api.TaskItem{}, wantMessage: "На выбранный период событий нет."},
+		{name: "found", items: []api.TaskItem{item}, wantMessage: "Проверил события на завтра."},
+		{name: "empty", items: []api.TaskItem{}, wantMessage: "Проверил события на завтра."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lister := &fakeEventLister{collection: api.TaskCollection{Items: tc.items}}
@@ -525,7 +528,7 @@ func TestProcessAIResultListEvents(t *testing.T) {
 }
 
 func TestProcessAIResultListEventsErrors(t *testing.T) {
-	aiResult := model.AiRes{Status: "ready", Intent: "list_events", Action: json.RawMessage(`{}`), UserID: uuid.New(), TaskID: uuid.New()}
+	aiResult := model.AiRes{Status: "ready", Intent: "list_events", Action: json.RawMessage(`{}`), Message: json.RawMessage(`"Проверил события."`), UserID: uuid.New(), TaskID: uuid.New()}
 
 	t.Run("lister error", func(t *testing.T) {
 		process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, &fakeEventLister{err: model.ErrInvalidAction}, "")
@@ -569,7 +572,7 @@ func TestTaskProcessClarificationRoundTrip(t *testing.T) {
 			return
 		}
 		secondContext = request.Context
-		_, _ = fmt.Fprintf(w, `{"user_id":%q,"task_id":%q,"status":"ready","intent":"list_events","message":null,"action":{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"},"context":{"recent_messages":[{"role":"user","text":"Что у меня завтра?"}],"draft":null}}`, userID, taskID)
+		_, _ = fmt.Fprintf(w, `{"user_id":%q,"task_id":%q,"status":"ready","intent":"list_events","message":"Проверил события на завтра.","action":{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"},"context":{"recent_messages":[{"role":"user","text":"Что у меня завтра?"}],"draft":null}}`, userID, taskID)
 	}))
 	t.Cleanup(server.Close)
 	process := NewTaskProcess(&fakeSTT{}, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, reader, server.URL)
@@ -589,7 +592,7 @@ func TestTaskProcessClarificationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := second.(*api.TaskCollectionResponse); !ok || calls != 2 {
+	if response, ok := second.(*api.TaskCollectionResponse); !ok || calls != 2 || response.Message != "Проверил события на завтра." {
 		t.Fatalf("second result = %T, AI calls = %d", second, calls)
 	}
 	contextJSON, err := json.Marshal(secondContext)
@@ -603,12 +606,12 @@ func TestProcessAIResultSearchEvents(t *testing.T) {
 	action := json.RawMessage(`{"query":"Иван"}`)
 	reader := &fakeEventLister{collection: api.TaskCollection{Items: []api.TaskItem{{Title: "Встреча с Иваном"}}}}
 	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, reader, "")
-	result, err := process.processAIResult(t.Context(), model.AiRes{Status: "ready", Intent: "search_events", Action: action, UserID: userID, TaskID: taskID}, time.UTC)
+	result, err := process.processAIResult(t.Context(), model.AiRes{Status: "ready", Intent: "search_events", Action: action, Message: json.RawMessage(`"Поиск встреч с Иваном завершён."`), UserID: userID, TaskID: taskID}, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
 	response, ok := result.(*api.TaskCollectionResponse)
-	if !ok || response.Message != "Найдено событий: 1" || reader.userID != userID || string(reader.action) != string(action) {
+	if !ok || response.Message != "Поиск встреч с Иваном завершён." || reader.userID != userID || string(reader.action) != string(action) {
 		t.Fatalf("search response = %#v, reader = %+v", result, reader)
 	}
 }

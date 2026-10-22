@@ -103,6 +103,10 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 	const op = "task.aggregatorHandler"
 	log := s.log.With(slog.String("op", op))
 	ctx := r.Context()
+	session, ok := s.authenticate(w, r)
+	if !ok {
+		return
+	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxTaskProcessReadSize)
 
@@ -129,6 +133,10 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.UserId == uuid.Nil || (req.TaskId != nil && *req.TaskId == uuid.Nil) || strings.TrimSpace(req.Text) == "" {
 			apierr.Write(w, r, apierr.InvalidRequest("user_id, task_id или text не соответствуют контракту"))
+			return
+		}
+		if req.UserId != session.userID {
+			apierr.Write(w, r, apierr.Forbidden("user_id не совпадает с владельцем сессии"))
 			return
 		}
 
@@ -174,6 +182,10 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.ErrorContext(ctx, "Invalid task audio request", slog.Any("err", err))
 			apierr.Write(w, r, apierr.InvalidRequest(err.Error()))
+			return
+		}
+		if req.UserId != session.userID {
+			apierr.Write(w, r, apierr.Forbidden("user_id не совпадает с владельцем сессии"))
 			return
 		}
 

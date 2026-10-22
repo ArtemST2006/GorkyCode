@@ -55,7 +55,8 @@ func ValidateAIResult(result model.AiRes, request *ai.JobRequest) error {
 		}
 		return nil
 	}
-	if string(bytes.TrimSpace(result.Message)) != "null" || string(draft) != "null" {
+	var message string
+	if err := json.Unmarshal(result.Message, &message); err != nil || strings.TrimSpace(message) == "" || string(draft) != "null" {
 		return errors.New("invalid AI ready message or draft")
 	}
 	var action map[string]json.RawMessage

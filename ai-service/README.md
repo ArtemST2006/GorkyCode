@@ -5,4 +5,5 @@ GET /health возвращает 200, POST-запросы возвращают 5
 заменить Dockerfile и server.py своей реализацией, сохранив порт 8090 или
 обновив docker-compose.yml.
 
-Контракт будущей ручки `POST /api/job` описан в `../contracts/ai.openapi.yaml`.
+Контракты будущих ручек `POST /api/job` и `POST /api/embed` описаны в
+`../contracts/ai.openapi.yaml`.
