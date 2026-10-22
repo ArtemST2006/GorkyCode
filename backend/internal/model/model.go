@@ -54,3 +54,14 @@ type AiRes struct {
 	TaskId  uuid.UUID       `json:"task_id"`
 	UserId  uuid.UUID       `json:"user_id"`
 }
+
+type Task struct {
+	Id        uuid.UUID
+	UserId    uuid.UUID
+	TaskType  string
+	Title     string
+	Date      time.Time
+	Time      time.Time
+	CreatedAt time.Time
+	Status    string
+}
