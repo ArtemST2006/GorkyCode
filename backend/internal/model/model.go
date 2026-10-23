@@ -58,8 +58,12 @@ type AiRes struct {
 	UserID  uuid.UUID       `json:"user_id"`
 }
 
-// TaskResult is a response returned by the task processing service.
-type TaskResult any
+// TaskResult carries a client response and its validated AI intent.
+// Intent is sent in an HTTP header, not in the JSON body.
+type TaskResult struct {
+	Intent string
+	Body   any
+}
 
 // TaskRequest is a parsed text or audio task request.
 type TaskRequest any

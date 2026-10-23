@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -456,6 +457,10 @@ func (t ProcessTask200JSONResponseBody) AsTaskClarificationResponse() (TaskClari
 // FromTaskClarificationResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskClarificationResponse
 func (t *ProcessTask200JSONResponseBody) FromTaskClarificationResponse(v TaskClarificationResponse) error {
 	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"needs_clarification"}`))
 	t.union = b
 	return err
 }
@@ -463,6 +468,10 @@ func (t *ProcessTask200JSONResponseBody) FromTaskClarificationResponse(v TaskCla
 // MergeTaskClarificationResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TaskClarificationResponse
 func (t *ProcessTask200JSONResponseBody) MergeTaskClarificationResponse(v TaskClarificationResponse) error {
 	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"needs_clarification"}`))
 	if err != nil {
 		return err
 	}
@@ -482,6 +491,10 @@ func (t ProcessTask200JSONResponseBody) AsTaskCollectionResponse() (TaskCollecti
 // FromTaskCollectionResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskCollectionResponse
 func (t *ProcessTask200JSONResponseBody) FromTaskCollectionResponse(v TaskCollectionResponse) error {
 	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"ok"}`))
 	t.union = b
 	return err
 }
@@ -492,10 +505,37 @@ func (t *ProcessTask200JSONResponseBody) MergeTaskCollectionResponse(v TaskColle
 	if err != nil {
 		return err
 	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"ok"}`))
+	if err != nil {
+		return err
+	}
 
 	merged, err := runtime.JSONMerge(t.union, b)
 	t.union = merged
 	return err
+}
+
+func (t ProcessTask200JSONResponseBody) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"status"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t ProcessTask200JSONResponseBody) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "needs_clarification":
+		return t.AsTaskClarificationResponse()
+	case "ok":
+		return t.AsTaskCollectionResponse()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
 }
 
 func (t ProcessTask200JSONResponseBody) MarshalJSON() ([]byte, error) {

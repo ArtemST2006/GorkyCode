@@ -229,7 +229,7 @@ func (t *TaskProcess) processAIResult(
 	ctx context.Context,
 	result model.AiRes,
 	location *time.Location,
-) (model.TaskResult, error) {
+) (*model.TaskResult, error) {
 	var message string
 	if err := json.Unmarshal(result.Message, &message); err != nil || strings.TrimSpace(message) == "" {
 		return nil, fmt.Errorf("%w: invalid AI message", model.ErrBadGateway)
@@ -255,7 +255,7 @@ func (t *TaskProcess) processAIResult(
 				return nil, errors.New("created task is missing date or time")
 			}
 
-			return &api.TaskCreatedResponse{
+			return &model.TaskResult{Intent: result.Intent, Body: &api.TaskCreatedResponse{
 				Data: api.TaskCreatedData{
 					Event: api.TaskCreatedEvent{
 						CreatedAt:  task.CreatedAt,
@@ -272,7 +272,7 @@ func (t *TaskProcess) processAIResult(
 				Status:  api.TaskCreatedResponseStatusOk,
 				TaskId:  result.TaskID,
 				UserId:  result.UserID,
-			}, nil
+			}}, nil
 
 		case "list_events":
 			if t.reader == nil {
@@ -282,13 +282,13 @@ func (t *TaskProcess) processAIResult(
 			if err != nil {
 				return nil, fmt.Errorf("list events: %w", err)
 			}
-			return &api.TaskCollectionResponse{
+			return &model.TaskResult{Intent: result.Intent, Body: &api.TaskCollectionResponse{
 				Data:    collection,
 				UserId:  result.UserID,
 				TaskId:  result.TaskID,
 				Status:  api.TaskCollectionResponseStatusOk,
 				Message: message,
-			}, nil
+			}}, nil
 
 		case "search_events":
 			if t.reader == nil {
@@ -298,13 +298,13 @@ func (t *TaskProcess) processAIResult(
 			if err != nil {
 				return nil, fmt.Errorf("search events: %w", err)
 			}
-			return &api.TaskCollectionResponse{
+			return &model.TaskResult{Intent: result.Intent, Body: &api.TaskCollectionResponse{
 				Data:    collection,
 				UserId:  result.UserID,
 				TaskId:  result.TaskID,
 				Status:  api.TaskCollectionResponseStatusOk,
 				Message: message,
-			}, nil
+			}}, nil
 
 		default:
 			return nil, fmt.Errorf("invalid intent %s", result.Intent)
@@ -315,12 +315,12 @@ func (t *TaskProcess) processAIResult(
 		if err := t.draft.PutDraft(ctx, key, string(result.Context)); err != nil {
 			return nil, fmt.Errorf("save draft context: %w", err)
 		}
-		return &api.TaskClarificationResponse{
+		return &model.TaskResult{Intent: result.Intent, Body: &api.TaskClarificationResponse{
 			UserId:  result.UserID,
 			TaskId:  result.TaskID,
 			Status:  api.NeedsClarification,
 			Message: message,
-		}, nil
+		}}, nil
 
 	default:
 		return nil, fmt.Errorf("invalid AI status %s", result.Status)
@@ -331,7 +331,7 @@ func (t *TaskProcess) processAIResult(
 func (t *TaskProcess) Process(
 	ctx context.Context,
 	req model.TaskRequest,
-) (model.TaskResult, error) {
+) (*model.TaskResult, error) {
 	text, userID, taskID, err := t.extractText(ctx, req)
 	if err != nil {
 		return nil, err

@@ -22,7 +22,8 @@ import (
 
 // fakeTaskProcess returns what the test configured and records its arguments.
 type fakeTaskProcess struct {
-	result model.TaskResult
+	result any
+	intent string
 	err    error
 
 	called bool
@@ -31,10 +32,13 @@ type fakeTaskProcess struct {
 
 var _ TaskProcess = (*fakeTaskProcess)(nil)
 
-func (f *fakeTaskProcess) Process(_ context.Context, req model.TaskRequest) (model.TaskResult, error) {
+func (f *fakeTaskProcess) Process(_ context.Context, req model.TaskRequest) (*model.TaskResult, error) {
 	f.called = true
 	f.req = req
-	return f.result, f.err
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &model.TaskResult{Intent: f.intent, Body: f.result}, nil
 }
 
 type taskTestServices struct {
@@ -97,6 +101,7 @@ func TestProcessTaskTextSuccess(t *testing.T) {
 	userID := uuid.New()
 	taskID := uuid.New()
 	process := &fakeTaskProcess{
+		intent: "create_event",
 		result: &api.TaskClarificationResponse{
 			UserId:  userID,
 			TaskId:  taskID,
@@ -113,6 +118,12 @@ func TestProcessTaskTextSuccess(t *testing.T) {
 	}
 	if got := response.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := response.Header().Get("X-Task-Intent"); got != "create_event" {
+		t.Fatalf("X-Task-Intent = %q, want create_event", got)
+	}
+	if strings.Contains(response.Body.String(), `"intent"`) {
+		t.Fatalf("intent must be in the response header, got body %s", response.Body.String())
 	}
 	var body api.TaskClarificationResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
@@ -205,19 +216,29 @@ func TestProcessTaskRejectsOtherUser(t *testing.T) {
 func TestProcessTaskMapsResultTypes(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		result   model.TaskResult
+		result   any
+		intent   string
 		wantCode int
 	}{
-		{name: "clarification", result: &api.TaskClarificationResponse{}, wantCode: http.StatusOK},
-		{name: "collection", result: &api.TaskCollectionResponse{}, wantCode: http.StatusOK},
-		{name: "created", result: &api.TaskCreatedResponse{}, wantCode: http.StatusCreated},
-		{name: "unknown", result: struct{}{}, wantCode: http.StatusInternalServerError},
+		{name: "clarification", result: &api.TaskClarificationResponse{}, intent: "search_events", wantCode: http.StatusOK},
+		{name: "collection", result: &api.TaskCollectionResponse{}, intent: "list_events", wantCode: http.StatusOK},
+		{name: "created", result: &api.TaskCreatedResponse{}, intent: "create_event", wantCode: http.StatusCreated},
+		{name: "unknown result", result: struct{}{}, intent: "create_event", wantCode: http.StatusInternalServerError},
+		{name: "unknown intent", result: &api.TaskClarificationResponse{}, intent: "other", wantCode: http.StatusInternalServerError},
+		{name: "mismatched intent", result: &api.TaskCreatedResponse{}, intent: "list_events", wantCode: http.StatusInternalServerError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			userID := uuid.New()
-			response := doTaskJSON(t, &fakeTaskProcess{result: tc.result}, &fakeAuthService{userID: userID}, fmt.Sprintf(`{"user_id":%q,"text":"привет"}`, userID))
+			response := doTaskJSON(t, &fakeTaskProcess{result: tc.result, intent: tc.intent}, &fakeAuthService{userID: userID}, fmt.Sprintf(`{"user_id":%q,"text":"привет"}`, userID))
 			if response.Code != tc.wantCode {
 				t.Fatalf("POST /api/task: got %d, want %d: %s", response.Code, tc.wantCode, response.Body)
+			}
+			wantIntent := tc.intent
+			if tc.wantCode == http.StatusInternalServerError {
+				wantIntent = ""
+			}
+			if got := response.Header().Get("X-Task-Intent"); got != wantIntent {
+				t.Fatalf("X-Task-Intent = %q, want %q", got, wantIntent)
 			}
 			if tc.wantCode == http.StatusInternalServerError {
 				assertProblemResponse(t, response, "internal_error")
@@ -316,7 +337,7 @@ func TestProcessTaskMapsServiceError(t *testing.T) {
 func TestProcessTaskAudioSuccess(t *testing.T) {
 	userID := uuid.New()
 	taskID := uuid.New()
-	process := &fakeTaskProcess{result: &api.TaskClarificationResponse{}}
+	process := &fakeTaskProcess{result: &api.TaskClarificationResponse{}, intent: "create_event"}
 	request, contentType := newMultipartTaskRequest(t, map[string]string{
 		"user_id": userID.String(),
 		"task_id": taskID.String(),
@@ -329,6 +350,9 @@ func TestProcessTaskAudioSuccess(t *testing.T) {
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("POST /api/task: got %d, want %d: %s", response.Code, http.StatusOK, response.Body)
+	}
+	if got := response.Header().Get("X-Task-Intent"); got != "create_event" {
+		t.Fatalf("X-Task-Intent = %q, want create_event", got)
 	}
 
 	audioReq, ok := process.req.(*api.TaskAudioRequest)

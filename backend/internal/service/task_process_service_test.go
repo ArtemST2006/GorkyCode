@@ -285,9 +285,12 @@ func TestTaskProcessCreatesEvent(t *testing.T) {
 		t.Fatalf("Create() time = %s, want 15:00", got)
 	}
 
-	response, ok := result.(*api.TaskCreatedResponse)
+	if result.Intent != "create_event" {
+		t.Fatalf("intent = %q, want create_event", result.Intent)
+	}
+	response, ok := result.Body.(*api.TaskCreatedResponse)
 	if !ok {
-		t.Fatalf("Process() result = %T, want *api.TaskCreatedResponse", result)
+		t.Fatalf("Process() body = %T, want *api.TaskCreatedResponse", result.Body)
 	}
 	if response.UserId != userID || response.TaskId != taskID {
 		t.Fatalf("response ids = %s/%s, want %s/%s", response.UserId, response.TaskId, userID, taskID)
@@ -510,9 +513,12 @@ func TestProcessAIResultListEvents(t *testing.T) {
 			if lister.userID != userID || string(lister.action) != string(action) {
 				t.Fatalf("lister got user %s, action %s", lister.userID, lister.action)
 			}
-			response, ok := result.(*api.TaskCollectionResponse)
+			if result.Intent != "list_events" {
+				t.Fatalf("intent = %q, want list_events", result.Intent)
+			}
+			response, ok := result.Body.(*api.TaskCollectionResponse)
 			if !ok {
-				t.Fatalf("result type = %T, want *api.TaskCollectionResponse", result)
+				t.Fatalf("result body type = %T, want *api.TaskCollectionResponse", result.Body)
 			}
 			if response.UserId != userID || response.TaskId != taskID || response.Status != api.TaskCollectionResponseStatusOk {
 				t.Fatalf("response = %+v", response)
@@ -581,7 +587,10 @@ func TestTaskProcessClarificationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clarification, ok := first.(*api.TaskClarificationResponse)
+	if first.Intent != "create_event" {
+		t.Fatalf("clarification intent = %q, want create_event", first.Intent)
+	}
+	clarification, ok := first.Body.(*api.TaskClarificationResponse)
 	if !ok || clarification.TaskId == uuid.Nil || clarification.Message != "Во сколько?" {
 		t.Fatalf("clarification = %#v", first)
 	}
@@ -592,8 +601,8 @@ func TestTaskProcessClarificationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response, ok := second.(*api.TaskCollectionResponse); !ok || calls != 2 || response.Message != "Проверил события на завтра." {
-		t.Fatalf("second result = %T, AI calls = %d", second, calls)
+	if response, ok := second.Body.(*api.TaskCollectionResponse); !ok || second.Intent != "list_events" || calls != 2 || response.Message != "Проверил события на завтра." {
+		t.Fatalf("second result = %+v, AI calls = %d", second, calls)
 	}
 	contextJSON, err := json.Marshal(secondContext)
 	if err != nil || !strings.Contains(string(contextJSON), `"title":"Встреча с Иваном"`) {
@@ -610,8 +619,11 @@ func TestProcessAIResultSearchEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, ok := result.(*api.TaskCollectionResponse)
+	response, ok := result.Body.(*api.TaskCollectionResponse)
 	if !ok || response.Message != "Поиск встреч с Иваном завершён." || reader.userID != userID || string(reader.action) != string(action) {
 		t.Fatalf("search response = %#v, reader = %+v", result, reader)
+	}
+	if result.Intent != "search_events" {
+		t.Fatalf("intent = %q, want search_events", result.Intent)
 	}
 }

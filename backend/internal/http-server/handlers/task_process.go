@@ -23,7 +23,7 @@ const maxTaskProcessReadSize = 20 << 20 // 20 MiB
 
 // TaskProcess handles text and audio commands.
 type TaskProcess interface {
-	Process(ctx context.Context, req model.TaskRequest) (model.TaskResult, error)
+	Process(ctx context.Context, req model.TaskRequest) (*model.TaskResult, error)
 }
 
 func parseTaskAudioRequest(r *http.Request) (*api.TaskAudioRequest, error) {
@@ -70,6 +70,48 @@ func writeJSON[T any](w http.ResponseWriter, status int, v T) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	return json.NewEncoder(w).Encode(v)
+}
+
+func writeTaskResult(w http.ResponseWriter, r *http.Request, log *slog.Logger, result *model.TaskResult) {
+	if result == nil {
+		log.ErrorContext(r.Context(), "Missing task result")
+		apierr.Write(w, r, apierr.TaskInternal())
+		return
+	}
+
+	var status int
+	switch result.Body.(type) {
+	case *api.TaskClarificationResponse:
+		status = http.StatusOK
+	case *api.TaskCollectionResponse:
+		if result.Intent != "list_events" && result.Intent != "search_events" {
+			log.ErrorContext(r.Context(), "Invalid intent for collection", slog.String("intent", result.Intent))
+			apierr.Write(w, r, apierr.TaskInternal())
+			return
+		}
+		status = http.StatusOK
+	case *api.TaskCreatedResponse:
+		if result.Intent != "create_event" {
+			log.ErrorContext(r.Context(), "Invalid intent for created event", slog.String("intent", result.Intent))
+			apierr.Write(w, r, apierr.TaskInternal())
+			return
+		}
+		status = http.StatusCreated
+	default:
+		log.ErrorContext(r.Context(), "Unexpected task result type", slog.Any("type", result.Body))
+		apierr.Write(w, r, apierr.TaskInternal())
+		return
+	}
+	if result.Intent != "create_event" && result.Intent != "list_events" && result.Intent != "search_events" {
+		log.ErrorContext(r.Context(), "Unexpected task intent", slog.String("intent", result.Intent))
+		apierr.Write(w, r, apierr.TaskInternal())
+		return
+	}
+
+	w.Header().Set("X-Task-Intent", result.Intent)
+	if err := writeJSON(w, status, result.Body); err != nil {
+		log.ErrorContext(r.Context(), "Error encoding task response", slog.Any("err", err))
+	}
 }
 
 func validateFile(file *multipart.FileHeader) error {
@@ -147,22 +189,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var encErr error
-		switch res := result.(type) {
-		case *api.TaskClarificationResponse:
-			encErr = writeJSON(w, http.StatusOK, res)
-		case *api.TaskCollectionResponse:
-			encErr = writeJSON(w, http.StatusOK, res)
-		case *api.TaskCreatedResponse:
-			encErr = writeJSON(w, http.StatusCreated, res)
-		default:
-			log.ErrorContext(ctx, "Unexpected result type", slog.Any("type", res))
-			apierr.Write(w, r, apierr.TaskInternal())
-			return
-		}
-		if encErr != nil {
-			log.ErrorContext(ctx, "Error encoding response", slog.Any("err", encErr))
-		}
+		writeTaskResult(w, r, log, result)
 
 	case "multipart/form-data":
 		if err := r.ParseMultipartForm(maxTaskProcessReadSize); err != nil {
@@ -196,22 +223,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var encErr error
-		switch res := result.(type) {
-		case *api.TaskClarificationResponse:
-			encErr = writeJSON(w, http.StatusOK, res)
-		case *api.TaskCollectionResponse:
-			encErr = writeJSON(w, http.StatusOK, res)
-		case *api.TaskCreatedResponse:
-			encErr = writeJSON(w, http.StatusCreated, res)
-		default:
-			log.ErrorContext(ctx, "Unexpected result type", slog.Any("type", res))
-			apierr.Write(w, r, apierr.TaskInternal())
-			return
-		}
-		if encErr != nil {
-			log.ErrorContext(ctx, "Error encoding response", slog.Any("err", encErr))
-		}
+		writeTaskResult(w, r, log, result)
 
 	default:
 		log.ErrorContext(ctx, "Unsupported 'Content-Type'", slog.String("type", mediaType))

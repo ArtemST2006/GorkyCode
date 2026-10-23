@@ -30,7 +30,7 @@ type fakeServices struct {
 	*fakeAuthService
 }
 
-func (fakeServices) Process(context.Context, model.TaskRequest) (model.TaskResult, error) {
+func (fakeServices) Process(context.Context, model.TaskRequest) (*model.TaskResult, error) {
 	return nil, errors.New("task processing is not configured")
 }
 
