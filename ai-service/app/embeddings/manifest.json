@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "model": "intfloat/multilingual-e5-small",
+  "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "files": {
+    "config.json": "69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959",
+    "special_tokens_map.json": "d05497f1da52c5e09554c0cd874037a083e1dc1b9cfd48034d1c717f1afc07a7",
+    "tokenizer_config.json": "a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b",
+    "tokenizer.json": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+    "model.safetensors": "1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477"
+  },
+  "dimensions": 384,
+  "preprocessing": {
+    "unicode": "NFC",
+    "strip": true,
+    "preserve_case": true,
+    "preserve_internal_whitespace": true
+  },
+  "prefixes": {
+    "document": "passage: ",
+    "query": "query: "
+  },
+  "max_tokens": 512,
+  "truncation": "right-including-prefix-and-special-tokens",
+  "pooling": "attention-mask-mean",
+  "normalization": "L2-float32",
+  "runtime": {
+    "torch": "2.10.0+cpu",
+    "transformers": "4.57.6",
+    "numpy": "2.2.6",
+    "tokenizers": "0.22.2",
+    "safetensors": "0.8.0",
+    "sentencepiece": "0.2.1"
+  }
+}

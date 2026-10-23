@@ -1,0 +1,76 @@
+{
+  "description": "Ручные проверки реальной модели. Автоматически не запускаются. Для сценария объедините base_request с request_overrides; expected описывает инварианты, а не точную формулировку текста.",
+  "base_request": {
+    "user_id": "b80e93e1-9945-48e0-8460-3ee68bcfb402",
+    "task_id": "7b612951-57ae-4ac4-a93c-42fa9c9e8359",
+    "text": "",
+    "request_time": "2026-10-18T12:00:00+03:00",
+    "timezone": "Europe/Moscow",
+    "context": {}
+  },
+  "cases": [
+    {
+      "id": "meeting_missing_time",
+      "request_overrides": {"text": "Назначь встречу с Иваном завтра"},
+      "expected": {"http_status": 200, "status": "needs_clarification", "intent": "create_event", "action": null, "draft_contains": {"record_type": "meeting", "date": "2026-10-19"}, "question_about": "time"}
+    },
+    {
+      "id": "clarification_reply",
+      "setup": "Используйте фактический context ответа meeting_missing_time с теми же user_id и task_id.",
+      "request_overrides": {"text": "В 15:00", "request_time": "2026-10-18T12:00:20+03:00"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "create_event", "action_contains": {"record_type": "meeting", "date": "2026-10-19", "time": "15:00"}, "message_nonblank": true, "draft": null}
+    },
+    {
+      "id": "context_switch",
+      "setup": "Используйте context ответа meeting_missing_time. Это отдельная ветка от clarification_reply.",
+      "request_overrides": {"text": "Создай задачу купить молоко завтра в 18:00"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "create_event", "action_contains": {"record_type": "task", "date": "2026-10-19", "time": "18:00"}, "title_about": "купить молоко", "history_has_only_new_topic": true, "draft": null}
+    },
+    {
+      "id": "create_task",
+      "request_overrides": {"text": "Создай задачу отправить отчёт сегодня в 18:00"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "create_event", "action_contains": {"record_type": "task", "date": "2026-10-18", "time": "18:00"}}
+    },
+    {
+      "id": "create_meeting",
+      "request_overrides": {"text": "Назначь встречу с командой 20 октября 2026 года в 14:30"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "create_event", "action_contains": {"record_type": "meeting", "date": "2026-10-20", "time": "14:30"}}
+    },
+    {
+      "id": "create_reminder",
+      "request_overrides": {"text": "Создай напоминание полить цветы завтра в 09:00"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "create_event", "action_contains": {"record_type": "reminder", "date": "2026-10-19", "time": "09:00"}}
+    },
+    {
+      "id": "list_tomorrow",
+      "request_overrides": {"text": "Что у меня завтра?"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"date_from": "2026-10-19", "date_to_exclusive": "2026-10-20"}}
+    },
+    {
+      "id": "search_meetings",
+      "request_overrides": {"text": "Найди встречи с Иваном"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "search_events", "action_contains": {"query": "Иван", "record_types": ["meeting"]}}
+    },
+    {
+      "id": "timezone_after_midnight",
+      "request_overrides": {"text": "Что у меня завтра?", "request_time": "2026-10-18T22:30:00Z", "timezone": "Europe/Moscow"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"date_from": "2026-10-20", "date_to_exclusive": "2026-10-21"}}
+    },
+    {
+      "id": "timezone_previous_day",
+      "request_overrides": {"text": "Что у меня завтра?", "request_time": "2026-10-19T01:30:00Z", "timezone": "America/Los_Angeles"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"date_from": "2026-10-19", "date_to_exclusive": "2026-10-20"}}
+    },
+    {
+      "id": "unsupported_request",
+      "request_overrides": {"text": "Напиши стихотворение про осень"},
+      "expected": {"http_status": 400, "content_type": "application/problem+json", "code": "unsupported_intent"}
+    },
+    {
+      "id": "cancel_draft",
+      "setup": "Используйте context ответа meeting_missing_time.",
+      "request_overrides": {"text": "Отмени, ничего не создавай"},
+      "expected": {"http_status": 400, "content_type": "application/problem+json", "code": "unsupported_intent"}
+    }
+  ]
+}
