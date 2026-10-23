@@ -57,6 +57,9 @@ paths:
         проверенный action внутреннему сервису создания. Только после записи
         в PostgreSQL возвращается 201 с полной созданной записью в data.event.
         task_id обозначает диалог, data.event.id — отдельный ID записи.
+        В успешных ответах X-Task-Intent содержит проверенный intent AI.
+        Для уточнения это намерение продолжающегося диалога. В ответах с
+        ошибкой заголовок X-Task-Intent отсутствует.
         Повторная обработка того же task_id не гарантирует идемпотентность.
       requestBody:
         required: true
@@ -85,14 +88,29 @@ paths:
       responses:
         '200':
           description: |
-            Уточняющий вопрос либо результат list_events/search_events.
-            Отсутствие найденных записей — успешный ответ с data.items: [].
+            При status=needs_clarification возвращается TaskClarificationResponse;
+            X-Task-Intent показывает намерение диалога. При status=ok и
+            X-Task-Intent=list_events или search_events возвращается
+            TaskCollectionResponse. Отсутствие найденных записей — успешный
+            ответ с data.items: [].
+          headers:
+            X-Task-Intent:
+              description: Проверенный intent; при уточнении — намерение диалога.
+              required: true
+              schema:
+                type: string
+                enum: [create_event, list_events, search_events]
           content:
             application/json:
               schema:
                 oneOf:
                   - $ref: '#/components/schemas/TaskClarificationResponse'
                   - $ref: '#/components/schemas/TaskCollectionResponse'
+                discriminator:
+                  propertyName: status
+                  mapping:
+                    needs_clarification: '#/components/schemas/TaskClarificationResponse'
+                    ok: '#/components/schemas/TaskCollectionResponse'
               examples:
                 needsClarification:
                   summary: Время встречи ещё не указано
@@ -154,7 +172,17 @@ paths:
                     data:
                       items: []
         '201':
-          description: Событие создано и сохранено; data.event содержит фактическую запись PostgreSQL
+          description: |
+            X-Task-Intent=create_event. Событие создано и сохранено;
+            JSON имеет схему TaskCreatedResponse, data.event содержит
+            фактическую запись PostgreSQL.
+          headers:
+            X-Task-Intent:
+              description: Подтверждённое намерение создать запись.
+              required: true
+              schema:
+                type: string
+                enum: [create_event]
           content:
             application/json:
               schema:
@@ -691,8 +719,8 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
           example:
-            type: about:blank
-            title: Unauthorized
+            type: https://gorkycode.example/problems/invalid-credentials
+            title: Invalid credentials
             status: 401
             code: invalid_credentials
     SessionRequired:
