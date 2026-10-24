@@ -1,0 +1,738 @@
+openapi: 3.0.3
+info:
+  title: GorkyCode AI Service API
+  version: 1.0.0
+  description: |
+    Внутренний контракт backend ↔ AI-service. Backend передаёт уже распознанный
+    или введённый текст. AI определяет intent и возвращает данные для уточнения
+    либо action. AI не читает Redis и не выполняет действия в PostgreSQL.
+paths:
+  /health:
+    get:
+      tags: [Service]
+      operationId: aiHealth
+      summary: Проверить, что процесс AI-service работает
+      responses:
+        '200':
+          description: Процесс работает
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIHealthResponse'
+              example:
+                service: ai-service
+                status: ok
+  /api/job:
+    post:
+      tags: [AI]
+      operationId: processJob
+      summary: Определить намерение и подготовить действие
+      description: |
+        user_id и task_id возвращаются без изменений. Относительные даты
+        вычисляются по request_time и timezone. При needs_clarification
+        backend сохраняет context и задаёт пользователю message. При ready
+        backend валидирует action, выполняет его и после успешного выполнения
+        передаёт пользователю message без изменений.
+        Если пользователь сменил тему во время уточнения, AI не переносит
+        старый draft в новое действие и возвращает context только новой темы.
+        user_id и task_id при этом остаются прежними; backend перезаписывает
+        черновик либо завершает диалог по обычным правилам status.
+        Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobRequest'
+            examples:
+              firstRequest:
+                summary: Первая реплика
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                  text: Назначь встречу с Иваном завтра
+                  request_time: '2026-10-18T12:00:00+03:00'
+                  timezone: Europe/Moscow
+                  context: {}
+              clarificationReply:
+                summary: Ответ на уточнение
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                  text: 'В 15:00'
+                  request_time: '2026-10-18T12:00:20+03:00'
+                  timezone: Europe/Moscow
+                  context:
+                    recent_messages:
+                      - role: user
+                        text: Назначь встречу с Иваном завтра
+                      - role: assistant
+                        text: В какое время?
+                    draft:
+                      record_type: meeting
+                      title: Встреча с Иваном
+                      date: '2026-10-19'
+              contextSwitch:
+                summary: Новая тема вместо ответа на вопрос о встрече
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                  text: Создай задачу купить молоко завтра в 18:00
+                  request_time: '2026-10-18T12:01:00+03:00'
+                  timezone: Europe/Moscow
+                  context:
+                    recent_messages:
+                      - role: user
+                        text: Назначь встречу с Иваном завтра
+                      - role: assistant
+                        text: В какое время?
+                    draft:
+                      record_type: meeting
+                      title: Встреча с Иваном
+                      date: '2026-10-19'
+      responses:
+        '200':
+          description: Требуется уточнение либо подготовлено действие
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+              examples:
+                needsClarification:
+                  summary: AI просит указать время
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: needs_clarification
+                    intent: create_event
+                    message: В какое время?
+                    action: null
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Назначь встречу с Иваном завтра
+                        - role: assistant
+                          text: В какое время?
+                      draft:
+                        record_type: meeting
+                        title: Встреча с Иваном
+                        date: '2026-10-19'
+                readyCreateEvent:
+                  summary: Встреча готова к созданию
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: ready
+                    intent: create_event
+                    message: Встреча с Иваном назначена на завтра в 15:00.
+                    action:
+                      record_type: meeting
+                      title: Встреча с Иваном
+                      date: '2026-10-19'
+                      time: '15:00'
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Назначь встречу с Иваном завтра
+                        - role: assistant
+                          text: В какое время?
+                        - role: user
+                          text: 'В 15:00'
+                      draft: null
+                readyListEvents:
+                  summary: Границы выборки готовы
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: ready
+                    intent: list_events
+                    message: Проверил события на завтра.
+                    action:
+                      date_from: '2026-10-19'
+                      date_to_exclusive: '2026-10-20'
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Что у меня завтра?
+                      draft: null
+                readySearchEvents:
+                  summary: Поисковый запрос готов
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: ready
+                    intent: search_events
+                    message: Поиск встреч с Иваном завершён.
+                    action:
+                      query: Иван
+                      record_types: [meeting]
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Найди встречи с Иваном
+                      draft: null
+                readyAfterContextSwitch:
+                  summary: Старый draft отброшен, подготовлена новая задача
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: ready
+                    intent: create_event
+                    message: Задача купить молоко создана на завтра в 18:00.
+                    action:
+                      record_type: task
+                      title: Купить молоко
+                      date: '2026-10-19'
+                      time: '18:00'
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Создай задачу купить молоко завтра в 18:00
+                      draft: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+        default:
+          $ref: '#/components/responses/TechnicalError'
+  /api/embed:
+    post:
+      tags: [AI]
+      operationId: embedText
+      summary: Получить вектор текста для поиска задач
+      description: |
+        Backend передаёт исходный текст записи (document) либо поискового
+        запроса (query). AI-service применяет нужную для модели подготовку
+        текста и возвращает L2-нормализованный вектор. Вызов не создаёт
+        записи и не обращается к PostgreSQL или Redis.
+
+        Векторы document и query сравнимы только при одинаковых model и
+        model_version. Максимальный размер тела
+        запроса — 16 КиБ.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+            examples:
+              document:
+                summary: Текст сохранённой задачи
+                value:
+                  purpose: document
+                  text: Подготовить презентацию для команды
+              query:
+                summary: Поисковый запрос пользователя
+                value:
+                  purpose: query
+                  text: Найди задачу про слайды
+      responses:
+        '200':
+          description: Вектор вычислен; длина и версия модели пригодны для проверки backend
+          headers:
+            Cache-Control:
+              description: Ответ не должен сохраняться промежуточными кешами.
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+        default:
+          $ref: '#/components/responses/TechnicalError'
+components:
+  schemas:
+    AIHealthResponse:
+      type: object
+      additionalProperties: false
+      required: [service, status]
+      properties:
+        service:
+          type: string
+          enum: [ai-service]
+        status:
+          type: string
+          enum: [ok]
+    Problem:
+      type: object
+      additionalProperties: false
+      description: Техническая ошибка в формате RFC 9457 с кодом приложения.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        code:
+          type: string
+        detail:
+          type: string
+        instance:
+          type: string
+    EmbeddingRequest:
+      type: object
+      additionalProperties: false
+      required: [purpose, text]
+      properties:
+        purpose:
+          type: string
+          enum: [document, query]
+          description: |
+            Роль текста в поиске. Backend передаёт исходный текст без
+            модельных префиксов; AI-service добавляет их при необходимости.
+        text:
+          type: string
+          minLength: 1
+          description: После удаления пробелов по краям строка должна быть непустой.
+    EmbeddingResponse:
+      type: object
+      additionalProperties: false
+      required: [embedding, model, model_version]
+      properties:
+        embedding:
+          type: array
+          minItems: 384
+          maxItems: 384
+          description: |
+            L2-нормализованный вектор из 384 конечных чисел. Нулевой вектор
+            недопустим. Backend проверяет размер и значения до записи в БД.
+          items:
+            type: number
+            format: float
+        model:
+          type: string
+          minLength: 1
+          description: Идентификатор модели, использованной для вычисления вектора.
+          example: intfloat/multilingual-e5-small
+        model_version:
+          type: string
+          minLength: 1
+          description: |
+            Неизменяемый идентификатор версии весов, токенизатора и способа
+            подготовки и нормализации. При изменении требуется переиндексация.
+    JobRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, text, request_time, timezone, context]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: ID диалога; AI возвращает его без изменений.
+        text:
+          type: string
+          minLength: 1
+          description: Текст пользователя после STT или ввода на фронтенде.
+        request_time:
+          type: string
+          format: date-time
+          description: Время запроса в RFC 3339.
+        timezone:
+          type: string
+          minLength: 1
+          description: Часовой пояс пользователя в формате IANA.
+          example: Europe/Moscow
+        context:
+          $ref: '#/components/schemas/JobRequestContext'
+    JobRequestContext:
+      description: Пустой объект при первом запросе либо контекст из Redis при продолжении.
+      oneOf:
+        - $ref: '#/components/schemas/EmptyContext'
+        - $ref: '#/components/schemas/StoredContext'
+    EmptyContext:
+      type: object
+      additionalProperties: false
+      maxProperties: 0
+    StoredContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft]
+      properties:
+        recent_messages:
+          $ref: '#/components/schemas/RecentMessages'
+        draft:
+          description: Частично собранные данные соответствующего intent.
+          anyOf:
+            - $ref: '#/components/schemas/CreateEventDraft'
+            - $ref: '#/components/schemas/ListEventsDraft'
+            - $ref: '#/components/schemas/SearchEventsDraft'
+    RecentMessages:
+      type: array
+      minItems: 1
+      items:
+        $ref: '#/components/schemas/DialogueMessage'
+    DialogueMessage:
+      type: object
+      additionalProperties: false
+      required: [role, text]
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        text:
+          type: string
+          minLength: 1
+    JobResponse:
+      description: Бизнес-результат обработки реплики.
+      oneOf:
+        - $ref: '#/components/schemas/NeedsClarificationResponse'
+        - $ref: '#/components/schemas/ReadyResponse'
+    NeedsClarificationResponse:
+      oneOf:
+        - $ref: '#/components/schemas/ClarificationCreateEvent'
+        - $ref: '#/components/schemas/ClarificationListEvents'
+        - $ref: '#/components/schemas/ClarificationSearchEvents'
+    ClarificationBase:
+      type: object
+      required: [user_id, task_id, status, message, action]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [needs_clarification]
+        message:
+          type: string
+          minLength: 1
+          description: Вопрос, который backend передаёт пользователю.
+        action:
+          type: object
+          nullable: true
+          enum: [null]
+          description: При needs_clarification всегда null.
+    ClarificationCreateEvent:
+      allOf:
+        - $ref: '#/components/schemas/ClarificationBase'
+        - type: object
+          required: [intent, context]
+          properties:
+            intent:
+              type: string
+              enum: [create_event]
+            context:
+              $ref: '#/components/schemas/CreateEventContext'
+    ClarificationListEvents:
+      allOf:
+        - $ref: '#/components/schemas/ClarificationBase'
+        - type: object
+          required: [intent, context]
+          properties:
+            intent:
+              type: string
+              enum: [list_events]
+            context:
+              $ref: '#/components/schemas/ListEventsContext'
+    ClarificationSearchEvents:
+      allOf:
+        - $ref: '#/components/schemas/ClarificationBase'
+        - type: object
+          required: [intent, context]
+          properties:
+            intent:
+              type: string
+              enum: [search_events]
+            context:
+              $ref: '#/components/schemas/SearchEventsContext'
+    CreateEventContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft]
+      properties:
+        recent_messages:
+          $ref: '#/components/schemas/RecentMessages'
+        draft:
+          $ref: '#/components/schemas/CreateEventDraft'
+    ListEventsContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft]
+      properties:
+        recent_messages:
+          $ref: '#/components/schemas/RecentMessages'
+        draft:
+          $ref: '#/components/schemas/ListEventsDraft'
+    SearchEventsContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft]
+      properties:
+        recent_messages:
+          $ref: '#/components/schemas/RecentMessages'
+        draft:
+          $ref: '#/components/schemas/SearchEventsDraft'
+    CreateEventDraft:
+      type: object
+      additionalProperties: false
+      description: Поля заполняются по мере уточнения.
+      properties:
+        record_type:
+          $ref: '#/components/schemas/RecordType'
+        title:
+          type: string
+          minLength: 1
+        date:
+          type: string
+          format: date
+        time:
+          $ref: '#/components/schemas/LocalTime'
+    ListEventsDraft:
+      type: object
+      additionalProperties: false
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to_exclusive:
+          type: string
+          format: date
+        record_types:
+          $ref: '#/components/schemas/RecordTypes'
+    SearchEventsDraft:
+      type: object
+      additionalProperties: false
+      properties:
+        query:
+          type: string
+          minLength: 1
+        date_from:
+          type: string
+          format: date
+        date_to_exclusive:
+          type: string
+          format: date
+        record_types:
+          $ref: '#/components/schemas/RecordTypes'
+    ReadyResponse:
+      oneOf:
+        - $ref: '#/components/schemas/ReadyCreateEvent'
+        - $ref: '#/components/schemas/ReadyListEvents'
+        - $ref: '#/components/schemas/ReadySearchEvents'
+    ReadyBase:
+      type: object
+      required: [user_id, task_id, status, message, context]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [ready]
+        message:
+          type: string
+          minLength: 1
+          description: |
+            Сообщение для пользователя от AI-service. Backend передаёт его
+            без изменений только после успешного выполнения action. Для
+            list_events и search_events сообщение не утверждает, сколько
+            записей найдено: AI-service не видит результат запроса к БД.
+            После удаления пробелов по краям строка должна быть непустой.
+        context:
+          $ref: '#/components/schemas/ReadyContext'
+    ReadyContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft]
+      properties:
+        recent_messages:
+          $ref: '#/components/schemas/RecentMessages'
+        draft:
+          type: object
+          nullable: true
+          enum: [null]
+          description: При ready всегда null.
+    ReadyCreateEvent:
+      allOf:
+        - $ref: '#/components/schemas/ReadyBase'
+        - type: object
+          required: [intent, action]
+          properties:
+            intent:
+              type: string
+              enum: [create_event]
+            action:
+              $ref: '#/components/schemas/CreateEventAction'
+    ReadyListEvents:
+      allOf:
+        - $ref: '#/components/schemas/ReadyBase'
+        - type: object
+          required: [intent, action]
+          properties:
+            intent:
+              type: string
+              enum: [list_events]
+            action:
+              $ref: '#/components/schemas/ListEventsAction'
+    ReadySearchEvents:
+      allOf:
+        - $ref: '#/components/schemas/ReadyBase'
+        - type: object
+          required: [intent, action]
+          properties:
+            intent:
+              type: string
+              enum: [search_events]
+            action:
+              $ref: '#/components/schemas/SearchEventsAction'
+    CreateEventAction:
+      description: |
+        Для task, meeting и reminder обязательны record_type, title, date и time.
+        draft при уточнении может быть неполным; при ready action всегда полный.
+        Backend проверяет дату и время до сохранения.
+      oneOf:
+        - $ref: '#/components/schemas/TaskAction'
+        - $ref: '#/components/schemas/TimedEventAction'
+    TaskAction:
+      type: object
+      additionalProperties: false
+      required: [record_type, title, date, time]
+      properties:
+        record_type:
+          type: string
+          enum: [task]
+        title:
+          type: string
+          minLength: 1
+        date:
+          type: string
+          format: date
+        time:
+          $ref: '#/components/schemas/LocalTime'
+    TimedEventAction:
+      type: object
+      additionalProperties: false
+      required: [record_type, title, date, time]
+      properties:
+        record_type:
+          type: string
+          enum: [meeting, reminder]
+        title:
+          type: string
+          minLength: 1
+        date:
+          type: string
+          format: date
+        time:
+          $ref: '#/components/schemas/LocalTime'
+    ListEventsAction:
+      type: object
+      additionalProperties: false
+      required: [date_from, date_to_exclusive]
+      description: Backend проверяет date_from < date_to_exclusive.
+      properties:
+        date_from:
+          type: string
+          format: date
+        date_to_exclusive:
+          type: string
+          format: date
+        record_types:
+          $ref: '#/components/schemas/RecordTypes'
+    SearchEventsAction:
+      type: object
+      additionalProperties: false
+      required: [query]
+      description: |
+        Backend ищет по title без требования точного совпадения: как минимум
+        подстроку без учёта регистра. Поиск близких по смыслу формулировок
+        можно добавить отдельно. Если указаны обе границы периода, backend
+        проверяет date_from < date_to_exclusive.
+      properties:
+        query:
+          type: string
+          minLength: 1
+          description: После удаления пробелов по краям строка должна быть непустой.
+        date_from:
+          type: string
+          format: date
+        date_to_exclusive:
+          type: string
+          format: date
+        record_types:
+          $ref: '#/components/schemas/RecordTypes'
+    RecordType:
+      type: string
+      enum: [task, reminder, meeting]
+    RecordTypes:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      description: Если поле отсутствует, backend учитывает все типы.
+      items:
+        $ref: '#/components/schemas/RecordType'
+    LocalTime:
+      type: string
+      pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+      example: '15:00'
+  responses:
+    BadRequest:
+      description: Некорректный JSON или нарушен контракт запроса
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PayloadTooLarge:
+      description: Тело запроса превышает 16 КиБ
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnsupportedMediaType:
+      description: Content-Type отличается от application/json
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalError:
+      description: Внутренняя ошибка AI-service
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unavailable:
+      description: Модель или необходимая зависимость временно недоступна
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    GatewayTimeout:
+      description: Превышен лимит времени обработки запроса
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TechnicalError:
+      description: Другая техническая ошибка HTTP 4xx/5xx
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

@@ -1,0 +1,181 @@
+{
+  "kind": "functional requirements, not line/branch coverage",
+  "requirements": [
+    {
+      "id": "health",
+      "description": "Liveness и точная схема ответа",
+      "tests": [
+        "test_contract.*health*"
+      ]
+    },
+    {
+      "id": "openapi",
+      "description": "Канонический контракт, зеркала и развёрнутая OpenAPI",
+      "tests": [
+        "test_contract.*authoritative*"
+      ]
+    },
+    {
+      "id": "http",
+      "description": "Документация, 404/405 и Problem",
+      "tests": [
+        "test_contract.*documentation*",
+        "test_contract.*unknown_path*",
+        "test_contract.*wrong_methods*"
+      ]
+    },
+    {
+      "id": "job.validation",
+      "description": "Обязательные поля, UUID, RFC3339, IANA timezone, context/draft",
+      "tests": [
+        "test_validation.*"
+      ]
+    },
+    {
+      "id": "embed.validation",
+      "description": "Типы JSON, пустой текст, неизвестные и дополнительные поля",
+      "tests": [
+        "test_embeddings.*rejects*",
+        "test_embeddings.*invalid_json*",
+        "test_embeddings.*media*"
+      ]
+    },
+    {
+      "id": "embed.vector",
+      "description": "Реальный E5, 384 конечных числа, L2, модель и неизменяемая версия",
+      "tests": [
+        "test_embeddings.*both_purposes*"
+      ]
+    },
+    {
+      "id": "embed.preprocessing",
+      "description": "Префиксы query/document, NFC, trim, повторяемость, 512-token truncation",
+      "tests": [
+        "test_embeddings.*both_purposes*",
+        "test_embeddings.*repeatability*",
+        "test_embeddings.*truncation*"
+      ]
+    },
+    {
+      "id": "embed.body_limit",
+      "description": "16 КиБ, UTF-8 bytes и chunked transfer",
+      "tests": [
+        "test_embeddings.*16kib*",
+        "test_embeddings.*utf8_bytes*",
+        "test_embeddings.*chunked*"
+      ]
+    },
+    {
+      "id": "embed.capacity",
+      "description": "Настоящая CPU-нагрузка, 503 busy, disconnect и восстановление",
+      "tests": [
+        "test_embeddings.*saturation*",
+        "test_embeddings.*disconnect*"
+      ]
+    },
+    {
+      "id": "embed.timeout",
+      "description": "Медленная загрузка и реальный CPU timeout",
+      "tests": [
+        "test_embeddings.*slow_incomplete*",
+        "test_faults.*encoder_timeout*"
+      ]
+    },
+    {
+      "id": "dependencies",
+      "description": "Нет ключа, отключённые embeddings, отсутствующие веса, независимость job",
+      "tests": [
+        "test_faults.*missing_cloudru*",
+        "test_faults.*disabled_embeddings*",
+        "test_faults.*missing_weights*"
+      ]
+    },
+    {
+      "id": "cloud.auth_model",
+      "description": "Отказ настоящего Cloud.ru для неверного ключа и неизвестной модели",
+      "tests": [
+        "test_faults.*invalid_key*",
+        "test_faults.*unknown_model*"
+      ]
+    },
+    {
+      "id": "cloud.deadlines",
+      "description": "Дедлайны провайдера и всего job",
+      "tests": [
+        "test_faults.*provider_timeout*",
+        "test_faults.*job_deadline*"
+      ]
+    },
+    {
+      "id": "cloud.invalid_output",
+      "description": "500 при реально обрезанной completion; если не воспроизведено — skipped",
+      "tests": [
+        "test_faults.*truncated_real*"
+      ]
+    },
+    {
+      "id": "logs",
+      "description": "Логи настоящего процесса без текста пользователя и произвольных путей",
+      "tests": [
+        "test_faults.*logs_omit*"
+      ]
+    },
+    {
+      "id": "job.create",
+      "description": "Task, meeting, reminder, обязательные title/date/time и несколько уточнений",
+      "tests": [
+        "test_jobs.JobTests.*create*",
+        "test_jobs.JobTests.*ambiguous_time*",
+        "test_jobs.JobTests.*impossible_date*"
+      ]
+    },
+    {
+      "id": "job.dialogue",
+      "description": "Фактический context, смена темы, сохранение даты, изоляция ID",
+      "tests": [
+        "test_jobs.JobTests.*clarification*",
+        "test_jobs.JobTests.*topic*",
+        "test_jobs.JobTests.*parallel*"
+      ]
+    },
+    {
+      "id": "job.list_search",
+      "description": "List/search, фильтры, half-open интервалы, отсутствующая тема",
+      "tests": [
+        "test_jobs.JobTests.*list*",
+        "test_jobs.JobTests.*search*"
+      ]
+    },
+    {
+      "id": "job.calendar",
+      "description": "Timezone, полночь, граница года и високосный день",
+      "tests": [
+        "test_jobs.JobTests.*timezone*",
+        "test_jobs.JobTests.*midnight*",
+        "test_jobs.JobTests.*year_boundary*",
+        "test_jobs.JobTests.*leap_day*"
+      ]
+    },
+    {
+      "id": "job.unsupported_injection",
+      "description": "Неподдерживаемые операции, отмена и prompt injection",
+      "tests": [
+        "test_jobs.JobTests.*unsupported*",
+        "test_jobs.JobTests.*cancel*",
+        "test_jobs.JobTests.*injection*"
+      ]
+    },
+    {
+      "id": "job.extraction",
+      "description": "42 реальных LLM-проверки: темы, отрицания, имена, коды, фильтры, injection",
+      "tests": [
+        "test_jobs.ExtractionTests.*"
+      ]
+    },
+    {
+      "id": "upstream.rare",
+      "description": "429/quota, произвольные 5xx провайдера и внутренние исключения без подмен не форсируются",
+      "tests": []
+    }
+  ]
+}

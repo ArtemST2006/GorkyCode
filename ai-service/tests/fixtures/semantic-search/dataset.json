@@ -1,0 +1,982 @@
+{
+  "dataset_version": 1,
+  "synthetic": true,
+  "split_policy": {
+    "seed": 20261022,
+    "method": "explicit frozen split before encoding; no reshuffling or tuning on evaluation"
+  },
+  "quality_scope": "Encoder ranking over the whole fixed corpus without backend metadata filters; backend fixtures are separate and pending real SQL E2E.",
+  "documents": [
+    {
+      "id": "d001",
+      "title": "Записаться к стоматологу",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-21",
+      "time": "10:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d002",
+      "title": "Заменить тормозные колодки автомобиля",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-22",
+      "time": "11:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d003",
+      "title": "Купить молоко и творог",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-23",
+      "time": "12:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d004",
+      "title": "Подготовить квартальный отчёт по продажам",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-24",
+      "time": "13:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d005",
+      "title": "Согласовать бюджет маркетинга",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-25",
+      "time": "14:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d006",
+      "title": "Обсудить с Иваном запуск сайта",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-26",
+      "time": "15:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d007",
+      "title": "Забронировать авиабилеты в Казань",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": null,
+      "time": null,
+      "status": "active"
+    },
+    {
+      "id": "d008",
+      "title": "Продлить страховку квартиры",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-28",
+      "time": "17:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d009",
+      "title": "Оплатить электричество",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-29",
+      "time": "18:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d010",
+      "title": "Отвезти кота на прививку",
+      "user_id": "00000000-0000-4000-8000-000000000002",
+      "type": "task",
+      "date": "2026-10-20",
+      "time": "09:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d011",
+      "title": "Выбрать подарок маме на день рождения",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-21",
+      "time": "10:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d012",
+      "title": "Починить протекающий кран",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-22",
+      "time": "11:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d013",
+      "title": "Отправить резюме на вакансию аналитика",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-23",
+      "time": "12:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d014",
+      "title": "Проверить домашнее задание сына по алгебре",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": null,
+      "time": null,
+      "status": "active"
+    },
+    {
+      "id": "d015",
+      "title": "Записаться на стрижку",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-25",
+      "time": "14:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d016",
+      "title": "Забрать посылку из пункта выдачи",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-26",
+      "time": "15:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d017",
+      "title": "Провести собеседование с разработчиком",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-27",
+      "time": "16:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d018",
+      "title": "Продлить загранпаспорт",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-28",
+      "time": "17:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d019",
+      "title": "Заказать картридж для принтера",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-29",
+      "time": "18:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d020",
+      "title": "Приготовить презентацию для инвесторов",
+      "user_id": "00000000-0000-4000-8000-000000000002",
+      "type": "meeting",
+      "date": "2026-10-20",
+      "time": "09:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d021",
+      "title": "Сделать резервную копию базы данных",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": null,
+      "time": null,
+      "status": "active"
+    },
+    {
+      "id": "d022",
+      "title": "Оплатить абонемент в бассейн",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-22",
+      "time": "11:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d023",
+      "title": "Вернуть книгу в библиотеку",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-23",
+      "time": "12:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d024",
+      "title": "Пересадить комнатные растения",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-24",
+      "time": "13:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d025",
+      "title": "Сдать анализ крови",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-25",
+      "time": "14:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d026",
+      "title": "Установить зимние шины",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-26",
+      "time": "15:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d027",
+      "title": "Настроить двухфакторную аутентификацию",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-27",
+      "time": "16:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d028",
+      "title": "Подписать договор аренды офиса",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": null,
+      "time": null,
+      "status": "completed"
+    },
+    {
+      "id": "d029",
+      "title": "Встретиться с Анной по дизайну логотипа",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-29",
+      "time": "18:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d030",
+      "title": "Проверить исправление ошибки BUG-731",
+      "user_id": "00000000-0000-4000-8000-000000000002",
+      "type": "reminder",
+      "date": "2026-10-20",
+      "time": "09:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d031",
+      "title": "Обновить отчёт Q3",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-21",
+      "time": "10:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d032",
+      "title": "Купить корм для кота",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-22",
+      "time": "11:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d033",
+      "title": "Проверить давление в шинах",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-23",
+      "time": "12:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d034",
+      "title": "Обсудить с Иваном закупку серверов",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": null,
+      "time": null,
+      "status": "active"
+    },
+    {
+      "id": "d035",
+      "title": "Оформить полис ОСАГО",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": null,
+      "time": null,
+      "status": "active"
+    },
+    {
+      "id": "d036",
+      "title": "Оплатить воду",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-26",
+      "time": "15:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d037",
+      "title": "Купить краску для кухни",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-27",
+      "time": "16:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d038",
+      "title": "Удалить старые резервные копии",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-28",
+      "time": "17:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d039",
+      "title": "Подготовить отчёт по расходам",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-29",
+      "time": "18:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d040",
+      "title": "Создать макет мобильного приложения",
+      "user_id": "00000000-0000-4000-8000-000000000002",
+      "type": "task",
+      "date": "2026-10-20",
+      "time": "09:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d041",
+      "title": "Забронировать гостиницу в Казани",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-21",
+      "time": "10:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d042",
+      "title": "Пройти плановый осмотр у терапевта",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": null,
+      "time": null,
+      "status": "active"
+    },
+    {
+      "id": "d043",
+      "title": "Заказать доставку овощей",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-23",
+      "time": "12:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d044",
+      "title": "Записаться на курс английского",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-24",
+      "time": "13:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d045",
+      "title": "Обновить сертификат TLS",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-25",
+      "time": "14:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d046",
+      "title": "Починить велосипед",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-26",
+      "time": "15:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d047",
+      "title": "Согласовать скидку 10% клиенту",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-27",
+      "time": "16:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d048",
+      "title": "Проверить импорт файла data_2026.csv",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-28",
+      "time": "17:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d049",
+      "title": "Обновить пароль Admin!2026",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": null,
+      "time": null,
+      "status": "active"
+    },
+    {
+      "id": "d050",
+      "title": "Встреча с Петровым по контракту ACME-42",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-20",
+      "time": "09:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d051",
+      "title": "Купить билет на поезд до Самары",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-21",
+      "time": "10:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d052",
+      "title": "Закрыть задолженность по кредитной карте",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-22",
+      "time": "11:00:00",
+      "status": "completed"
+    },
+    {
+      "id": "d053",
+      "title": "Отнести обувь в ремонт",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-23",
+      "time": "12:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d054",
+      "title": "Проверить доставку заказа ZX-908",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-24",
+      "time": "13:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d055",
+      "title": "Оплатить детский сад",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-25",
+      "time": "14:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d056",
+      "title": "Позвонить бабушке",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": null,
+      "time": null,
+      "status": "completed"
+    },
+    {
+      "id": "d057",
+      "title": "Поменять батарейку в наручных часах",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "reminder",
+      "date": "2026-10-27",
+      "time": "16:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d058",
+      "title": "Организовать переезд в новый офис",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "task",
+      "date": "2026-10-28",
+      "time": "17:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d059",
+      "title": "Выбрать детское автокресло",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "type": "meeting",
+      "date": "2026-10-29",
+      "time": "18:00:00",
+      "status": "active"
+    },
+    {
+      "id": "d060",
+      "title": "Проверить лечение зуба после установки пломбы",
+      "user_id": "00000000-0000-4000-8000-000000000002",
+      "type": "reminder",
+      "date": "2026-10-20",
+      "time": "09:00:00",
+      "status": "completed"
+    }
+  ],
+  "queries": [
+    {
+      "id": "cal01",
+      "split": "calibration",
+      "text": "нужно заняться зубами",
+      "expected_ids": [
+        "d001",
+        "d060"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "cal02",
+      "split": "calibration",
+      "text": "обслуживание машины, чтобы она лучше останавливалась",
+      "expected_ids": [
+        "d002"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "cal03",
+      "split": "calibration",
+      "text": "еда из молочных продуктов",
+      "expected_ids": [
+        "d003"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "cal04",
+      "split": "calibration",
+      "text": "сколько заработали за три месяца",
+      "expected_ids": [
+        "d004"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "cal05",
+      "split": "calibration",
+      "text": "финансирование рекламы",
+      "expected_ids": [
+        "d005"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "cal06",
+      "split": "calibration",
+      "text": "Иван",
+      "expected_ids": [
+        "d006",
+        "d034"
+      ],
+      "category": "name"
+    },
+    {
+      "id": "cal07",
+      "split": "calibration",
+      "text": "перелёт в столицу Татарстана",
+      "expected_ids": [
+        "d007"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "cal08",
+      "split": "calibration",
+      "text": "свет: внести деньги за потребление",
+      "expected_ids": [
+        "d009"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "cal09",
+      "split": "calibration",
+      "text": "иммунизация домашнего питомца",
+      "expected_ids": [
+        "d010"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "cal10",
+      "split": "calibration",
+      "text": "презент для родительницы",
+      "expected_ids": [
+        "d011"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "cal11",
+      "split": "calibration",
+      "text": "ремонт сантехники из-за течи",
+      "expected_ids": [
+        "d012"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "cal12",
+      "split": "calibration",
+      "text": "BUG-731",
+      "expected_ids": [
+        "d030"
+      ],
+      "category": "code"
+    },
+    {
+      "id": "cal13",
+      "split": "calibration",
+      "text": "Подготовить квартальный отчёт по продажам",
+      "expected_ids": [
+        "d004"
+      ],
+      "category": "exact_phrase"
+    },
+    {
+      "id": "cal14",
+      "split": "calibration",
+      "text": "10%",
+      "expected_ids": [
+        "d047"
+      ],
+      "category": "literal_special"
+    },
+    {
+      "id": "cal15",
+      "split": "calibration",
+      "text": "полететь на Юпитер",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "cal16",
+      "split": "calibration",
+      "text": "перевести древнеегипетский папирус",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "cal17",
+      "split": "calibration",
+      "text": "проверить настройку нейтронного реактора",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "cal18",
+      "split": "calibration",
+      "text": "записать альбом тяжёлого металла",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "cal19",
+      "split": "calibration",
+      "text": "купить седло для верблюда",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "cal20",
+      "split": "calibration",
+      "text": "оформить лицензию на добычу алмазов",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "eva01",
+      "split": "evaluation",
+      "text": "поиск новой работы: отправить сведения об опыте",
+      "expected_ids": [
+        "d013"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "eva02",
+      "split": "evaluation",
+      "text": "школьная математика ребёнка",
+      "expected_ids": [
+        "d014"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "eva03",
+      "split": "evaluation",
+      "text": "укоротить волосы",
+      "expected_ids": [
+        "d015"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "eva04",
+      "split": "evaluation",
+      "text": "получить отправление",
+      "expected_ids": [
+        "d016"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "eva05",
+      "split": "evaluation",
+      "text": "нанять программиста: поговорить с кандидатом",
+      "expected_ids": [
+        "d017"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "eva06",
+      "split": "evaluation",
+      "text": "документ для выезда за границу",
+      "expected_ids": [
+        "d018"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "eva07",
+      "split": "evaluation",
+      "text": "расходники для печати",
+      "expected_ids": [
+        "d019"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "eva08",
+      "split": "evaluation",
+      "text": "слайды для тех, кто вложит деньги",
+      "expected_ids": [
+        "d020"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "eva09",
+      "split": "evaluation",
+      "text": "защитить данные от потери",
+      "expected_ids": [
+        "d021"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "eva10",
+      "split": "evaluation",
+      "text": "плавание: оплатить посещения",
+      "expected_ids": [
+        "d022"
+      ],
+      "category": "paraphrase"
+    },
+    {
+      "id": "eva11",
+      "split": "evaluation",
+      "text": "Анна",
+      "expected_ids": [
+        "d029"
+      ],
+      "category": "name"
+    },
+    {
+      "id": "eva12",
+      "split": "evaluation",
+      "text": "ACME-42",
+      "expected_ids": [
+        "d050"
+      ],
+      "category": "code"
+    },
+    {
+      "id": "eva13",
+      "split": "evaluation",
+      "text": "Сдать анализ крови",
+      "expected_ids": [
+        "d025"
+      ],
+      "category": "exact_phrase"
+    },
+    {
+      "id": "eva14",
+      "split": "evaluation",
+      "text": "data_2026.csv",
+      "expected_ids": [
+        "d048"
+      ],
+      "category": "literal_special"
+    },
+    {
+      "id": "eva15",
+      "split": "evaluation",
+      "text": "отправиться на охоту за северным сиянием",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "eva16",
+      "split": "evaluation",
+      "text": "починить телескоп в обсерватории",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "eva17",
+      "split": "evaluation",
+      "text": "согласовать рецепт лекарства для слона",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "eva18",
+      "split": "evaluation",
+      "text": "подготовить судебный иск о наследстве",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "eva19",
+      "split": "evaluation",
+      "text": "провести дегустацию аргентинских вин",
+      "expected_ids": [],
+      "category": "no_match"
+    },
+    {
+      "id": "eva20",
+      "split": "evaluation",
+      "text": "купить арбалет для соревнований",
+      "expected_ids": [],
+      "category": "no_match"
+    }
+  ],
+  "backend_literal_cases": [
+    {
+      "id": "literal-percent",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "query": "10%",
+      "expected_literal_ids": [
+        "d047"
+      ]
+    },
+    {
+      "id": "literal-underscore",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "query": "data_2026.csv",
+      "expected_literal_ids": [
+        "d048"
+      ]
+    },
+    {
+      "id": "literal-exclamation",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "query": "Admin!2026",
+      "expected_literal_ids": [
+        "d049"
+      ]
+    },
+    {
+      "id": "both-statuses-and-null-date",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "query": "Иваном",
+      "expected_literal_ids": [
+        "d006",
+        "d034"
+      ]
+    },
+    {
+      "id": "strict-from-inclusive",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "query": "Иваном",
+      "date_from": "2026-10-26",
+      "record_types": [
+        "meeting"
+      ],
+      "expected_literal_ids": [
+        "d006"
+      ]
+    },
+    {
+      "id": "strict-to-exclusive",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "query": "Иваном",
+      "date_to_exclusive": "2026-10-26",
+      "expected_literal_ids": []
+    },
+    {
+      "id": "strict-type",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "query": "Иваном",
+      "record_types": [
+        "task"
+      ],
+      "expected_literal_ids": []
+    },
+    {
+      "id": "isolate-user-one",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "query": "презентацию для инвесторов",
+      "expected_literal_ids": []
+    },
+    {
+      "id": "isolate-user-two",
+      "user_id": "00000000-0000-4000-8000-000000000002",
+      "query": "презентацию для инвесторов",
+      "expected_literal_ids": [
+        "d020"
+      ]
+    },
+    {
+      "id": "empty-items",
+      "user_id": "00000000-0000-4000-8000-000000000001",
+      "query": "несуществующая буквальная строка",
+      "expected_literal_ids": []
+    }
+  ],
+  "backend_acceptance_pending": [
+    "Apply the same user_id, type and half-open date filters to both branches before ranking; active and completed included; NULL dates match only absent date bounds.",
+    "Preserve all existing literal ILIKE matches with escaped %, _, !; append semantic candidates using team-agreed ordering/limit, never impose a new total top-20.",
+    "Deduplicate literal and semantic branches by task ID.",
+    "Return items:[] for no results; keep nonblank ready.message byte-for-byte after successful action, without generated counts; do not send success message on failure.",
+    "Reject incompatible model/model_version before SQL distance or INSERT; validate dimensions, finite values and normalization.",
+    "Run actual PostgreSQL, Go client, authenticated ownership and full public response checks when backend is ready."
+  ]
+}

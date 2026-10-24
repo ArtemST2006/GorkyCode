@@ -1,29 +1,20 @@
-"""Temporary AI-service process for local Compose startup."""
+"""Compatibility entrypoint for the existing Docker Compose service."""
 
-import json
-import os
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import logging
 
+import uvicorn
 
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path != "/health":
-            self._json(404, {"error": "not_found"})
-            return
-        self._json(200, {"service": "ai-service", "status": "ok"})
-
-    def do_POST(self):
-        self._json(501, {"error": "ai_service_not_implemented"})
-
-    def _json(self, status, payload):
-        data = json.dumps(payload).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+from app.core.config import Settings
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8090"))
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    settings = Settings()
+    logging.basicConfig(level=settings.log_level, format="%(levelname)s %(name)s %(message)s")
+    # HTTP access logging includes raw URLs; the app records only matched routes.
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=settings.port,
+        log_level=settings.log_level.lower(),
+        access_log=False,
+    )
