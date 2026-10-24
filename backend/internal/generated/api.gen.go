@@ -129,6 +129,21 @@ func (e TaskCreatedResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for TaskDeleteCandidatesResponseStatus.
+const (
+	Candidates TaskDeleteCandidatesResponseStatus = "candidates"
+)
+
+// Valid indicates whether the value is a known member of the TaskDeleteCandidatesResponseStatus enum.
+func (e TaskDeleteCandidatesResponseStatus) Valid() bool {
+	switch e {
+	case Candidates:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskItemRecordType.
 const (
 	TaskItemRecordTypeMeeting  TaskItemRecordType = "meeting"
@@ -162,6 +177,21 @@ func (e TaskItemStatus) Valid() bool {
 	case TaskItemStatusActive:
 		return true
 	case TaskItemStatusCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TasksDeletedResponseStatus.
+const (
+	Deleted TasksDeletedResponseStatus = "deleted"
+)
+
+// Valid indicates whether the value is a known member of the TasksDeletedResponseStatus enum.
+func (e TasksDeletedResponseStatus) Valid() bool {
+	switch e {
+	case Deleted:
 		return true
 	default:
 		return false
@@ -235,7 +265,7 @@ type TaskAudioRequest struct {
 	// конфигурацией backend; другие аудиоформаты отклоняются.
 	File openapi_types.File `json:"file"`
 
-	// TaskId Необязательное текстовое поле для продолжения диалога.
+	// TaskId Необязательное текстовое поле для продолжения диалога, включая on_delete.
 	TaskId *openapi_types.UUID `json:"task_id,omitempty"`
 
 	// UserId Текстовое поле multipart/form-data; должен совпадать с владельцем Bearer-сессии.
@@ -343,6 +373,44 @@ type TaskCreatedResponse struct {
 // TaskCreatedResponseStatus defines model for TaskCreatedResponse.Status.
 type TaskCreatedResponseStatus string
 
+// TaskDeleteCandidate defines model for TaskDeleteCandidate.
+type TaskDeleteCandidate struct {
+	// Event Представление записи tasks для клиента. Значения record_type на API
+	// совпадают с AI-контрактом и со значениями колонки tasks.type
+	// в PostgreSQL (meeting, task, reminder).
+	Event TaskItem `json:"event"`
+
+	// Number Номер для ответа пользователя, стабильный в этом диалоге.
+	Number int `json:"number"`
+}
+
+// TaskDeleteCandidatesData defines model for TaskDeleteCandidatesData.
+type TaskDeleteCandidatesData struct {
+	// Candidates Все найденные записи со стабильными номерами.
+	Candidates []TaskDeleteCandidate `json:"candidates"`
+}
+
+// TaskDeleteCandidatesResponse Ответ on_delete после поиска. Список кандидатов формирует backend
+// только из записей владельца действующей сессии. Он возвращается
+// даже при одном кандидате; пустой массив означает, что нужен новый
+// текст с уточнёнными признаками и тем же task_id. Пользователь может
+// выбрать один, несколько или все показанные номера. Список с номерами
+// сохраняется в Redis до подтверждения.
+type TaskDeleteCandidatesResponse struct {
+	Data TaskDeleteCandidatesData `json:"data"`
+
+	// Message Сообщение backend после фактического поиска.
+	Message string                             `json:"message"`
+	Status  TaskDeleteCandidatesResponseStatus `json:"status"`
+
+	// TaskId ID диалога для следующего запроса, не ID строки tasks.
+	TaskId openapi_types.UUID `json:"task_id"`
+	UserId openapi_types.UUID `json:"user_id"`
+}
+
+// TaskDeleteCandidatesResponseStatus defines model for TaskDeleteCandidatesResponse.Status.
+type TaskDeleteCandidatesResponseStatus string
+
 // TaskItem Представление записи tasks для клиента. Значения record_type на API
 // совпадают с AI-контрактом и со значениями колонки tasks.type
 // в PostgreSQL (meeting, task, reminder).
@@ -369,8 +437,8 @@ type TaskItemStatus string
 
 // TaskTextRequest defines model for TaskTextRequest.
 type TaskTextRequest struct {
-	// TaskId Передаётся только при ответе на уточнение. Backend ищет context
-	// в Redis по паре user_id и task_id.
+	// TaskId Передаётся при ответе на уточнение или выборе кандидата on_delete.
+	// Backend ищет context в Redis по паре user_id и task_id.
 	TaskId *openapi_types.UUID `json:"task_id,omitempty"`
 
 	// Text После удаления пробелов по краям строка должна быть непустой.
@@ -379,6 +447,31 @@ type TaskTextRequest struct {
 	// UserId Должен совпадать с владельцем Bearer-сессии.
 	UserId openapi_types.UUID `json:"user_id"`
 }
+
+// TasksDeletedData defines model for TasksDeletedData.
+type TasksDeletedData struct {
+	// DeletedEvents Все удалённые строки tasks, в порядке подтверждённых ID.
+	DeletedEvents []TaskItem `json:"deleted_events"`
+}
+
+// TasksDeletedResponse Ответ on_delete только после удаления всех выбранных строк пользователя
+// в PostgreSQL одной транзакцией. Backend проверяет каждый ID из
+// action.task_ids по сохранённому списку кандидатов и владельцу сессии;
+// при устаревшем выборе возвращает 409 без частичного удаления.
+type TasksDeletedResponse struct {
+	Data TasksDeletedData `json:"data"`
+
+	// Message Сообщение backend об успешно удалённых записях.
+	Message string                     `json:"message"`
+	Status  TasksDeletedResponseStatus `json:"status"`
+
+	// TaskId ID диалога, не ID удалённой строки tasks.
+	TaskId openapi_types.UUID `json:"task_id"`
+	UserId openapi_types.UUID `json:"user_id"`
+}
+
+// TasksDeletedResponseStatus defines model for TasksDeletedResponse.Status.
+type TasksDeletedResponseStatus string
 
 // User defines model for User.
 type User struct {
@@ -515,6 +608,74 @@ func (t *ProcessTask200JSONResponseBody) MergeTaskCollectionResponse(v TaskColle
 	return err
 }
 
+// AsTaskDeleteCandidatesResponse returns the union data inside the ProcessTask200JSONResponseBody as a TaskDeleteCandidatesResponse
+func (t ProcessTask200JSONResponseBody) AsTaskDeleteCandidatesResponse() (TaskDeleteCandidatesResponse, error) {
+	var body TaskDeleteCandidatesResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTaskDeleteCandidatesResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskDeleteCandidatesResponse
+func (t *ProcessTask200JSONResponseBody) FromTaskDeleteCandidatesResponse(v TaskDeleteCandidatesResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"candidates"}`))
+	t.union = b
+	return err
+}
+
+// MergeTaskDeleteCandidatesResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TaskDeleteCandidatesResponse
+func (t *ProcessTask200JSONResponseBody) MergeTaskDeleteCandidatesResponse(v TaskDeleteCandidatesResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"candidates"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTasksDeletedResponse returns the union data inside the ProcessTask200JSONResponseBody as a TasksDeletedResponse
+func (t ProcessTask200JSONResponseBody) AsTasksDeletedResponse() (TasksDeletedResponse, error) {
+	var body TasksDeletedResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTasksDeletedResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TasksDeletedResponse
+func (t *ProcessTask200JSONResponseBody) FromTasksDeletedResponse(v TasksDeletedResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"deleted"}`))
+	t.union = b
+	return err
+}
+
+// MergeTasksDeletedResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TasksDeletedResponse
+func (t *ProcessTask200JSONResponseBody) MergeTasksDeletedResponse(v TasksDeletedResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"deleted"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t ProcessTask200JSONResponseBody) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"status"`
@@ -529,6 +690,10 @@ func (t ProcessTask200JSONResponseBody) ValueByDiscriminator() (interface{}, err
 		return nil, err
 	}
 	switch discriminator {
+	case "candidates":
+		return t.AsTaskDeleteCandidatesResponse()
+	case "deleted":
+		return t.AsTasksDeletedResponse()
 	case "needs_clarification":
 		return t.AsTaskClarificationResponse()
 	case "ok":

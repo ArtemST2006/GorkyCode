@@ -91,3 +91,18 @@ func TestValidateAIResult(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateDeleteActionRejectsUnknownFields(t *testing.T) {
+	for _, body := range []string{
+		`{"phase":"find_candidates","title_query":"Иван","date_from":null,"date_to_exclusive":null,"time_from":null,"time_to_exclusive":null,"record_types":null,"debug":true}`,
+		`{"phase":"delete_confirmed","task_ids":["2d7f8e0b-2fae-4b46-835a-675f748f3b11"],"debug":true}`,
+	} {
+		var action map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(body), &action); err != nil {
+			t.Fatal(err)
+		}
+		if err := validateDeleteAction(action); err == nil || !strings.Contains(err.Error(), "unsupported fields") {
+			t.Fatalf("validation error = %v for %s", err, body)
+		}
+	}
+}
