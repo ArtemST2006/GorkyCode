@@ -97,12 +97,27 @@ func writeTaskResult(w http.ResponseWriter, r *http.Request, log *slog.Logger, r
 			return
 		}
 		status = http.StatusCreated
+	case *api.TaskDeleteCandidatesResponse:
+		if result.Intent != "on_delete" {
+			log.ErrorContext(r.Context(), "Invalid intent for delete candidates", slog.String("intent", result.Intent))
+			apierr.Write(w, r, apierr.TaskInternal())
+			return
+		}
+		status = http.StatusOK
+	case *api.TasksDeletedResponse:
+		if result.Intent != "on_delete" {
+			log.ErrorContext(r.Context(), "Invalid intent for deleted tasks", slog.String("intent", result.Intent))
+			apierr.Write(w, r, apierr.TaskInternal())
+			return
+		}
+		status = http.StatusOK
 	default:
 		log.ErrorContext(r.Context(), "Unexpected task result type", slog.Any("type", result.Body))
 		apierr.Write(w, r, apierr.TaskInternal())
 		return
 	}
-	if result.Intent != "create_event" && result.Intent != "list_events" && result.Intent != "search_events" {
+	if result.Intent != "create_event" && result.Intent != "list_events" &&
+		result.Intent != "search_events" && result.Intent != "on_delete" {
 		log.ErrorContext(r.Context(), "Unexpected task intent", slog.String("intent", result.Intent))
 		apierr.Write(w, r, apierr.TaskInternal())
 		return
@@ -129,6 +144,8 @@ func writeTaskError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, model.ErrDraftNotFound), errors.Is(err, model.ErrUserNotFound):
 		apierr.Write(w, r, apierr.NotFound("Запрос или пользователь не найден."))
+	case errors.Is(err, model.ErrStaleSelection):
+		apierr.Write(w, r, apierr.Conflict("Выбранные записи устарели или больше недоступны."))
 	case errors.Is(err, model.ErrGatewayTimeout):
 		apierr.Write(w, r, apierr.GatewayTimeout())
 	case errors.Is(err, model.ErrBadGateway), errors.Is(err, model.ErrInvalidAction):

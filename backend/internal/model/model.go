@@ -2,6 +2,7 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"time"
@@ -28,7 +29,29 @@ var (
 	ErrServiceUnavailable = errors.New("upstream service unavailable")
 	// ErrInvalidAction marks an invalid action returned by the AI service.
 	ErrInvalidAction = errors.New("invalid action")
+	// ErrStaleSelection marks a delete selection that no longer matches the
+	// shown candidates or the session owner.
+	ErrStaleSelection = errors.New("selected tasks are missing or outdated")
 )
+
+// EmbeddingDimension must match the vector(384) column in task_embeddings
+// and the /api/embed contract.
+const EmbeddingDimension = 384
+
+// EmbeddingResult is a computed embedding with the model identity that makes
+// vectors comparable.
+type EmbeddingResult struct {
+	Vector  []float32
+	Model   string
+	Version string
+}
+
+// Embedder computes embeddings for semantic task search. The values of
+// purpose are the /api/embed roles: "document" for stored task text and
+// "query" for user search strings.
+type Embedder interface {
+	Embed(ctx context.Context, purpose, text string) (EmbeddingResult, error)
+}
 
 // User is a registered user.
 type User struct {

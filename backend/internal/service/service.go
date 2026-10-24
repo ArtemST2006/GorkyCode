@@ -15,8 +15,10 @@ type Repositories interface {
 	DraftStore
 	TimezoneStore
 	subservice.TaskCreateRepository
+	subservice.EmbeddingStore
 	subservice.TaskLister
 	subservice.TaskSearcher
+	subservice.TaskDeleteRepository
 }
 
 // Services groups application services for HTTP wiring.
@@ -25,16 +27,20 @@ type Services struct {
 	*AuthService
 	*TaskProcess
 	*subservice.TaskCreate
+	*subservice.TaskDelete
 }
 
 // New constructs all services from the repository bundle.
 func New(repo Repositories, queryTimeout, sessionTTL time.Duration, rec *voice.Recognizer, aiServiceURL string) *Services {
-	taskCreate := subservice.NewTaskCreateService(repo)
+	embedder := NewAIEmbedder(aiServiceURL)
+	taskCreate := subservice.NewTaskCreateService(repo, repo, embedder)
 	eventReader := subservice.NewLister(repo)
+	taskDelete := subservice.NewTaskDeleteService(repo, embedder)
 	return &Services{
 		HealthService: NewHealthService(repo, queryTimeout),
 		AuthService:   NewAuthService(repo, repo, queryTimeout, sessionTTL),
-		TaskProcess:   NewTaskProcess(rec, repo, repo, taskCreate, eventReader, aiServiceURL),
+		TaskProcess:   NewTaskProcess(rec, repo, repo, taskCreate, eventReader, taskDelete, aiServiceURL),
 		TaskCreate:    taskCreate,
+		TaskDelete:    taskDelete,
 	}
 }
