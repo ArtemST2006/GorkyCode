@@ -47,6 +47,7 @@ type fakeDraftStore struct {
 
 	called bool
 	key    string
+	saved  map[string]string
 }
 
 type fakeTimezoneStore struct {
@@ -71,6 +72,10 @@ func (f *fakeDraftStore) PutDraft(_ context.Context, key, value string) error {
 	f.called = true
 	f.key = key
 	f.value = value
+	if f.saved == nil {
+		f.saved = map[string]string{}
+	}
+	f.saved[key] = value
 	return f.err
 }
 
@@ -105,6 +110,7 @@ type aiStub struct {
 	t      *testing.T
 	status int
 	body   string
+	header string // X-Task-Intent of the reply, e.g. on_delete
 	got    *ai.JobRequest
 	calls  int
 }
@@ -123,6 +129,9 @@ func (s *aiStub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if s.header != "" {
+		w.Header().Set("X-Task-Intent", s.header)
+	}
 	w.WriteHeader(s.status)
 	if _, err := io.WriteString(w, s.body); err != nil {
 		s.t.Errorf("write AI response: %v", err)
@@ -133,7 +142,7 @@ func newTestTaskProcess(t *testing.T, stt STT, draft DraftStore, aiHandler http.
 	t.Helper()
 	server := httptest.NewServer(aiHandler)
 	t.Cleanup(server.Close)
-	return NewTaskProcess(stt, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, nil, server.URL)
+	return NewTaskProcess(stt, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, nil, nil, server.URL)
 }
 
 // newAudioRequest builds a TaskAudioRequest whose file is backed by a multipart header.
@@ -228,7 +237,7 @@ func TestTaskProcessUsesSavedTimezone(t *testing.T) {
 	stub := &aiStub{t: t, status: http.StatusOK, body: `{"status":"invalid"}`, got: got}
 	server := httptest.NewServer(stub)
 	t.Cleanup(server.Close)
-	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Asia/Tokyo"}, &fakeTaskCreator{}, nil, server.URL)
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Asia/Tokyo"}, &fakeTaskCreator{}, nil, nil, server.URL)
 
 	_, _ = process.Process(t.Context(), &api.TaskTextRequest{UserId: uuid.New(), Text: "привет"})
 	if got.Timezone != "Asia/Tokyo" {
@@ -257,6 +266,7 @@ func TestTaskProcessCreatesEvent(t *testing.T) {
 		&fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`},
 		&fakeTimezoneStore{timezone: "Asia/Tokyo"},
 		creator,
+		nil,
 		nil,
 		server.URL,
 	)
@@ -323,6 +333,7 @@ func TestTaskProcessReportsCreateErrors(t *testing.T) {
 		&fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`},
 		&fakeTimezoneStore{timezone: "Europe/Moscow"},
 		&fakeTaskCreator{err: errors.New("database unavailable")},
+		nil,
 		nil,
 		server.URL,
 	)
@@ -459,7 +470,7 @@ func TestTaskProcessReportsAIErrors(t *testing.T) {
 }
 
 func TestTaskProcessRejectsUnsupportedRequest(t *testing.T) {
-	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, nil, "http://127.0.0.1:1")
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, nil, nil, "http://127.0.0.1:1")
 
 	_, err := process.Process(t.Context(), "plain text")
 
@@ -503,7 +514,7 @@ func TestProcessAIResultListEvents(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lister := &fakeEventLister{collection: api.TaskCollection{Items: tc.items}}
-			process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, lister, "")
+			process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, lister, nil, "")
 
 			result, err := process.processAIResult(t.Context(), aiResult, time.UTC)
 			if err != nil {
@@ -537,7 +548,7 @@ func TestProcessAIResultListEventsErrors(t *testing.T) {
 	aiResult := model.AiRes{Status: "ready", Intent: "list_events", Action: json.RawMessage(`{}`), Message: json.RawMessage(`"Проверил события."`), UserID: uuid.New(), TaskID: uuid.New()}
 
 	t.Run("lister error", func(t *testing.T) {
-		process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, &fakeEventLister{err: model.ErrInvalidAction}, "")
+		process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, &fakeEventLister{err: model.ErrInvalidAction}, nil, "")
 
 		_, err := process.processAIResult(t.Context(), aiResult, time.UTC)
 
@@ -547,7 +558,7 @@ func TestProcessAIResultListEventsErrors(t *testing.T) {
 	})
 
 	t.Run("lister not configured", func(t *testing.T) {
-		process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, nil, "")
+		process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, nil, nil, "")
 
 		_, err := process.processAIResult(t.Context(), aiResult, time.UTC)
 
@@ -581,7 +592,7 @@ func TestTaskProcessClarificationRoundTrip(t *testing.T) {
 		_, _ = fmt.Fprintf(w, `{"user_id":%q,"task_id":%q,"status":"ready","intent":"list_events","message":"Проверил события на завтра.","action":{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"},"context":{"recent_messages":[{"role":"user","text":"Что у меня завтра?"}],"draft":null}}`, userID, taskID)
 	}))
 	t.Cleanup(server.Close)
-	process := NewTaskProcess(&fakeSTT{}, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, reader, server.URL)
+	process := NewTaskProcess(&fakeSTT{}, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, reader, nil, server.URL)
 
 	first, err := process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, Text: "Встреча с Иваном завтра"})
 	if err != nil {
@@ -614,7 +625,7 @@ func TestProcessAIResultSearchEvents(t *testing.T) {
 	userID, taskID := uuid.New(), uuid.New()
 	action := json.RawMessage(`{"query":"Иван"}`)
 	reader := &fakeEventLister{collection: api.TaskCollection{Items: []api.TaskItem{{Title: "Встреча с Иваном"}}}}
-	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, reader, "")
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, nil, reader, nil, "")
 	result, err := process.processAIResult(t.Context(), model.AiRes{Status: "ready", Intent: "search_events", Action: action, Message: json.RawMessage(`"Поиск встреч с Иваном завершён."`), UserID: userID, TaskID: taskID}, time.UTC)
 	if err != nil {
 		t.Fatal(err)
@@ -625,5 +636,265 @@ func TestProcessAIResultSearchEvents(t *testing.T) {
 	}
 	if result.Intent != "search_events" {
 		t.Fatalf("intent = %q, want search_events", result.Intent)
+	}
+}
+
+// fakeDeleteService implements the on_delete subservice for process tests.
+type fakeDeleteService struct {
+	findSet services.DeleteCandidates
+	findErr error
+	items   []api.TaskItem
+	itemErr error
+
+	findCalled   bool
+	findUserID   uuid.UUID
+	findAction   json.RawMessage
+	deleteCalled bool
+	deleteUserID uuid.UUID
+	deleteAction json.RawMessage
+	deleteSaved  []ai.DeleteCandidate
+}
+
+func (f *fakeDeleteService) FindCandidates(_ context.Context, userID uuid.UUID, action json.RawMessage) (services.DeleteCandidates, error) {
+	f.findCalled, f.findUserID, f.findAction = true, userID, action
+	if f.findErr != nil {
+		return services.DeleteCandidates{}, f.findErr
+	}
+	return f.findSet, nil
+}
+
+func (f *fakeDeleteService) DeleteConfirmed(
+	_ context.Context,
+	userID uuid.UUID,
+	action json.RawMessage,
+	saved []ai.DeleteCandidate,
+) ([]api.TaskItem, error) {
+	f.deleteCalled, f.deleteUserID, f.deleteAction, f.deleteSaved = true, userID, action, saved
+	if f.itemErr != nil {
+		return nil, f.itemErr
+	}
+	return f.items, nil
+}
+
+func TestProcessDeleteFindCandidates(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	event := api.TaskItem{Id: uuid.New(), UserId: userID, RecordType: "meeting", Title: "Встреча с Иваном", Status: "active"}
+	deleter := &fakeDeleteService{
+		findSet: services.DeleteCandidates{
+			Stored: []ai.DeleteCandidate{{Number: 1, Id: event.Id, Title: "Встреча с Иваном"}},
+			Items:  []api.TaskDeleteCandidate{{Number: 1, Event: event}},
+		},
+	}
+	draft := &fakeDraftStore{}
+	process := NewTaskProcess(&fakeSTT{}, draft, &fakeTimezoneStore{}, &fakeTaskCreator{}, nil, deleter, "")
+
+	result, err := process.processAIResult(t.Context(), model.AiRes{
+		Status:  "ready",
+		Intent:  "on_delete",
+		Action:  json.RawMessage(`{"phase":"find_candidates","title_query":"Иван"}`),
+		Message: json.RawMessage(`"Подбираю записи."`),
+		Context: json.RawMessage(`{"recent_messages":[{"role":"user","text":"Удали встречи"}],"draft":null}`),
+		UserID:  userID,
+		TaskID:  taskID,
+	}, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Intent != "on_delete" {
+		t.Fatalf("intent = %q, want on_delete", result.Intent)
+	}
+	response, ok := result.Body.(*api.TaskDeleteCandidatesResponse)
+	if !ok {
+		t.Fatalf("result body = %T, want *api.TaskDeleteCandidatesResponse", result.Body)
+	}
+	if response.Status != api.Candidates || response.UserId != userID || response.TaskId != taskID {
+		t.Fatalf("response = %+v", response)
+	}
+	if response.Message != "Поиск завершён. Найдено записей: 1. Какие удалить?" {
+		t.Fatalf("message = %q", response.Message)
+	}
+	if !deleter.findCalled || deleter.findUserID != userID || string(deleter.findAction) != `{"phase":"find_candidates","title_query":"Иван"}` {
+		t.Fatalf("find call = %+v", deleter)
+	}
+
+	candidatesKey := fmt.Sprintf("task_candidates:%s:%s", userID, taskID)
+	draftKey := fmt.Sprintf("task_draft:%s:%s", userID, taskID)
+	var saved []ai.DeleteCandidate
+	if parseErr := json.Unmarshal([]byte(draft.saved[candidatesKey]), &saved); parseErr != nil || len(saved) != 1 || saved[0].Id != event.Id || saved[0].Number != 1 {
+		t.Fatalf("saved candidates at %q = %q, %v", candidatesKey, draft.saved[candidatesKey], parseErr)
+	}
+	var context ai.JobRequestContext
+	if parseErr := json.Unmarshal([]byte(draft.saved[draftKey]), &context); parseErr != nil {
+		t.Fatalf("saved context = %q, %v", draft.saved[draftKey], parseErr)
+	}
+	contextJSON, err := json.Marshal(context)
+	if err != nil || !strings.Contains(string(contextJSON), `"id":"`+event.Id.String()+`"`) || !strings.Contains(string(contextJSON), `"Удали встречи"`) {
+		t.Fatalf("saved context = %s, %v", contextJSON, err)
+	}
+}
+
+func TestProcessDeleteFindCandidatesEmptyResult(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	deleter := &fakeDeleteService{findSet: services.DeleteCandidates{}}
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, &fakeTaskCreator{}, nil, deleter, "")
+
+	result, err := process.processAIResult(t.Context(), model.AiRes{
+		Status:  "ready",
+		Intent:  "on_delete",
+		Action:  json.RawMessage(`{"phase":"find_candidates","title_query":"Иван"}`),
+		Message: json.RawMessage(`"Подбираю записи."`),
+		Context: json.RawMessage(`{"recent_messages":[{"role":"user","text":"Удали встречи"}],"draft":null}`),
+		UserID:  userID,
+		TaskID:  taskID,
+	}, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, ok := result.Body.(*api.TaskDeleteCandidatesResponse)
+	if !ok || response.Message != "Подходящих записей не нашлось. Уточните запрос." || len(response.Data.Candidates) != 0 {
+		t.Fatalf("response = %#v", result.Body)
+	}
+}
+
+func TestProcessDeleteConfirmed(t *testing.T) {
+	userID, taskID, eventID := uuid.New(), uuid.New(), uuid.New()
+	event := api.TaskItem{Id: eventID, UserId: userID, RecordType: "meeting", Title: "Встреча с Иваном", Status: "active"}
+	deleter := &fakeDeleteService{items: []api.TaskItem{event}}
+	draft := &fakeDraftStore{value: `[{"number":1,"id":"` + eventID.String() + `","title":"Встреча с Иваном"}]`}
+	process := NewTaskProcess(&fakeSTT{}, draft, &fakeTimezoneStore{}, &fakeTaskCreator{}, nil, deleter, "")
+
+	result, err := process.processAIResult(t.Context(), model.AiRes{
+		Status:  "ready",
+		Intent:  "on_delete",
+		Action:  json.RawMessage(`{"phase":"delete_confirmed","task_ids":["` + eventID.String() + `"]}`),
+		Message: json.RawMessage(`"Удаляю выбранные записи."`),
+		Context: json.RawMessage(`{"recent_messages":[{"role":"user","text":"Удали №1"}],"draft":null}`),
+		UserID:  userID,
+		TaskID:  taskID,
+	}, time.UTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !deleter.deleteCalled || deleter.deleteUserID != userID {
+		t.Fatalf("delete call = %+v", deleter)
+	}
+	if len(deleter.deleteSaved) != 1 || deleter.deleteSaved[0].Id != eventID {
+		t.Fatalf("saved candidates passed to storage = %+v", deleter.deleteSaved)
+	}
+	response, ok := result.Body.(*api.TasksDeletedResponse)
+	if !ok {
+		t.Fatalf("result body = %T, want *api.TasksDeletedResponse", result.Body)
+	}
+	if response.Status != api.Deleted || response.TaskId != taskID || response.Message != "Успешно удалено записей: 1." || len(response.Data.DeletedEvents) != 1 {
+		t.Fatalf("response = %+v", response)
+	}
+}
+
+func TestProcessDeleteConfirmedReportsStaleSelection(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	process := NewTaskProcess(
+		&fakeSTT{},
+		&fakeDraftStore{err: model.ErrDraftNotFound},
+		&fakeTimezoneStore{},
+		&fakeTaskCreator{},
+		nil,
+		&fakeDeleteService{},
+		"",
+	)
+
+	_, err := process.processAIResult(t.Context(), model.AiRes{
+		Status:  "ready",
+		Intent:  "on_delete",
+		Action:  json.RawMessage(`{"phase":"delete_confirmed","task_ids":["` + uuid.NewString() + `"]}`),
+		Message: json.RawMessage(`"Удаляю выбранные записи."`),
+		Context: json.RawMessage(`{"recent_messages":[{"role":"user","text":"Удали №1"}],"draft":null}`),
+		UserID:  userID,
+		TaskID:  taskID,
+	}, time.UTC)
+
+	if !errors.Is(err, model.ErrStaleSelection) {
+		t.Fatalf("error = %v, want ErrStaleSelection", err)
+	}
+}
+
+func TestProcessDeleteRejectsUnknownPhase(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	process := NewTaskProcess(&fakeSTT{}, &fakeDraftStore{}, &fakeTimezoneStore{}, &fakeTaskCreator{}, nil, &fakeDeleteService{}, "")
+
+	_, err := process.processAIResult(t.Context(), model.AiRes{
+		Status:  "ready",
+		Intent:  "on_delete",
+		Action:  json.RawMessage(`{"phase":"purge"}`),
+		Message: json.RawMessage(`"Подбираю записи."`),
+		Context: json.RawMessage(`{"recent_messages":[{"role":"user","text":"Удали"}],"draft":null}`),
+		UserID:  userID,
+		TaskID:  taskID,
+	}, time.UTC)
+
+	if err == nil || !strings.Contains(err.Error(), "unknown delete phase") {
+		t.Fatalf("error = %v, want unknown delete phase", err)
+	}
+}
+
+func TestTaskProcessDeleteDialogHeadedByHeaderIntent(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	event := api.TaskItem{Id: uuid.New(), UserId: userID, RecordType: "meeting", Title: "Встреча с Иваном", Status: "active"}
+	deleter := &fakeDeleteService{
+		findSet: services.DeleteCandidates{
+			Stored: []ai.DeleteCandidate{{Number: 1, Id: event.Id}},
+			Items:  []api.TaskDeleteCandidate{{Number: 1, Event: event}},
+		},
+	}
+	stub := &aiStub{
+		t:      t,
+		status: http.StatusOK,
+		header: "on_delete",
+		body: `{"user_id":"` + userID.String() + `","task_id":"` + taskID.String() + `","status":"ready",` +
+			`"message":"Подбираю записи.",` +
+			`"action":{"phase":"find_candidates","title_query":"Иван","date_from":null,"date_to_exclusive":null,"time_from":null,"time_to_exclusive":null,"record_types":null},` +
+			`"context":{"recent_messages":[{"role":"user","text":"Удали встречи с Иваном"}],"draft":null}}`,
+	}
+	server := httptest.NewServer(stub)
+	t.Cleanup(server.Close)
+	draft := &fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`}
+	process := NewTaskProcess(&fakeSTT{}, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, nil, deleter, server.URL)
+
+	result, err := process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, TaskId: &taskID, Text: "Удали встречи с Иваном"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Intent != "on_delete" {
+		t.Fatalf("intent = %q, want on_delete", result.Intent)
+	}
+	if _, ok := result.Body.(*api.TaskDeleteCandidatesResponse); !ok {
+		t.Fatalf("result body = %T, want *api.TaskDeleteCandidatesResponse", result.Body)
+	}
+	if !deleter.findCalled {
+		t.Fatal("FindCandidates() was not called")
+	}
+}
+
+func TestTaskProcessRejectsHeaderIntentConflicts(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	stub := &aiStub{
+		t:      t,
+		status: http.StatusOK,
+		header: "create_event",
+		body: `{"user_id":"` + userID.String() + `","task_id":"` + taskID.String() + `","status":"ready",` +
+			`"message":"Встреча назначена.",` +
+			`"action":{"record_type":"meeting","title":"Встреча","date":"2026-10-21","time":"15:00"},` +
+			`"context":{"recent_messages":[{"role":"user","text":"встреча"}],"draft":null}}`,
+	}
+	server := httptest.NewServer(stub)
+	t.Cleanup(server.Close)
+	draft := &fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`}
+	process := NewTaskProcess(&fakeSTT{}, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, nil, nil, server.URL)
+
+	_, err := process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, TaskId: &taskID, Text: "встреча"})
+
+	if err == nil || !strings.Contains(err.Error(), "unexpected header intent") {
+		t.Fatalf("error = %v, want unexpected header intent", err)
 	}
 }

@@ -48,6 +48,13 @@ type EventReader interface {
 	SearchEvents(ctx context.Context, userID uuid.UUID, action json.RawMessage) (api.TaskCollection, error)
 }
 
+// DeleteService implements the on_delete dialog: candidate search and
+// confirmed deletion over the user's storage.
+type DeleteService interface {
+	FindCandidates(ctx context.Context, userID uuid.UUID, action json.RawMessage) (services.DeleteCandidates, error)
+	DeleteConfirmed(ctx context.Context, userID uuid.UUID, action json.RawMessage, saved []ai.DeleteCandidate) ([]api.TaskItem, error)
+}
+
 // TaskProcess turns a text or audio command into an AI-service request.
 type TaskProcess struct {
 	rec       STT
@@ -55,27 +62,50 @@ type TaskProcess struct {
 	timezones TimezoneStore
 	creator   TaskCreator
 	reader    EventReader
+	deleter   DeleteService
 	aiURL     string
 }
 
 // NewTaskProcess constructs a task processor with the given dependencies.
-func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, creator TaskCreator, reader EventReader, aiURL string) *TaskProcess {
+func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, creator TaskCreator, reader EventReader, deleter DeleteService, aiURL string) *TaskProcess {
 	return &TaskProcess{
 		rec:       rec,
 		draft:     draft,
 		timezones: timezones,
 		creator:   creator,
 		reader:    reader,
+		deleter:   deleter,
 		aiURL:     aiURL,
+	}
+}
+
+// aiClient создаёт клиента AI-сервиса с единым таймаутом.
+func aiClient(aiURL string) (*ai.Client, error) {
+	client, err := ai.NewClient(aiURL, ai.WithHTTPClient(&http.Client{Timeout: 20 * time.Second}))
+	if err != nil {
+		return nil, fmt.Errorf("create AI client: %w", err)
+	}
+	return client, nil
+}
+
+// mapAIStatus переводит не-200 статус AI-сервиса в доменную ошибку.
+func mapAIStatus(status int) error {
+	switch status {
+	case http.StatusServiceUnavailable:
+		return fmt.Errorf("%w: AI service returned status %d", model.ErrServiceUnavailable, status)
+	case http.StatusGatewayTimeout:
+		return fmt.Errorf("%w: AI service returned status %d", model.ErrGatewayTimeout, status)
+	default:
+		return fmt.Errorf("%w: AI service returned status %d", model.ErrBadGateway, status)
 	}
 }
 
 // createReq отправляет запрос AI-сервису.
 func createReq(ctx context.Context, aiURL string, req *ai.JobRequest) (model.AiRes, error) {
 	var result model.AiRes
-	client, err := ai.NewClient(aiURL, ai.WithHTTPClient(&http.Client{Timeout: 20 * time.Second}))
+	client, err := aiClient(aiURL)
 	if err != nil {
-		return result, fmt.Errorf("create AI client: %w", err)
+		return result, err
 	}
 	resp, err := client.ProcessJob(ctx, *req)
 	if err != nil {
@@ -89,14 +119,7 @@ func createReq(ctx context.Context, aiURL string, req *ai.JobRequest) (model.AiR
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		switch resp.StatusCode {
-		case http.StatusServiceUnavailable:
-			return result, fmt.Errorf("%w: AI service returned status %d", model.ErrServiceUnavailable, resp.StatusCode)
-		case http.StatusGatewayTimeout:
-			return result, fmt.Errorf("%w: AI service returned status %d", model.ErrGatewayTimeout, resp.StatusCode)
-		default:
-			return result, fmt.Errorf("%w: AI service returned status %d", model.ErrBadGateway, resp.StatusCode)
-		}
+		return result, mapAIStatus(resp.StatusCode)
 	}
 
 	decoder := json.NewDecoder(resp.Body)
@@ -106,6 +129,20 @@ func createReq(ctx context.Context, aiURL string, req *ai.JobRequest) (model.AiR
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return result, fmt.Errorf("%w: AI response contains trailing data", model.ErrBadGateway)
+	}
+
+	// on_delete returns its intent only in the X-Task-Intent header; old
+	// intents keep the JSON field. A header with anything but on_delete, or
+	// both header and JSON intent, breaks the contract.
+	headerIntent := strings.TrimSpace(resp.Header.Get("X-Task-Intent"))
+	if headerIntent != "" {
+		if headerIntent != "on_delete" {
+			return result, fmt.Errorf("%w: unexpected header intent %q", model.ErrBadGateway, headerIntent)
+		}
+		if result.Intent != "" && result.Intent != headerIntent {
+			return result, fmt.Errorf("%w: AI response intent conflicts with header", model.ErrBadGateway)
+		}
+		result.Intent = headerIntent
 	}
 
 	return result, nil
@@ -306,6 +343,12 @@ func (t *TaskProcess) processAIResult(
 				Message: message,
 			}}, nil
 
+		case "on_delete": // on_delete ищется в заголовке X-Task-Intent
+			if t.deleter == nil {
+				return nil, errors.New("delete handler is not configured")
+			}
+			return t.processDeleteResult(ctx, result)
+
 		default:
 			return nil, fmt.Errorf("invalid intent %s", result.Intent)
 		}
@@ -325,6 +368,120 @@ func (t *TaskProcess) processAIResult(
 	default:
 		return nil, fmt.Errorf("invalid AI status %s", result.Status)
 	}
+}
+
+// processDeleteResult исполняет проверенную фазу действия on_delete.
+// find_candidates только ищет и сохраняет список кандидатов; удаление
+// возможно лишь после подтверждения пользователя (delete_confirmed).
+func (t *TaskProcess) processDeleteResult(
+	ctx context.Context,
+	result model.AiRes,
+) (*model.TaskResult, error) {
+	var envelope struct {
+		Phase string `json:"phase"`
+	}
+	if err := json.Unmarshal(result.Action, &envelope); err != nil {
+		return nil, fmt.Errorf("%w: decode delete action: %w", model.ErrBadGateway, err)
+	}
+
+	candidatesKey := fmt.Sprintf("task_candidates:%s:%s", result.UserID, result.TaskID)
+	draftKey := fmt.Sprintf("task_draft:%s:%s", result.UserID, result.TaskID)
+
+	switch envelope.Phase {
+	case "find_candidates":
+		set, err := t.deleter.FindCandidates(ctx, result.UserID, result.Action)
+		if err != nil {
+			return nil, err
+		}
+
+		stored, err := json.Marshal(set.Stored)
+		if err != nil {
+			return nil, fmt.Errorf("encode delete candidates: %w", err)
+		}
+		if err := t.draft.PutDraft(ctx, candidatesKey, string(stored)); err != nil {
+			return nil, fmt.Errorf("save delete candidates: %w", err)
+		}
+		if err := t.saveDeleteContext(ctx, result, draftKey, set.Draft, set.Stored); err != nil {
+			return nil, err
+		}
+
+		return &model.TaskResult{Intent: result.Intent, Body: &api.TaskDeleteCandidatesResponse{
+			Data:    api.TaskDeleteCandidatesData{Candidates: set.Items},
+			Message: deleteCandidatesMessage(len(set.Items)),
+			Status:  api.Candidates,
+			TaskId:  result.TaskID,
+			UserId:  result.UserID,
+		}}, nil
+
+	case "delete_confirmed":
+		raw, err := t.draft.GetDraft(ctx, candidatesKey)
+		if errors.Is(err, model.ErrDraftNotFound) {
+			return nil, model.ErrStaleSelection
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get delete candidates: %w", err)
+		}
+		var saved []ai.DeleteCandidate
+		if decodeErr := json.Unmarshal([]byte(raw), &saved); decodeErr != nil {
+			return nil, fmt.Errorf("decode delete candidates: %w", decodeErr)
+		}
+		items, err := t.deleter.DeleteConfirmed(ctx, result.UserID, result.Action, saved)
+		if err != nil {
+			return nil, err
+		}
+
+		return &model.TaskResult{Intent: result.Intent, Body: &api.TasksDeletedResponse{
+			Data:    api.TasksDeletedData{DeletedEvents: items},
+			Message: deleteDoneMessage(len(items)),
+			Status:  api.Deleted,
+			TaskId:  result.TaskID,
+			UserId:  result.UserID,
+		}}, nil
+
+	default:
+		return nil, fmt.Errorf("%w: unknown delete phase %q", model.ErrBadGateway, envelope.Phase)
+	}
+}
+
+// saveDeleteContext собирает контекст следующего запроса AI-сервису:
+// recent_messages текущего ответа, признаки поиска и показанные кандидаты.
+func (t *TaskProcess) saveDeleteContext(
+	ctx context.Context,
+	result model.AiRes,
+	draftKey string,
+	draft ai.DeleteSearchDraft,
+	stored []ai.DeleteCandidate,
+) error {
+	var ready ai.ReadyContext
+	if err := json.Unmarshal(result.Context, &ready); err != nil {
+		return fmt.Errorf("%w: decode delete context: %w", model.ErrBadGateway, err)
+	}
+	deleteContext := ai.DeleteCandidateContext{
+		RecentMessages: ready.RecentMessages,
+		Draft:          draft,
+		Candidates:     stored,
+	}
+	raw, err := json.Marshal(deleteContext)
+	if err != nil {
+		return fmt.Errorf("encode delete context: %w", err)
+	}
+	if err := t.draft.PutDraft(ctx, draftKey, string(raw)); err != nil {
+		return fmt.Errorf("save delete context: %w", err)
+	}
+	return nil
+}
+
+// deleteCandidatesMessage формирует ответ после поиска кандидатов.
+func deleteCandidatesMessage(count int) string {
+	if count == 0 {
+		return "Подходящих записей не нашлось. Уточните запрос."
+	}
+	return fmt.Sprintf("Поиск завершён. Найдено записей: %d. Какие удалить?", count)
+}
+
+// deleteDoneMessage формирует ответ после фактического удаления.
+func deleteDoneMessage(count int) string {
+	return fmt.Sprintf("Успешно удалено записей: %d.", count)
 }
 
 // Process handles a text or audio command and returns the HTTP-facing result.

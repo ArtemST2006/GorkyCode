@@ -10,6 +10,8 @@ import (
 	"gorkycode/backend/internal/model"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // ValidateAIResult checks the fields the backend relies on before dispatching.
@@ -17,7 +19,8 @@ func ValidateAIResult(result model.AiRes, request *ai.JobRequest) error {
 	if result.Status != "ready" && result.Status != "needs_clarification" {
 		return fmt.Errorf("invalid AI status %s", result.Status)
 	}
-	if result.Intent != "create_event" && result.Intent != "list_events" && result.Intent != "search_events" {
+	if result.Intent != "create_event" && result.Intent != "list_events" &&
+		result.Intent != "search_events" && result.Intent != "on_delete" {
 		return fmt.Errorf("invalid intent %s", result.Intent)
 	}
 	if result.UserID != request.UserId || result.TaskID != request.TaskId {
@@ -70,6 +73,9 @@ func ValidateAIResult(result model.AiRes, request *ai.JobRequest) error {
 }
 
 func validateReadyAction(intent string, action map[string]json.RawMessage) error {
+	if intent == "on_delete" {
+		return validateDeleteAction(action)
+	}
 	allowed := map[string]bool{}
 	switch intent {
 	case "create_event":
@@ -174,6 +180,170 @@ func validateReadyAction(intent string, action map[string]json.RawMessage) error
 			return errors.New("invalid date interval")
 		}
 		return checkTypes()
+	}
+	return nil
+}
+
+// deleteFindFields lists the find_candidates fields; the contract requires
+// all of them to be present, unfilled ones are null.
+var deleteFindFields = []string{
+	"phase", "title_query", "date_from", "date_to_exclusive",
+	"time_from", "time_to_exclusive", "record_types",
+}
+
+// validateDeleteAction checks the phase-specific action of on_delete ready
+// answers. find_candidates must carry at least one non-null search trait;
+// delete_confirmed must carry at least one unique task ID.
+func validateDeleteAction(action map[string]json.RawMessage) error {
+	phase, err := actionString(action, "phase")
+	if err != nil {
+		return err
+	}
+	switch phase {
+	case "find_candidates":
+		for _, name := range deleteFindFields {
+			if _, present := action[name]; !present {
+				return fmt.Errorf("missing field %s", name)
+			}
+		}
+
+		hasTrait := false
+		if raw, present := action["title_query"]; present && string(raw) != "null" {
+			if _, err = actionString(action, "title_query"); err != nil {
+				return err
+			}
+			hasTrait = true
+		}
+
+		dateFrom, dateTo := time.Time{}, time.Time{}
+		for _, name := range []string{"date_from", "date_to_exclusive"} {
+			raw, present := action[name]
+			if !present || string(raw) == "null" {
+				continue
+			}
+			date, dateErr := actionTime(action, name, "2006-01-02")
+			if dateErr != nil {
+				return dateErr
+			}
+			if name == "date_from" {
+				dateFrom = date
+			} else {
+				dateTo = date
+			}
+			hasTrait = true
+		}
+		if !dateFrom.IsZero() && !dateTo.IsZero() && !dateFrom.Before(dateTo) {
+			return errors.New("invalid date interval")
+		}
+
+		timeFrom, timeTo := "", ""
+		for _, name := range []string{"time_from", "time_to_exclusive"} {
+			raw, present := action[name]
+			if !present || string(raw) == "null" {
+				continue
+			}
+			value, timeErr := actionTime(action, name, "15:04")
+			if timeErr != nil {
+				return timeErr
+			}
+			if name == "time_from" {
+				timeFrom = value.Format("15:04")
+			} else {
+				timeTo = value.Format("15:04")
+			}
+			hasTrait = true
+		}
+		if timeFrom != "" && timeTo != "" && !timeFromBeforeTo(timeFrom, timeTo) {
+			return errors.New("invalid time interval")
+		}
+
+		raw, present := action["record_types"]
+		if present && string(raw) != "null" {
+			if err = checkRecordTypes(raw); err != nil {
+				return err
+			}
+			hasTrait = true
+		}
+
+		if !hasTrait {
+			return errors.New("action is missing search traits")
+		}
+		return nil
+
+	case "delete_confirmed":
+		raw, present := action["task_ids"]
+		if !present {
+			return errors.New("missing field task_ids")
+		}
+		var ids []string
+		if err = json.Unmarshal(raw, &ids); err != nil {
+			return errors.New("invalid task_ids")
+		}
+		if len(ids) == 0 {
+			return errors.New("empty task_ids")
+		}
+		seen := make(map[string]bool, len(ids))
+		for _, id := range ids {
+			if seen[id] {
+				return errors.New("duplicate task_ids")
+			}
+			if _, err = uuid.Parse(id); err != nil {
+				return errors.New("invalid task_ids")
+			}
+			seen[id] = true
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unknown phase %s", phase)
+	}
+}
+
+// timeFromBeforeTo compares HH:MM strings, both already validated.
+func timeFromBeforeTo(from, to string) bool {
+	fromTime, _ := time.Parse("15:04", from)
+	toTime, _ := time.Parse("15:04", to)
+	return fromTime.Format("15:04") < toTime.Format("15:04")
+}
+
+// actionString reads a string field.
+func actionString(action map[string]json.RawMessage, name string) (string, error) {
+	raw, present := action[name]
+	if !present {
+		return "", fmt.Errorf("missing or invalid %s", name)
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil || strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("missing or invalid %s", name)
+	}
+	return value, nil
+}
+
+// actionTime reads a field with the given layout and rejects unpadded shorthand.
+func actionTime(action map[string]json.RawMessage, name, layout string) (time.Time, error) {
+	value, err := actionString(action, name)
+	if err != nil {
+		return time.Time{}, err
+	}
+	parsed, err := time.Parse(layout, value)
+	if err != nil || parsed.Format(layout) != value {
+		return time.Time{}, fmt.Errorf("invalid %s", name)
+	}
+	return parsed, nil
+}
+
+// checkRecordTypes validates a non-null record_types array.
+func checkRecordTypes(raw json.RawMessage) error {
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil || len(values) == 0 {
+		return errors.New("invalid record_types")
+	}
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		if seen[value] || (value != "task" && value != "reminder" && value != "meeting") {
+			return errors.New("invalid record_types")
+		}
+		seen[value] = true
 	}
 	return nil
 }

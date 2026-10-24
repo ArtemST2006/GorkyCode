@@ -14,6 +14,11 @@ type TaskCreateRepository interface {
 	CreateTask(ctx context.Context, task *model.Task) error
 }
 
+// EmbeddingStore persists computed embeddings for semantic search.
+type EmbeddingStore interface {
+	StoreEmbedding(ctx context.Context, taskID uuid.UUID, result model.EmbeddingResult) error
+}
+
 // CreateTaskCommand is a domain command built from a validated AI action.
 type CreateTaskCommand struct {
 	UserID     uuid.UUID
@@ -23,14 +28,17 @@ type CreateTaskCommand struct {
 	Time       time.Time
 }
 
-// TaskCreate creates tasks from validated commands.
+// TaskCreate creates tasks from validated commands and keeps their
+// embeddings findable.
 type TaskCreate struct {
-	rep TaskCreateRepository
+	rep        TaskCreateRepository
+	embeddings EmbeddingStore
+	embedder   model.Embedder
 }
 
 // NewTaskCreateService constructs a task creation service.
-func NewTaskCreateService(rep TaskCreateRepository) *TaskCreate {
-	return &TaskCreate{rep: rep}
+func NewTaskCreateService(rep TaskCreateRepository, embeddings EmbeddingStore, embedder model.Embedder) *TaskCreate {
+	return &TaskCreate{rep: rep, embeddings: embeddings, embedder: embedder}
 }
 
 // Create saves a task and returns the stored record.
@@ -48,5 +56,20 @@ func (s *TaskCreate) Create(ctx context.Context, cmd CreateTaskCommand) (*model.
 		return nil, err
 	}
 
+	s.embedTask(ctx, task)
+
 	return task, nil
+}
+
+// embedTask best-effort stores the title embedding: without it the task is
+// just invisible to semantic search, which must not fail the creation.
+func (s *TaskCreate) embedTask(ctx context.Context, task *model.Task) {
+	if s.embedder == nil || s.embeddings == nil || task == nil {
+		return
+	}
+	result, err := s.embedder.Embed(ctx, "document", task.Title)
+	if err != nil {
+		return
+	}
+	_ = s.embeddings.StoreEmbedding(ctx, task.ID, result)
 }

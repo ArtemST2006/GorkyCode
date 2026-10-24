@@ -153,6 +153,99 @@ func (e ClarificationSearchEventsStatus) Valid() bool {
 	}
 }
 
+// Defines values for DeleteCandidateStatus.
+const (
+	Active    DeleteCandidateStatus = "active"
+	Completed DeleteCandidateStatus = "completed"
+)
+
+// Valid indicates whether the value is a known member of the DeleteCandidateStatus enum.
+func (e DeleteCandidateStatus) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	case Completed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeleteConfirmedActionPhase.
+const (
+	DeleteConfirmed DeleteConfirmedActionPhase = "delete_confirmed"
+)
+
+// Valid indicates whether the value is a known member of the DeleteConfirmedActionPhase enum.
+func (e DeleteConfirmedActionPhase) Valid() bool {
+	switch e {
+	case DeleteConfirmed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeleteConfirmedResponseStatus.
+const (
+	DeleteConfirmedResponseStatusReady DeleteConfirmedResponseStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the DeleteConfirmedResponseStatus enum.
+func (e DeleteConfirmedResponseStatus) Valid() bool {
+	switch e {
+	case DeleteConfirmedResponseStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeleteFindCandidatesActionPhase.
+const (
+	FindCandidates DeleteFindCandidatesActionPhase = "find_candidates"
+)
+
+// Valid indicates whether the value is a known member of the DeleteFindCandidatesActionPhase enum.
+func (e DeleteFindCandidatesActionPhase) Valid() bool {
+	switch e {
+	case FindCandidates:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeleteFindCandidatesResponseStatus.
+const (
+	DeleteFindCandidatesResponseStatusReady DeleteFindCandidatesResponseStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the DeleteFindCandidatesResponseStatus enum.
+func (e DeleteFindCandidatesResponseStatus) Valid() bool {
+	switch e {
+	case DeleteFindCandidatesResponseStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeleteNeedsClarificationResponseStatus.
+const (
+	DeleteNeedsClarificationResponseStatusNeedsClarification DeleteNeedsClarificationResponseStatus = "needs_clarification"
+)
+
+// Valid indicates whether the value is a known member of the DeleteNeedsClarificationResponseStatus enum.
+func (e DeleteNeedsClarificationResponseStatus) Valid() bool {
+	switch e {
+	case DeleteNeedsClarificationResponseStatusNeedsClarification:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DialogueMessageRole.
 const (
 	Assistant DialogueMessageRole = "assistant"
@@ -459,6 +552,191 @@ type CreateEventDraft struct {
 	Title *string    `json:"title,omitempty"`
 }
 
+// DeleteCandidate defines model for DeleteCandidate.
+type DeleteCandidate struct {
+	Date *openapi_types.Date `json:"date"`
+
+	// Id ID строки tasks, не task_id диалога.
+	Id openapi_types.UUID `json:"id"`
+
+	// Number Стабильный номер, показанный пользователю.
+	Number     int                   `json:"number"`
+	RecordType RecordType            `json:"record_type"`
+	Status     DeleteCandidateStatus `json:"status"`
+	Time       *string               `json:"time"`
+	Title      string                `json:"title"`
+}
+
+// DeleteCandidateStatus defines model for DeleteCandidate.Status.
+type DeleteCandidateStatus string
+
+// DeleteCandidateContext Контекст повторного запроса on_delete. Список создаёт backend из
+// фактически показанных записей; пользователь может выбрать один,
+// несколько или все показанные номера. Он не заменяет проверку кандидатов
+// в Redis перед удалением; после пустого списка пользователь может
+// уточнить признаки тем же task_id.
+type DeleteCandidateContext struct {
+	Candidates []DeleteCandidate `json:"candidates"`
+
+	// Draft Частичные признаки on_delete. Незаданные поля могут отсутствовать
+	// или быть null. Сами по себе эти данные не разрешают удаление.
+	Draft          DeleteSearchDraft `json:"draft"`
+	RecentMessages RecentMessages    `json:"recent_messages"`
+}
+
+// DeleteClarificationContext defines model for DeleteClarificationContext.
+type DeleteClarificationContext struct {
+	// Draft Частичные признаки on_delete. Незаданные поля могут отсутствовать
+	// или быть null. Сами по себе эти данные не разрешают удаление.
+	Draft          DeleteSearchDraft `json:"draft"`
+	RecentMessages RecentMessages    `json:"recent_messages"`
+}
+
+// DeleteConfirmedAction AI сопоставляет подтверждённые пользователем номера со стабильными
+// ID кандидатов из JobRequestContext. task_ids содержит ID строк
+// PostgreSQL tasks, а верхнеуровневый task_id — ID диалога. Backend
+// проверяет весь список по сохранённым кандидатам и владельцу
+// действующей Bearer-сессии. Если хотя бы один ID невалиден или
+// устарел, ни одна строка не удаляется.
+type DeleteConfirmedAction struct {
+	Phase   DeleteConfirmedActionPhase `json:"phase"`
+	TaskIds []openapi_types.UUID       `json:"task_ids"`
+}
+
+// DeleteConfirmedActionPhase defines model for DeleteConfirmedAction.Phase.
+type DeleteConfirmedActionPhase string
+
+// DeleteConfirmedResponse Ответ on_delete с X-Task-Intent: on_delete после явного выбора
+// пользователя. Backend не доверяет task_ids без проверки каждого ID
+// по сохранённым кандидатам и владельцу записей. Сообщение об успехе
+// допустимо вернуть фронту только после удаления всех выбранных строк
+// в PostgreSQL; частичное удаление недопустимо.
+type DeleteConfirmedResponse struct {
+	// Action AI сопоставляет подтверждённые пользователем номера со стабильными
+	// ID кандидатов из JobRequestContext. task_ids содержит ID строк
+	// PostgreSQL tasks, а верхнеуровневый task_id — ID диалога. Backend
+	// проверяет весь список по сохранённым кандидатам и владельцу
+	// действующей Bearer-сессии. Если хотя бы один ID невалиден или
+	// устарел, ни одна строка не удаляется.
+	Action  DeleteConfirmedAction         `json:"action"`
+	Context ReadyContext                  `json:"context"`
+	Message string                        `json:"message"`
+	Status  DeleteConfirmedResponseStatus `json:"status"`
+	TaskId  openapi_types.UUID            `json:"task_id"`
+	UserId  openapi_types.UUID            `json:"user_id"`
+}
+
+// DeleteConfirmedResponseStatus defines model for DeleteConfirmedResponse.Status.
+type DeleteConfirmedResponseStatus string
+
+// DeleteFindCandidatesAction Поиск кандидатов на удаление без изменения БД. Все признаки
+// присутствуют, незаданные равны null. Хотя бы один признак должен
+// быть ненулевым. Backend применяет заполненные точные фильтры
+// совместно (AND). title_query используется для поиска по заголовку,
+// в том числе семантического при доступных совместимых embeddings.
+// Отсутствие даты допускает поиск по времени среди всех дат.
+// date_from и time_from включительны, date_to_exclusive и
+// time_to_exclusive исключительны. Если заданы обе границы одного
+// интервала, backend проверяет from < to. Относительные даты AI
+// переводит в календарные по request_time и timezone.
+type DeleteFindCandidatesAction struct {
+	DateFrom        *openapi_types.Date             `json:"date_from"`
+	DateToExclusive *openapi_types.Date             `json:"date_to_exclusive"`
+	Phase           DeleteFindCandidatesActionPhase `json:"phase"`
+	RecordTypes     *[]RecordType                   `json:"record_types"`
+	TimeFrom        *string                         `json:"time_from"`
+	TimeToExclusive *string                         `json:"time_to_exclusive"`
+	TitleQuery      *string                         `json:"title_query"`
+	union           json.RawMessage
+}
+
+// DeleteFindCandidatesActionPhase defines model for DeleteFindCandidatesAction.Phase.
+type DeleteFindCandidatesActionPhase string
+
+// DeleteFindCandidatesAction0 defines model for DeleteFindCandidatesAction.0.
+type DeleteFindCandidatesAction0 struct {
+	TitleQuery string `json:"title_query"`
+}
+
+// DeleteFindCandidatesAction1 defines model for DeleteFindCandidatesAction.1.
+type DeleteFindCandidatesAction1 struct {
+	DateFrom openapi_types.Date `json:"date_from"`
+}
+
+// DeleteFindCandidatesAction2 defines model for DeleteFindCandidatesAction.2.
+type DeleteFindCandidatesAction2 struct {
+	DateToExclusive openapi_types.Date `json:"date_to_exclusive"`
+}
+
+// DeleteFindCandidatesAction3 defines model for DeleteFindCandidatesAction.3.
+type DeleteFindCandidatesAction3 struct {
+	TimeFrom string `json:"time_from"`
+}
+
+// DeleteFindCandidatesAction4 defines model for DeleteFindCandidatesAction.4.
+type DeleteFindCandidatesAction4 struct {
+	TimeToExclusive string `json:"time_to_exclusive"`
+}
+
+// DeleteFindCandidatesAction5 defines model for DeleteFindCandidatesAction.5.
+type DeleteFindCandidatesAction5 struct {
+	RecordTypes []interface{} `json:"record_types"`
+}
+
+// DeleteFindCandidatesResponse Ответ on_delete с X-Task-Intent: on_delete. ready означает только
+// готовность признаков для поиска. AI не видит PostgreSQL и не знает
+// число кандидатов; backend составляет сообщение о результатах поиска.
+type DeleteFindCandidatesResponse struct {
+	// Action Поиск кандидатов на удаление без изменения БД. Все признаки
+	// присутствуют, незаданные равны null. Хотя бы один признак должен
+	// быть ненулевым. Backend применяет заполненные точные фильтры
+	// совместно (AND). title_query используется для поиска по заголовку,
+	// в том числе семантического при доступных совместимых embeddings.
+	// Отсутствие даты допускает поиск по времени среди всех дат.
+	// date_from и time_from включительны, date_to_exclusive и
+	// time_to_exclusive исключительны. Если заданы обе границы одного
+	// интервала, backend проверяет from < to. Относительные даты AI
+	// переводит в календарные по request_time и timezone.
+	Action  DeleteFindCandidatesAction `json:"action"`
+	Context ReadyContext               `json:"context"`
+
+	// Message Сообщение AI о подготовке поиска, не итог удаления.
+	Message string                             `json:"message"`
+	Status  DeleteFindCandidatesResponseStatus `json:"status"`
+	TaskId  openapi_types.UUID                 `json:"task_id"`
+	UserId  openapi_types.UUID                 `json:"user_id"`
+}
+
+// DeleteFindCandidatesResponseStatus defines model for DeleteFindCandidatesResponse.Status.
+type DeleteFindCandidatesResponseStatus string
+
+// DeleteNeedsClarificationResponse Ответ on_delete с X-Task-Intent: on_delete. AI ещё не получил
+// достаточно данных даже для поиска. Поле intent в JSON отсутствует.
+type DeleteNeedsClarificationResponse struct {
+	Action  *map[string]interface{}    `json:"action"`
+	Context DeleteClarificationContext `json:"context"`
+
+	// Message Уточняющий вопрос для пользователя.
+	Message string                                 `json:"message"`
+	Status  DeleteNeedsClarificationResponseStatus `json:"status"`
+	TaskId  openapi_types.UUID                     `json:"task_id"`
+	UserId  openapi_types.UUID                     `json:"user_id"`
+}
+
+// DeleteNeedsClarificationResponseStatus defines model for DeleteNeedsClarificationResponse.Status.
+type DeleteNeedsClarificationResponseStatus string
+
+// DeleteSearchDraft Частичные признаки on_delete. Незаданные поля могут отсутствовать
+// или быть null. Сами по себе эти данные не разрешают удаление.
+type DeleteSearchDraft struct {
+	DateFrom        *openapi_types.Date `json:"date_from,omitempty"`
+	DateToExclusive *openapi_types.Date `json:"date_to_exclusive,omitempty"`
+	RecordTypes     *[]RecordType       `json:"record_types,omitempty"`
+	TimeFrom        *string             `json:"time_from,omitempty"`
+	TimeToExclusive *string             `json:"time_to_exclusive,omitempty"`
+	TitleQuery      *string             `json:"title_query,omitempty"`
+}
+
 // DialogueMessage defines model for DialogueMessage.
 type DialogueMessage struct {
 	Role DialogueMessageRole `json:"role"`
@@ -503,7 +781,9 @@ type EmptyContext = map[string]interface{}
 
 // JobRequest defines model for JobRequest.
 type JobRequest struct {
-	// Context Пустой объект при первом запросе либо контекст из Redis при продолжении.
+	// Context Пустой объект при первом запросе либо контекст из Redis при
+	// продолжении. После поиска on_delete backend передаёт AI список
+	// показанных пользователю кандидатов со стабильными номерами.
 	Context JobRequestContext `json:"context"`
 
 	// RequestTime Время запроса в RFC 3339.
@@ -522,12 +802,15 @@ type JobRequest struct {
 	UserId   openapi_types.UUID `json:"user_id"`
 }
 
-// JobRequestContext Пустой объект при первом запросе либо контекст из Redis при продолжении.
+// JobRequestContext Пустой объект при первом запросе либо контекст из Redis при
+// продолжении. После поиска on_delete backend передаёт AI список
+// показанных пользователю кандидатов со стабильными номерами.
 type JobRequestContext struct {
 	union json.RawMessage
 }
 
-// JobResponse Бизнес-результат обработки реплики.
+// JobResponse Бизнес-результат обработки реплики. Старые варианты несут intent
+// в JSON; новые варианты on_delete определяются по X-Task-Intent.
 type JobResponse struct {
 	union json.RawMessage
 }
@@ -848,6 +1131,279 @@ func (t *CreateEventAction) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsDeleteFindCandidatesAction0 returns the union data inside the DeleteFindCandidatesAction as a DeleteFindCandidatesAction0
+func (t DeleteFindCandidatesAction) AsDeleteFindCandidatesAction0() (DeleteFindCandidatesAction0, error) {
+	var body DeleteFindCandidatesAction0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteFindCandidatesAction0 overwrites any union data inside the DeleteFindCandidatesAction as the provided DeleteFindCandidatesAction0
+func (t *DeleteFindCandidatesAction) FromDeleteFindCandidatesAction0(v DeleteFindCandidatesAction0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteFindCandidatesAction0 performs a merge with any union data inside the DeleteFindCandidatesAction, using the provided DeleteFindCandidatesAction0
+func (t *DeleteFindCandidatesAction) MergeDeleteFindCandidatesAction0(v DeleteFindCandidatesAction0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeleteFindCandidatesAction1 returns the union data inside the DeleteFindCandidatesAction as a DeleteFindCandidatesAction1
+func (t DeleteFindCandidatesAction) AsDeleteFindCandidatesAction1() (DeleteFindCandidatesAction1, error) {
+	var body DeleteFindCandidatesAction1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteFindCandidatesAction1 overwrites any union data inside the DeleteFindCandidatesAction as the provided DeleteFindCandidatesAction1
+func (t *DeleteFindCandidatesAction) FromDeleteFindCandidatesAction1(v DeleteFindCandidatesAction1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteFindCandidatesAction1 performs a merge with any union data inside the DeleteFindCandidatesAction, using the provided DeleteFindCandidatesAction1
+func (t *DeleteFindCandidatesAction) MergeDeleteFindCandidatesAction1(v DeleteFindCandidatesAction1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeleteFindCandidatesAction2 returns the union data inside the DeleteFindCandidatesAction as a DeleteFindCandidatesAction2
+func (t DeleteFindCandidatesAction) AsDeleteFindCandidatesAction2() (DeleteFindCandidatesAction2, error) {
+	var body DeleteFindCandidatesAction2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteFindCandidatesAction2 overwrites any union data inside the DeleteFindCandidatesAction as the provided DeleteFindCandidatesAction2
+func (t *DeleteFindCandidatesAction) FromDeleteFindCandidatesAction2(v DeleteFindCandidatesAction2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteFindCandidatesAction2 performs a merge with any union data inside the DeleteFindCandidatesAction, using the provided DeleteFindCandidatesAction2
+func (t *DeleteFindCandidatesAction) MergeDeleteFindCandidatesAction2(v DeleteFindCandidatesAction2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeleteFindCandidatesAction3 returns the union data inside the DeleteFindCandidatesAction as a DeleteFindCandidatesAction3
+func (t DeleteFindCandidatesAction) AsDeleteFindCandidatesAction3() (DeleteFindCandidatesAction3, error) {
+	var body DeleteFindCandidatesAction3
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteFindCandidatesAction3 overwrites any union data inside the DeleteFindCandidatesAction as the provided DeleteFindCandidatesAction3
+func (t *DeleteFindCandidatesAction) FromDeleteFindCandidatesAction3(v DeleteFindCandidatesAction3) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteFindCandidatesAction3 performs a merge with any union data inside the DeleteFindCandidatesAction, using the provided DeleteFindCandidatesAction3
+func (t *DeleteFindCandidatesAction) MergeDeleteFindCandidatesAction3(v DeleteFindCandidatesAction3) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeleteFindCandidatesAction4 returns the union data inside the DeleteFindCandidatesAction as a DeleteFindCandidatesAction4
+func (t DeleteFindCandidatesAction) AsDeleteFindCandidatesAction4() (DeleteFindCandidatesAction4, error) {
+	var body DeleteFindCandidatesAction4
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteFindCandidatesAction4 overwrites any union data inside the DeleteFindCandidatesAction as the provided DeleteFindCandidatesAction4
+func (t *DeleteFindCandidatesAction) FromDeleteFindCandidatesAction4(v DeleteFindCandidatesAction4) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteFindCandidatesAction4 performs a merge with any union data inside the DeleteFindCandidatesAction, using the provided DeleteFindCandidatesAction4
+func (t *DeleteFindCandidatesAction) MergeDeleteFindCandidatesAction4(v DeleteFindCandidatesAction4) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeleteFindCandidatesAction5 returns the union data inside the DeleteFindCandidatesAction as a DeleteFindCandidatesAction5
+func (t DeleteFindCandidatesAction) AsDeleteFindCandidatesAction5() (DeleteFindCandidatesAction5, error) {
+	var body DeleteFindCandidatesAction5
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteFindCandidatesAction5 overwrites any union data inside the DeleteFindCandidatesAction as the provided DeleteFindCandidatesAction5
+func (t *DeleteFindCandidatesAction) FromDeleteFindCandidatesAction5(v DeleteFindCandidatesAction5) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteFindCandidatesAction5 performs a merge with any union data inside the DeleteFindCandidatesAction, using the provided DeleteFindCandidatesAction5
+func (t *DeleteFindCandidatesAction) MergeDeleteFindCandidatesAction5(v DeleteFindCandidatesAction5) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t DeleteFindCandidatesAction) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["date_from"], err = json.Marshal(t.DateFrom)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'date_from': %w", err)
+	}
+
+	object["date_to_exclusive"], err = json.Marshal(t.DateToExclusive)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'date_to_exclusive': %w", err)
+	}
+
+	object["phase"], err = json.Marshal(t.Phase)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'phase': %w", err)
+	}
+
+	if t.RecordTypes != nil {
+		object["record_types"], err = json.Marshal(t.RecordTypes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'record_types': %w", err)
+		}
+	}
+
+	object["time_from"], err = json.Marshal(t.TimeFrom)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'time_from': %w", err)
+	}
+
+	object["time_to_exclusive"], err = json.Marshal(t.TimeToExclusive)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'time_to_exclusive': %w", err)
+	}
+
+	object["title_query"], err = json.Marshal(t.TitleQuery)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title_query': %w", err)
+	}
+
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *DeleteFindCandidatesAction) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["date_from"]; found {
+		err = json.Unmarshal(raw, &t.DateFrom)
+		if err != nil {
+			return fmt.Errorf("error reading 'date_from': %w", err)
+		}
+	}
+
+	if raw, found := object["date_to_exclusive"]; found {
+		err = json.Unmarshal(raw, &t.DateToExclusive)
+		if err != nil {
+			return fmt.Errorf("error reading 'date_to_exclusive': %w", err)
+		}
+	}
+
+	if raw, found := object["phase"]; found {
+		err = json.Unmarshal(raw, &t.Phase)
+		if err != nil {
+			return fmt.Errorf("error reading 'phase': %w", err)
+		}
+	}
+
+	if raw, found := object["record_types"]; found {
+		err = json.Unmarshal(raw, &t.RecordTypes)
+		if err != nil {
+			return fmt.Errorf("error reading 'record_types': %w", err)
+		}
+	}
+
+	if raw, found := object["time_from"]; found {
+		err = json.Unmarshal(raw, &t.TimeFrom)
+		if err != nil {
+			return fmt.Errorf("error reading 'time_from': %w", err)
+		}
+	}
+
+	if raw, found := object["time_to_exclusive"]; found {
+		err = json.Unmarshal(raw, &t.TimeToExclusive)
+		if err != nil {
+			return fmt.Errorf("error reading 'time_to_exclusive': %w", err)
+		}
+	}
+
+	if raw, found := object["title_query"]; found {
+		err = json.Unmarshal(raw, &t.TitleQuery)
+		if err != nil {
+			return fmt.Errorf("error reading 'title_query': %w", err)
+		}
+	}
+
+	return err
+}
+
 // AsEmptyContext returns the union data inside the JobRequestContext as a EmptyContext
 func (t JobRequestContext) AsEmptyContext() (EmptyContext, error) {
 	var body EmptyContext
@@ -890,6 +1446,32 @@ func (t *JobRequestContext) FromStoredContext(v StoredContext) error {
 
 // MergeStoredContext performs a merge with any union data inside the JobRequestContext, using the provided StoredContext
 func (t *JobRequestContext) MergeStoredContext(v StoredContext) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeleteCandidateContext returns the union data inside the JobRequestContext as a DeleteCandidateContext
+func (t JobRequestContext) AsDeleteCandidateContext() (DeleteCandidateContext, error) {
+	var body DeleteCandidateContext
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteCandidateContext overwrites any union data inside the JobRequestContext as the provided DeleteCandidateContext
+func (t *JobRequestContext) FromDeleteCandidateContext(v DeleteCandidateContext) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteCandidateContext performs a merge with any union data inside the JobRequestContext, using the provided DeleteCandidateContext
+func (t *JobRequestContext) MergeDeleteCandidateContext(v DeleteCandidateContext) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -952,6 +1534,84 @@ func (t *JobResponse) FromReadyResponse(v ReadyResponse) error {
 
 // MergeReadyResponse performs a merge with any union data inside the JobResponse, using the provided ReadyResponse
 func (t *JobResponse) MergeReadyResponse(v ReadyResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeleteNeedsClarificationResponse returns the union data inside the JobResponse as a DeleteNeedsClarificationResponse
+func (t JobResponse) AsDeleteNeedsClarificationResponse() (DeleteNeedsClarificationResponse, error) {
+	var body DeleteNeedsClarificationResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteNeedsClarificationResponse overwrites any union data inside the JobResponse as the provided DeleteNeedsClarificationResponse
+func (t *JobResponse) FromDeleteNeedsClarificationResponse(v DeleteNeedsClarificationResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteNeedsClarificationResponse performs a merge with any union data inside the JobResponse, using the provided DeleteNeedsClarificationResponse
+func (t *JobResponse) MergeDeleteNeedsClarificationResponse(v DeleteNeedsClarificationResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeleteFindCandidatesResponse returns the union data inside the JobResponse as a DeleteFindCandidatesResponse
+func (t JobResponse) AsDeleteFindCandidatesResponse() (DeleteFindCandidatesResponse, error) {
+	var body DeleteFindCandidatesResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteFindCandidatesResponse overwrites any union data inside the JobResponse as the provided DeleteFindCandidatesResponse
+func (t *JobResponse) FromDeleteFindCandidatesResponse(v DeleteFindCandidatesResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteFindCandidatesResponse performs a merge with any union data inside the JobResponse, using the provided DeleteFindCandidatesResponse
+func (t *JobResponse) MergeDeleteFindCandidatesResponse(v DeleteFindCandidatesResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsDeleteConfirmedResponse returns the union data inside the JobResponse as a DeleteConfirmedResponse
+func (t JobResponse) AsDeleteConfirmedResponse() (DeleteConfirmedResponse, error) {
+	var body DeleteConfirmedResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteConfirmedResponse overwrites any union data inside the JobResponse as the provided DeleteConfirmedResponse
+func (t *JobResponse) FromDeleteConfirmedResponse(v DeleteConfirmedResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteConfirmedResponse performs a merge with any union data inside the JobResponse, using the provided DeleteConfirmedResponse
+func (t *JobResponse) MergeDeleteConfirmedResponse(v DeleteConfirmedResponse) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1226,6 +1886,32 @@ func (t *StoredContext_Draft) MergeSearchEventsDraft(v SearchEventsDraft) error 
 	return err
 }
 
+// AsDeleteSearchDraft returns the union data inside the StoredContext_Draft as a DeleteSearchDraft
+func (t StoredContext_Draft) AsDeleteSearchDraft() (DeleteSearchDraft, error) {
+	var body DeleteSearchDraft
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeleteSearchDraft overwrites any union data inside the StoredContext_Draft as the provided DeleteSearchDraft
+func (t *StoredContext_Draft) FromDeleteSearchDraft(v DeleteSearchDraft) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeleteSearchDraft performs a merge with any union data inside the StoredContext_Draft, using the provided DeleteSearchDraft
+func (t *StoredContext_Draft) MergeDeleteSearchDraft(v DeleteSearchDraft) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t StoredContext_Draft) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
@@ -1353,6 +2039,16 @@ type ClientInterface interface {
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
+	// Для нового on_delete AI возвращает intent только в заголовке
+	// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+	// Существующие create_event, list_events и search_events продолжают
+	// возвращать intent в JSON без обязательного X-Task-Intent.
+	// ready/on_delete с phase=find_candidates разрешает только поиск:
+	// удаление возможно лишь после повторного запроса с подтверждением
+	// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
+	// номера с ID строк tasks и возвращает их в action.task_ids. Backend
+	// проверяет все ID по сохранённому списку кандидатов и владельцу
+	// сессии; удаление выбранных строк выполняется одной транзакцией.
 	// Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 	//
 	// Takes any type of body and a specified content type.
@@ -1371,6 +2067,16 @@ type ClientInterface interface {
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
+	// Для нового on_delete AI возвращает intent только в заголовке
+	// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+	// Существующие create_event, list_events и search_events продолжают
+	// возвращать intent в JSON без обязательного X-Task-Intent.
+	// ready/on_delete с phase=find_candidates разрешает только поиск:
+	// удаление возможно лишь после повторного запроса с подтверждением
+	// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
+	// номера с ID строк tasks и возвращает их в action.task_ids. Backend
+	// проверяет все ID по сохранённому списку кандидатов и владельцу
+	// сессии; удаление выбранных строк выполняется одной транзакцией.
 	// Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 	//
 	// Takes a body of the `application/json` content type.
@@ -1447,6 +2153,16 @@ func (c *Client) EmbedText(ctx context.Context, body EmbedTextJSONRequestBody, r
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
+// Для нового on_delete AI возвращает intent только в заголовке
+// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+// Существующие create_event, list_events и search_events продолжают
+// возвращать intent в JSON без обязательного X-Task-Intent.
+// ready/on_delete с phase=find_candidates разрешает только поиск:
+// удаление возможно лишь после повторного запроса с подтверждением
+// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
+// номера с ID строк tasks и возвращает их в action.task_ids. Backend
+// проверяет все ID по сохранённому списку кандидатов и владельцу
+// сессии; удаление выбранных строк выполняется одной транзакцией.
 // Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 //
 // Takes any type of body and a specified content type.
@@ -1475,6 +2191,16 @@ func (c *Client) ProcessJobWithBody(ctx context.Context, contentType string, bod
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
+// Для нового on_delete AI возвращает intent только в заголовке
+// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+// Существующие create_event, list_events и search_events продолжают
+// возвращать intent в JSON без обязательного X-Task-Intent.
+// ready/on_delete с phase=find_candidates разрешает только поиск:
+// удаление возможно лишь после повторного запроса с подтверждением
+// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
+// номера с ID строк tasks и возвращает их в action.task_ids. Backend
+// проверяет все ID по сохранённому списку кандидатов и владельцу
+// сессии; удаление выбранных строк выполняется одной транзакцией.
 // Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 //
 // Takes a body of the `application/json` content type.
@@ -1701,6 +2427,16 @@ type ClientWithResponsesInterface interface {
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
+	// Для нового on_delete AI возвращает intent только в заголовке
+	// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+	// Существующие create_event, list_events и search_events продолжают
+	// возвращать intent в JSON без обязательного X-Task-Intent.
+	// ready/on_delete с phase=find_candidates разрешает только поиск:
+	// удаление возможно лишь после повторного запроса с подтверждением
+	// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
+	// номера с ID строк tasks и возвращает их в action.task_ids. Backend
+	// проверяет все ID по сохранённому списку кандидатов и владельцу
+	// сессии; удаление выбранных строк выполняется одной транзакцией.
 	// Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -1719,6 +2455,16 @@ type ClientWithResponsesInterface interface {
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
+	// Для нового on_delete AI возвращает intent только в заголовке
+	// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+	// Существующие create_event, list_events и search_events продолжают
+	// возвращать intent в JSON без обязательного X-Task-Intent.
+	// ready/on_delete с phase=find_candidates разрешает только поиск:
+	// удаление возможно лишь после повторного запроса с подтверждением
+	// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
+	// номера с ID строк tasks и возвращает их в action.task_ids. Backend
+	// проверяет все ID по сохранённому списку кандидатов и владельцу
+	// сессии; удаление выбранных строк выполняется одной транзакцией.
 	// Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
@@ -1831,6 +2577,11 @@ func (r EmbedTextResponse) ContentType() string {
 	return ""
 }
 
+// ProcessJobResponse200Headers the declared response headers of an HTTP 200 response for ProcessJob
+type ProcessJobResponse200Headers struct {
+	XTaskIntent *string
+}
+
 type ProcessJobResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1846,6 +2597,8 @@ type ProcessJobResponse struct {
 	ApplicationproblemJSON504 *GatewayTimeout
 	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
 	ApplicationproblemJSONDefault *TechnicalError
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ProcessJobResponse200Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2003,6 +2756,16 @@ func (c *ClientWithResponses) EmbedTextWithResponse(ctx context.Context, body Em
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
+// Для нового on_delete AI возвращает intent только в заголовке
+// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+// Существующие create_event, list_events и search_events продолжают
+// возвращать intent в JSON без обязательного X-Task-Intent.
+// ready/on_delete с phase=find_candidates разрешает только поиск:
+// удаление возможно лишь после повторного запроса с подтверждением
+// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
+// номера с ID строк tasks и возвращает их в action.task_ids. Backend
+// проверяет все ID по сохранённому списку кандидатов и владельцу
+// сессии; удаление выбранных строк выполняется одной транзакцией.
 // Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -2027,6 +2790,16 @@ func (c *ClientWithResponses) ProcessJobWithBodyWithResponse(ctx context.Context
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
+// Для нового on_delete AI возвращает intent только в заголовке
+// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+// Существующие create_event, list_events и search_events продолжают
+// возвращать intent в JSON без обязательного X-Task-Intent.
+// ready/on_delete с phase=find_candidates разрешает только поиск:
+// удаление возможно лишь после повторного запроса с подтверждением
+// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
+// номера с ID строк tasks и возвращает их в action.task_ids. Backend
+// проверяет все ID по сохранённому списку кандидатов и владельцу
+// сессии; удаление выбранных строк выполняется одной транзакцией.
 // Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
@@ -2197,6 +2970,19 @@ func ParseProcessJobResponse(rsp *http.Response) (*ProcessJobResponse, error) {
 		}
 		response.ApplicationproblemJSONDefault = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ProcessJobResponse200Headers
+		if values := rsp.Header.Values("X-Task-Intent"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Task-Intent", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XTaskIntent = &value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil
