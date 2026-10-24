@@ -24,6 +24,27 @@ func TestLoadFromEnvironment(t *testing.T) {
 	if cfg.Database.ConnectTimeout != 5*time.Second || cfg.ShutdownTimeout != 10*time.Second {
 		t.Fatalf("defaults were not applied: %+v", cfg)
 	}
+	if cfg.Google.Enabled() || cfg.Google.EventDuration != time.Hour {
+		t.Fatalf("unexpected Google defaults: %+v", cfg.Google)
+	}
+}
+
+func TestLoadGoogleFromEnvironment(t *testing.T) {
+	t.Setenv("CONFIG_PATH", "")
+	t.Setenv("DATABASE_URL", "postgres://example")
+	t.Setenv("MODEL_PATH", "model/asr-model")
+	t.Setenv("REDIS_URL", "redis://localhost:6380/0")
+	t.Setenv("GOOGLE_CLIENT_ID", "client-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "client-secret")
+	t.Setenv("GOOGLE_EVENT_DURATION", "30m")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if !cfg.Google.Enabled() || cfg.Google.EventDuration != 30*time.Minute {
+		t.Fatalf("unexpected Google config: %+v", cfg.Google)
+	}
 }
 
 func TestLoadEnvironmentOverridesYAML(t *testing.T) {

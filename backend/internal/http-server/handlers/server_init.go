@@ -14,6 +14,7 @@ type Services interface {
 	ReadinessService
 	Auth
 	TaskProcess
+	Calendar
 }
 
 // Server implements the HTTP operations from the OpenAPI contract.
@@ -22,11 +23,26 @@ type Server struct {
 
 	log      *slog.Logger
 	services Services
+	// googleRedirect is where the Google OAuth callback sends the browser.
+	googleRedirect string
+}
+
+// Option configures optional Server settings.
+type Option func(*Server)
+
+// WithGoogleFrontendRedirect sets the frontend URL that the Google OAuth
+// callback redirects to. It comes only from configuration.
+func WithGoogleFrontendRedirect(rawURL string) Option {
+	return func(s *Server) { s.googleRedirect = rawURL }
 }
 
 var _ api.ServerInterface = (*Server)(nil)
 
 // NewServer constructs HTTP handlers with all application services.
-func NewServer(log *slog.Logger, services Services) *Server {
-	return &Server{log: log, services: services}
+func NewServer(log *slog.Logger, services Services, opts ...Option) *Server {
+	s := &Server{log: log, services: services}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }

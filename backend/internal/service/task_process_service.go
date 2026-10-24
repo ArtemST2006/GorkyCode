@@ -48,6 +48,20 @@ type EventReader interface {
 	SearchEvents(ctx context.Context, userID uuid.UUID, action json.RawMessage) (api.TaskCollection, error)
 }
 
+// ConflictFinder finds what a new meeting overlaps.
+type ConflictFinder interface {
+	Find(ctx context.Context, userID uuid.UUID, start time.Time) (*MeetingConflict, error)
+}
+
+// PendingTaskStore keeps meetings that wait for the user's confirmation.
+type PendingTaskStore interface {
+	SavePendingTask(ctx context.Context, key, value string, ttl time.Duration) error
+	TakePendingTask(ctx context.Context, key string) (string, error)
+}
+
+// pendingTaskTTL limits how long a conflicting meeting waits for confirmation.
+const pendingTaskTTL = 10 * time.Minute
+
 // TaskProcess turns a text or audio command into an AI-service request.
 type TaskProcess struct {
 	rec       STT
@@ -56,6 +70,8 @@ type TaskProcess struct {
 	creator   TaskCreator
 	reader    EventReader
 	aiURL     string
+	conflicts ConflictFinder
+	pending   PendingTaskStore
 }
 
 // NewTaskProcess constructs a task processor with the given dependencies.
@@ -68,6 +84,14 @@ func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, creator 
 		reader:    reader,
 		aiURL:     aiURL,
 	}
+}
+
+// WithMeetingConflicts makes the processor ask for confirmation before it
+// creates a meeting that overlaps another one.
+func (t *TaskProcess) WithMeetingConflicts(conflicts ConflictFinder, pending PendingTaskStore) *TaskProcess {
+	t.conflicts = conflicts
+	t.pending = pending
+	return t
 }
 
 // createReq отправляет запрос AI-сервису.
@@ -247,32 +271,14 @@ func (t *TaskProcess) processAIResult(
 				return nil, fmt.Errorf("%w: %w", model.ErrBadGateway, err)
 			}
 
-			task, err := t.creator.Create(ctx, cmd)
+			question, err := t.checkMeetingConflict(ctx, result, cmd, message)
 			if err != nil {
-				return nil, fmt.Errorf("create task: %w", err)
+				return nil, err
 			}
-			if task == nil || task.Date == nil || task.Time == nil {
-				return nil, errors.New("created task is missing date or time")
+			if question != nil {
+				return question, nil
 			}
-
-			return &api.TaskCreatedResponse{
-				Data: api.TaskCreatedData{
-					Event: api.TaskCreatedEvent{
-						CreatedAt:  task.CreatedAt,
-						Date:       openapitypes.Date{Time: *task.Date},
-						Id:         task.ID,
-						RecordType: api.TaskCreatedEventRecordType(cmd.RecordType),
-						Status:     api.TaskCreatedEventStatus(task.Status),
-						Time:       *task.Time,
-						Title:      task.Title,
-						UserId:     task.UserID,
-					},
-				},
-				Message: message,
-				Status:  api.TaskCreatedResponseStatusOk,
-				TaskId:  result.TaskID,
-				UserId:  result.UserID,
-			}, nil
+			return t.createTask(ctx, cmd, result.UserID, result.TaskID, message)
 
 		case "list_events":
 			if t.reader == nil {
@@ -327,6 +333,162 @@ func (t *TaskProcess) processAIResult(
 	}
 }
 
+// createTask saves the task and builds the 201 response with the AI message.
+func (t *TaskProcess) createTask(
+	ctx context.Context,
+	cmd services.CreateTaskCommand,
+	userID, taskID uuid.UUID,
+	message string,
+) (model.TaskResult, error) {
+	task, err := t.creator.Create(ctx, cmd)
+	if err != nil {
+		return nil, fmt.Errorf("create task: %w", err)
+	}
+	if task == nil || task.Date == nil || task.Time == nil {
+		return nil, errors.New("created task is missing date or time")
+	}
+
+	return &api.TaskCreatedResponse{
+		Data: api.TaskCreatedData{
+			Event: api.TaskCreatedEvent{
+				CreatedAt:  task.CreatedAt,
+				Date:       openapitypes.Date{Time: *task.Date},
+				Id:         task.ID,
+				RecordType: api.TaskCreatedEventRecordType(cmd.RecordType),
+				Status:     api.TaskCreatedEventStatus(task.Status),
+				Time:       *task.Time,
+				Title:      task.Title,
+				UserId:     task.UserID,
+			},
+		},
+		Message: message,
+		Status:  api.TaskCreatedResponseStatusOk,
+		TaskId:  taskID,
+		UserId:  userID,
+	}, nil
+}
+
+// pendingTask is a meeting that waits for the user's confirmation.
+type pendingTask struct {
+	createAction
+	Message  string `json:"message"`
+	Question string `json:"question"`
+}
+
+func pendingTaskKey(userID, taskID uuid.UUID) string {
+	return fmt.Sprintf("task_confirm:%s:%s", userID, taskID)
+}
+
+// checkMeetingConflict saves a meeting that overlaps another one and returns
+// the confirmation question. It returns nil when the task can be created.
+func (t *TaskProcess) checkMeetingConflict(
+	ctx context.Context,
+	result model.AiRes,
+	cmd services.CreateTaskCommand,
+	message string,
+) (*api.TaskClarificationResponse, error) {
+	if t.conflicts == nil || t.pending == nil || cmd.RecordType != "meeting" {
+		return nil, nil
+	}
+
+	start := time.Date(cmd.Date.Year(), cmd.Date.Month(), cmd.Date.Day(),
+		cmd.Time.Hour(), cmd.Time.Minute(), 0, 0, cmd.Date.Location())
+	conflict, err := t.conflicts.Find(ctx, cmd.UserID, start)
+	if err != nil {
+		return nil, fmt.Errorf("check meeting conflicts: %w", err)
+	}
+	if conflict == nil {
+		return nil, nil
+	}
+
+	pending := pendingTask{
+		createAction: createAction{
+			RecordType: cmd.RecordType,
+			Title:      cmd.Title,
+			Date:       cmd.Date.Format(time.DateOnly),
+			Time:       cmd.Time.Format("15:04"),
+		},
+		Message:  message,
+		Question: conflict.Question(),
+	}
+	if err = t.savePending(ctx, result.UserID, result.TaskID, pending); err != nil {
+		return nil, err
+	}
+	return &api.TaskClarificationResponse{
+		UserId:  result.UserID,
+		TaskId:  result.TaskID,
+		Status:  api.NeedsClarification,
+		Message: pending.Question,
+	}, nil
+}
+
+func (t *TaskProcess) savePending(ctx context.Context, userID, taskID uuid.UUID, pending pendingTask) error {
+	raw, err := json.Marshal(pending)
+	if err != nil {
+		return fmt.Errorf("encode pending task: %w", err)
+	}
+	if err = t.pending.SavePendingTask(ctx, pendingTaskKey(userID, taskID), string(raw), pendingTaskTTL); err != nil {
+		return fmt.Errorf("save pending task: %w", err)
+	}
+	return nil
+}
+
+// confirmPending answers a confirmation question without the AI service.
+// It returns nil, nil when no meeting waits for this task_id.
+func (t *TaskProcess) confirmPending(
+	ctx context.Context,
+	userID, taskID uuid.UUID,
+	text string,
+	location *time.Location,
+) (model.TaskResult, error) {
+	if t.pending == nil {
+		return nil, nil
+	}
+	raw, err := t.pending.TakePendingTask(ctx, pendingTaskKey(userID, taskID))
+	if errors.Is(err, model.ErrPendingTaskNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("take pending task: %w", err)
+	}
+	var pending pendingTask
+	if err = json.Unmarshal([]byte(raw), &pending); err != nil {
+		return nil, fmt.Errorf("decode pending task: %w", err)
+	}
+
+	switch utils.ParseConfirmation(text) {
+	case utils.ConfirmationYes:
+		action, encodeErr := json.Marshal(pending.createAction)
+		if encodeErr != nil {
+			return nil, fmt.Errorf("encode pending action: %w", encodeErr)
+		}
+		cmd, parseErr := parseCreateTaskCommand(model.AiRes{UserID: userID, Action: action}, location)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse pending task: %w", parseErr)
+		}
+		return t.createTask(ctx, cmd, userID, taskID, pending.Message)
+	case utils.ConfirmationNo:
+		return &api.TaskCancelledResponse{
+			UserId:  userID,
+			TaskId:  taskID,
+			Status:  api.Cancelled,
+			Message: "Хорошо, встречу не ставлю.",
+		}, nil
+	case utils.ConfirmationUnknown:
+		if err = t.savePending(ctx, userID, taskID, pending); err != nil {
+			return nil, err
+		}
+		return &api.TaskClarificationResponse{
+			UserId:  userID,
+			TaskId:  taskID,
+			Status:  api.NeedsClarification,
+			Message: "Ответьте «да» или «нет». " + pending.Question,
+		}, nil
+	default:
+		return nil, errors.New("unknown confirmation answer")
+	}
+}
+
 // Process handles a text or audio command and returns the HTTP-facing result.
 func (t *TaskProcess) Process(
 	ctx context.Context,
@@ -346,6 +508,13 @@ func (t *TaskProcess) Process(
 	location, err := time.LoadLocation(timezone)
 	if err != nil {
 		return nil, fmt.Errorf("invalid user timezone: %w", err)
+	}
+
+	if taskID != nil {
+		confirmed, confirmErr := t.confirmPending(ctx, userID, *taskID, text, location)
+		if confirmErr != nil || confirmed != nil {
+			return confirmed, confirmErr
+		}
 	}
 
 	var taskContext ai.JobRequestContext

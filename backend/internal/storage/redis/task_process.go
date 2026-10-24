@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"gorkycode/backend/internal/model"
+	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -40,4 +41,25 @@ func (p *TaskProcess) PutDraft(ctx context.Context, key, value string) error {
 		return fmt.Errorf("set draft: %w", err)
 	}
 	return nil
+}
+
+// SavePendingTask stores a task that waits for the user's confirmation.
+func (p *TaskProcess) SavePendingTask(ctx context.Context, key, value string, ttl time.Duration) error {
+	if err := p.client.Set(ctx, key, value, ttl).Err(); err != nil {
+		return fmt.Errorf("set pending task: %w", err)
+	}
+	return nil
+}
+
+// TakePendingTask returns the pending task and deletes it, so it is used once.
+// It returns model.ErrPendingTaskNotFound when nothing waits for confirmation.
+func (p *TaskProcess) TakePendingTask(ctx context.Context, key string) (string, error) {
+	value, err := p.client.GetDel(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, goredis.Nil) {
+			return "", model.ErrPendingTaskNotFound
+		}
+		return "", fmt.Errorf("take pending task: %w", err)
+	}
+	return value, nil
 }

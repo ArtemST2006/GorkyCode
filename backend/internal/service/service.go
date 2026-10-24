@@ -2,8 +2,10 @@
 package service
 
 import (
+	"gorkycode/backend/internal/config"
 	"gorkycode/backend/internal/service/subservice"
 	"gorkycode/backend/internal/voice"
+	"log/slog"
 	"time"
 )
 
@@ -17,6 +19,10 @@ type Repositories interface {
 	subservice.TaskCreateRepository
 	subservice.TaskLister
 	subservice.TaskSearcher
+	GoogleIntegrationStore
+	OAuthStateStore
+	MeetingOverlapFinder
+	PendingTaskStore
 }
 
 // Services groups application services for HTTP wiring.
@@ -25,16 +31,36 @@ type Services struct {
 	*AuthService
 	*TaskProcess
 	*subservice.TaskCreate
+	*CalendarService
 }
 
-// New constructs all services from the repository bundle.
-func New(repo Repositories, queryTimeout, sessionTTL time.Duration, rec *voice.Recognizer, aiServiceURL string) *Services {
+// New constructs all services from the repository bundle. A nil googleClient
+// disables Google Calendar: new tasks are then saved without sync.
+func New(
+	repo Repositories,
+	queryTimeout, sessionTTL time.Duration,
+	rec *voice.Recognizer,
+	aiServiceURL string,
+	googleCfg config.Google,
+	googleClient GoogleCalendarClient,
+	log *slog.Logger,
+) *Services {
 	taskCreate := subservice.NewTaskCreateService(repo)
 	eventReader := subservice.NewLister(repo)
+	calendar := NewCalendarService(repo, repo, repo, googleClient, log, queryTimeout, googleCfg.EventDuration)
+
+	var creator TaskCreator = taskCreate
+	var googleBusy GoogleBusyChecker
+	if calendar.Enabled() {
+		creator = NewCalendarSyncingCreator(taskCreate, calendar, log)
+		googleBusy = calendar
+	}
+	conflicts := NewMeetingConflicts(repo, googleBusy, log, queryTimeout, googleCfg.EventDuration)
 	return &Services{
-		HealthService: NewHealthService(repo, queryTimeout),
-		AuthService:   NewAuthService(repo, repo, queryTimeout, sessionTTL),
-		TaskProcess:   NewTaskProcess(rec, repo, repo, taskCreate, eventReader, aiServiceURL),
-		TaskCreate:    taskCreate,
+		HealthService:   NewHealthService(repo, queryTimeout),
+		AuthService:     NewAuthService(repo, repo, queryTimeout, sessionTTL),
+		TaskProcess:     NewTaskProcess(rec, repo, repo, creator, eventReader, aiServiceURL).WithMeetingConflicts(conflicts, repo),
+		TaskCreate:      taskCreate,
+		CalendarService: calendar,
 	}
 }

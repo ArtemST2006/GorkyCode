@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	api "gorkycode/backend/internal/generated"
 )
@@ -25,9 +26,29 @@ func (f fakeReadinessService) Ready(context.Context) error {
 	return f.err
 }
 
+// fakeCalendarService behaves like a disabled Google Calendar integration.
+type fakeCalendarService struct{}
+
+func (fakeCalendarService) Connect(context.Context, uuid.UUID) (string, error) {
+	return "", model.ErrGoogleDisabled
+}
+
+func (fakeCalendarService) Callback(context.Context, string, string, string) error {
+	return model.ErrGoogleDisabled
+}
+
+func (fakeCalendarService) Status(context.Context, uuid.UUID) (*model.GoogleIntegration, error) {
+	return nil, model.ErrGoogleDisabled
+}
+
+func (fakeCalendarService) Disconnect(context.Context, uuid.UUID) error {
+	return model.ErrGoogleDisabled
+}
+
 type fakeServices struct {
 	fakeReadinessService
 	*fakeAuthService
+	fakeCalendarService
 }
 
 func (fakeServices) Process(context.Context, model.TaskRequest) (model.TaskResult, error) {

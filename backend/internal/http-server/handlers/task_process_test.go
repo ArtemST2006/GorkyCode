@@ -41,6 +41,7 @@ type taskTestServices struct {
 	fakeReadinessService
 	*fakeAuthService
 	*fakeTaskProcess
+	fakeCalendarService
 }
 
 func newTaskServer(process *fakeTaskProcess, auth *fakeAuthService) *Server {
@@ -210,6 +211,7 @@ func TestProcessTaskMapsResultTypes(t *testing.T) {
 	}{
 		{name: "clarification", result: &api.TaskClarificationResponse{}, wantCode: http.StatusOK},
 		{name: "collection", result: &api.TaskCollectionResponse{}, wantCode: http.StatusOK},
+		{name: "cancelled", result: &api.TaskCancelledResponse{}, wantCode: http.StatusOK},
 		{name: "created", result: &api.TaskCreatedResponse{}, wantCode: http.StatusCreated},
 		{name: "unknown", result: struct{}{}, wantCode: http.StatusInternalServerError},
 	} {

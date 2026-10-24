@@ -35,6 +35,12 @@ func Unavailable(detail string) api.Problem {
 	return newProblem(http.StatusServiceUnavailable, "service_unavailable", "service-unavailable", "Service unavailable", detail)
 }
 
+// GoogleDisabled reports that Google Calendar credentials are not configured.
+func GoogleDisabled() api.Problem {
+	return newProblem(http.StatusServiceUnavailable, "google_disabled", "google-disabled", "Service Unavailable",
+		"Интеграция с Google Calendar выключена.")
+}
+
 // Internal reports an unexpected error without exposing its details.
 func Internal() api.Problem {
 	return newProblem(http.StatusInternalServerError, "internal_error", "internal-error", "Internal server error", "")

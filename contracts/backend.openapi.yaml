@@ -93,6 +93,7 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/TaskClarificationResponse'
                   - $ref: '#/components/schemas/TaskCollectionResponse'
+                  - $ref: '#/components/schemas/TaskCancelledResponse'
               examples:
                 needsClarification:
                   summary: Время встречи ещё не указано
@@ -153,6 +154,20 @@ paths:
                     message: Поиск встреч с Иваном завершён.
                     data:
                       items: []
+                meetingConflict:
+                  summary: Новая встреча пересекается с существующей
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: needs_clarification
+                    message: В это время уже есть встреча «Встреча с Иваном», всё равно поставить?
+                meetingCancelled:
+                  summary: Пользователь отказался ставить пересекающуюся встречу
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    status: cancelled
+                    message: Хорошо, встречу не ставлю.
         '201':
           description: Событие создано и сохранено; data.event содержит фактическую запись PostgreSQL
           content:
@@ -315,6 +330,133 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/Unavailable'
+  /api/v1/integrations/google:
+    get:
+      tags: [Integrations]
+      summary: Статус подключения Google Calendar
+      description: Показывает, подключён ли Google Calendar у владельца Bearer-сессии.
+      operationId: googleStatus
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Текущий статус интеграции
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleStatusResponse'
+              examples:
+                connected:
+                  summary: Google Calendar подключён
+                  value:
+                    connected: true
+                    google_email: artem@gmail.com
+                    connected_at: '2026-10-22T19:00:00+03:00'
+                notConnected:
+                  summary: Google Calendar не подключён
+                  value:
+                    connected: false
+        '401':
+          $ref: '#/components/responses/SessionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/GoogleDisabled'
+    delete:
+      tags: [Integrations]
+      summary: Отключить Google Calendar
+      description: >-
+        Удаляет сохранённые OAuth-токены Google владельца Bearer-сессии.
+        Операция идемпотентна: если Google Calendar не подключён, тоже
+        возвращается 204.
+      operationId: googleDisconnect
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Google Calendar отключён или не был подключён
+        '401':
+          $ref: '#/components/responses/SessionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/GoogleDisabled'
+  /api/v1/integrations/google/connect:
+    post:
+      tags: [Integrations]
+      summary: Начать подключение Google Calendar
+      description: |
+        Создаёт одноразовый state, привязанный к владельцу Bearer-сессии, и
+        возвращает URL страницы согласия Google. Клиент открывает auth_url в
+        браузере; после согласия Google перенаправляет браузер на
+        /api/v1/integrations/google/callback.
+      operationId: googleConnect
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: URL страницы согласия Google
+          headers:
+            Cache-Control:
+              description: Ответ с одноразовым state не должен кешироваться.
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleConnectResponse'
+        '401':
+          $ref: '#/components/responses/SessionRequired'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/GoogleDisabled'
+  /api/v1/integrations/google/callback:
+    get:
+      tags: [Integrations]
+      summary: OAuth callback Google
+      description: |
+        Сюда Google перенаправляет браузер после страницы согласия, поэтому
+        Bearer-токен не требуется: пользователь определяется по одноразовому
+        state из connect. Backend обменивает code на токены и сохраняет их.
+        Ответ всегда 302. Адрес перенаправления берётся только из конфигурации
+        backend (GOOGLE_FRONTEND_REDIRECT) и никогда из параметров запроса;
+        к нему добавляется google=connected при успехе или google=error при
+        отказе пользователя, неизвестном или истёкшем state, ошибке обмена
+        code либо выключенной интеграции.
+      operationId: googleCallback
+      parameters:
+        - name: code
+          in: query
+          required: false
+          description: Код авторизации Google; отсутствует, если пользователь отказал.
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          description: Одноразовый state, выданный в connect.
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          description: Ошибка от Google, например access_denied.
+          schema:
+            type: string
+            example: access_denied
+      responses:
+        '302':
+          description: Перенаправление браузера на фронтенд
+          headers:
+            Location:
+              description: |
+                GOOGLE_FRONTEND_REDIRECT с параметром google=connected или
+                google=error, например http://localhost:8088/?google=connected.
+              schema:
+                type: string
+                format: uri
 components:
   securitySchemes:
     bearerAuth:
@@ -400,6 +542,31 @@ components:
           description: Сообщение AI-service, переданное backend без изменений после успешного сохранения.
         data:
           $ref: '#/components/schemas/TaskCreatedData'
+    TaskCancelledResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message]
+      description: |
+        Ответ на вопрос о конфликте встреч, если пользователь отказался.
+        Когда новая встреча пересекается с активной встречей пользователя
+        или с занятым временем в подключённом Google Calendar, backend не
+        создаёт её сразу, а возвращает 200 TaskClarificationResponse с
+        вопросом. Клиент повторяет запрос с тем же task_id: ответ «да»
+        создаёт встречу (201), «нет» возвращает этот ответ, другой текст
+        повторяет вопрос. Неподтверждённая встреча хранится 10 минут.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [cancelled]
+        message:
+          type: string
+          minLength: 1
     TaskCreatedData:
       type: object
       additionalProperties: false
@@ -612,6 +779,33 @@ components:
         created_at:
           type: string
           format: date-time
+    GoogleConnectResponse:
+      type: object
+      additionalProperties: false
+      required: [auth_url]
+      properties:
+        auth_url:
+          type: string
+          format: uri
+          description: URL страницы согласия Google, которую клиент открывает в браузере.
+          example: https://accounts.google.com/o/oauth2/v2/auth?client_id=...&state=...
+    GoogleStatusResponse:
+      type: object
+      additionalProperties: false
+      required: [connected]
+      properties:
+        connected:
+          type: boolean
+          description: true, если у пользователя сохранены токены Google.
+        google_email:
+          type: string
+          format: email
+          description: Email Google-аккаунта; есть только при connected = true, если Google его вернул.
+          example: artem@gmail.com
+        connected_at:
+          type: string
+          format: date-time
+          description: Когда Google Calendar был подключён; есть только при connected = true.
     HealthResponse:
       type: object
       additionalProperties: false
@@ -735,6 +929,19 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    GoogleDisabled:
+      description: >-
+        Интеграция с Google Calendar выключена: не заданы GOOGLE_CLIENT_ID и
+        GOOGLE_CLIENT_SECRET; code = google_disabled.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://gorkycode.example/problems/google-disabled
+            title: Service Unavailable
+            status: 503
+            code: google_disabled
     TooManyRequests:
       description: Превышен лимит запросов; code = rate_limited.
       headers:

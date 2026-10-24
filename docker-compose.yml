@@ -24,6 +24,10 @@ services:
       REDIS_URL: "redis://redis:6379/0"
       MODEL_PATH: "/app/model/asr-model"
       MODEL_URL: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ru-2024-09-18.tar.bz2"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      GOOGLE_REDIRECT_URL: "${GOOGLE_REDIRECT_URL:-http://localhost:8088/api/v1/integrations/google/callback}"
+      GOOGLE_FRONTEND_REDIRECT: "${GOOGLE_FRONTEND_REDIRECT:-http://localhost:8088/}"
     volumes:
       - asr_model:/app/model
     depends_on:

@@ -153,6 +153,8 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 			encErr = writeJSON(w, http.StatusOK, res)
 		case *api.TaskCollectionResponse:
 			encErr = writeJSON(w, http.StatusOK, res)
+		case *api.TaskCancelledResponse:
+			encErr = writeJSON(w, http.StatusOK, res)
 		case *api.TaskCreatedResponse:
 			encErr = writeJSON(w, http.StatusCreated, res)
 		default:
@@ -201,6 +203,8 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 		case *api.TaskClarificationResponse:
 			encErr = writeJSON(w, http.StatusOK, res)
 		case *api.TaskCollectionResponse:
+			encErr = writeJSON(w, http.StatusOK, res)
+		case *api.TaskCancelledResponse:
 			encErr = writeJSON(w, http.StatusOK, res)
 		case *api.TaskCreatedResponse:
 			encErr = writeJSON(w, http.StatusCreated, res)
