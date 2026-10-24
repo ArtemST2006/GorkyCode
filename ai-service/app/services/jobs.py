@@ -42,7 +42,7 @@ class JobService:
                         400,
                         "unsupported_intent",
                         "Unsupported request",
-                        "Supported requests create calendar entries, list a period, or search by title.",
+                        "Supported requests create, list, search, or delete calendar entries.",
                     )
                 return build_job_response(request, decision)
             except (ValidationError, InvalidModelOutput) as exc:

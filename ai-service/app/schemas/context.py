@@ -4,6 +4,7 @@ from typing import Union
 
 from app.schemas.base import ContractModel
 from app.schemas.create_event import CreateEventDraft
+from app.schemas.delete_event import DeleteCandidateContext, DeleteSearchDraft
 from app.schemas.list_events import ListEventsDraft
 from app.schemas.messages import RecentMessages
 from app.schemas.search_events import SearchEventsDraft
@@ -15,10 +16,10 @@ class EmptyContext(ContractModel):
 
 class StoredContext(ContractModel):
     recent_messages: RecentMessages
-    draft: Union[CreateEventDraft, ListEventsDraft, SearchEventsDraft]
+    draft: Union[CreateEventDraft, ListEventsDraft, SearchEventsDraft, DeleteSearchDraft]
 
 
-JobRequestContext = Union[EmptyContext, StoredContext]
+JobRequestContext = Union[EmptyContext, DeleteCandidateContext, StoredContext]
 
 
 class CreateEventContext(ContractModel):

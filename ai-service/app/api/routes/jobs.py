@@ -2,11 +2,17 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Response
 
 from app.api.dependencies import JobServiceDependency
 from app.api.openapi import job_request_examples
-from app.schemas.job import JobRequest, JobResponse
+from app.schemas.job import (
+    DeleteConfirmedResponse,
+    DeleteFindCandidatesResponse,
+    DeleteNeedsClarificationResponse,
+    JobRequest,
+    JobResponse,
+)
 
 router = APIRouter(prefix="/api", tags=["AI"])
 
@@ -20,5 +26,12 @@ router = APIRouter(prefix="/api", tags=["AI"])
 async def process_job(
     payload: Annotated[JobRequest, Body(openapi_examples=job_request_examples())],
     service: JobServiceDependency,
+    response: Response,
 ) -> JobResponse:
-    return await service.process(payload)
+    result = await service.process(payload)
+    if isinstance(
+        result,
+        (DeleteNeedsClarificationResponse, DeleteFindCandidatesResponse, DeleteConfirmedResponse),
+    ):
+        response.headers["X-Task-Intent"] = "on_delete"
+    return result

@@ -2,11 +2,28 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, StrictBool, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from app.schemas.create_event import CreateEventAction, CreateEventDraft
+from app.schemas.delete_event import DeleteFindCandidatesAction, DeleteSearchDraft
 from app.schemas.list_events import ListEventsAction, ListEventsDraft
 from app.schemas.search_events import SearchEventsAction, SearchEventsDraft
+
+
+class DeleteSelectionAction(BaseModel):
+    """Internal selection: the service maps shown numbers to stored IDs."""
+
+    model_config = ConfigDict(extra="forbid")
+    phase: Literal["delete_confirmed"]
+    selected_numbers: list[int] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def unique_numbers(self):
+        if any(number < 1 for number in self.selected_numbers):
+            raise ValueError("selected_numbers must be positive")
+        if len(self.selected_numbers) != len(set(self.selected_numbers)):
+            raise ValueError("selected_numbers must be unique")
+        return self
 
 
 class ModelDecision(BaseModel):
@@ -14,10 +31,17 @@ class ModelDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     status: Literal["ready", "needs_clarification", "unsupported"]
-    intent: Literal["create_event", "list_events", "search_events"] | None
+    intent: Literal["create_event", "list_events", "search_events", "on_delete"] | None
     message: str | None
-    action: CreateEventAction | ListEventsAction | SearchEventsAction | None
-    draft: CreateEventDraft | ListEventsDraft | SearchEventsDraft | None
+    action: (
+        CreateEventAction
+        | ListEventsAction
+        | SearchEventsAction
+        | DeleteFindCandidatesAction
+        | DeleteSelectionAction
+        | None
+    )
+    draft: CreateEventDraft | ListEventsDraft | SearchEventsDraft | DeleteSearchDraft | None
     topic_changed: StrictBool
 
     @model_validator(mode="after")
@@ -44,4 +68,11 @@ class ModelDecision(BaseModel):
             or self.draft is None
         ):
             raise ValueError("Clarification requires question/draft and null action")
+        if self.status == "ready" and self.intent == "on_delete":
+            if not isinstance(self.action, (DeleteFindCandidatesAction, DeleteSelectionAction)):
+                raise ValueError("on_delete requires a delete phase action")
+        elif self.status == "ready" and isinstance(
+            self.action, (DeleteFindCandidatesAction, DeleteSelectionAction)
+        ):
+            raise ValueError("Delete action requires on_delete intent")
         return self

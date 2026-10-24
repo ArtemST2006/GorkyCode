@@ -14,6 +14,11 @@ from app.schemas.context import (
     SearchEventsContext,
 )
 from app.schemas.create_event import CreateEventAction
+from app.schemas.delete_event import (
+    DeleteClarificationContext,
+    DeleteConfirmedAction,
+    DeleteFindCandidatesAction,
+)
 from app.schemas.list_events import ListEventsAction
 from app.schemas.search_events import SearchEventsAction
 
@@ -64,12 +69,15 @@ def _ready_message(value: str) -> str:
     return value
 
 
+ReadyMessage = Annotated[NonEmptyString, AfterValidator(_ready_message)]
+
+
 class ReadyBase(BaseModel):
     model_config = ConfigDict(extra="allow")
     user_id: UUIDString
     task_id: UUIDString
     status: Literal["ready"]
-    message: Annotated[NonEmptyString, AfterValidator(_ready_message)]
+    message: ReadyMessage
     context: ReadyContext
 
 
@@ -91,7 +99,37 @@ class ReadySearchEvents(ReadyBase):
 ReadyResponse = Annotated[
     Union[ReadyCreateEvent, ReadyListEvents, ReadySearchEvents], Field(discriminator="intent")
 ]
-JobResponse = Annotated[
-    Union[NeedsClarificationResponse, ReadyResponse], Field(discriminator="status")
+
+
+class DeleteNeedsClarificationResponse(ContractModel):
+    user_id: UUIDString
+    task_id: UUIDString
+    status: Literal["needs_clarification"]
+    message: ReadyMessage
+    action: None
+    context: DeleteClarificationContext
+
+
+class DeleteFindCandidatesResponse(ContractModel):
+    user_id: UUIDString
+    task_id: UUIDString
+    status: Literal["ready"]
+    message: ReadyMessage
+    action: DeleteFindCandidatesAction
+    context: ReadyContext
+
+
+class DeleteConfirmedResponse(ContractModel):
+    user_id: UUIDString
+    task_id: UUIDString
+    status: Literal["ready"]
+    message: ReadyMessage
+    action: DeleteConfirmedAction
+    context: ReadyContext
+
+
+DeleteResponse = Union[
+    DeleteNeedsClarificationResponse, DeleteFindCandidatesResponse, DeleteConfirmedResponse
 ]
+JobResponse = Union[NeedsClarificationResponse, ReadyResponse, DeleteResponse]
 JOB_RESPONSE_ADAPTER = TypeAdapter(JobResponse)

@@ -37,6 +37,16 @@ paths:
         старый draft в новое действие и возвращает context только новой темы.
         user_id и task_id при этом остаются прежними; backend перезаписывает
         черновик либо завершает диалог по обычным правилам status.
+        Для нового on_delete AI возвращает intent только в заголовке
+        X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+        Существующие create_event, list_events и search_events продолжают
+        возвращать intent в JSON без обязательного X-Task-Intent.
+        ready/on_delete с phase=find_candidates разрешает только поиск:
+        удаление возможно лишь после повторного запроса с подтверждением
+        пользователя и phase=delete_confirmed. AI сопоставляет выбранные
+        номера с ID строк tasks и возвращает их в action.task_ids. Backend
+        проверяет все ID по сохранённому списку кандидатов и владельцу
+        сессии; удаление выбранных строк выполняется одной транзакцией.
         Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
       requestBody:
         required: true
@@ -90,9 +100,77 @@ paths:
                       record_type: meeting
                       title: Встреча с Иваном
                       date: '2026-10-19'
+              deleteSelection:
+                summary: Пользователь выбирает две записи из показанного списка
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                  text: Удали №1 и №5
+                  request_time: '2026-10-23T14:03:00+03:00'
+                  timezone: Europe/Moscow
+                  context:
+                    recent_messages:
+                      - role: user
+                        text: Удали встречи с Иваном сегодня
+                      - role: assistant
+                        text: Нашёл пять встреч. Какие удалить?
+                    draft:
+                      title_query: встречи с Иваном
+                      date_from: '2026-10-23'
+                      date_to_exclusive: '2026-10-24'
+                    candidates:
+                      - number: 1
+                        id: 2d7f8e0b-2fae-4b46-835a-675f748f3b11
+                        record_type: meeting
+                        title: Встреча с Иваном
+                        date: '2026-10-23'
+                        time: '11:00'
+                        status: active
+                      - number: 2
+                        id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                        record_type: meeting
+                        title: Встреча с Иваном
+                        date: '2026-10-23'
+                        time: '15:00'
+                        status: active
+                      - number: 3
+                        id: 6a59a6cb-6d5f-4f1e-b1d5-2e2c944acf55
+                        record_type: meeting
+                        title: Встреча с Иваном
+                        date: '2026-10-23'
+                        time: '16:00'
+                        status: active
+                      - number: 4
+                        id: 7b860b25-b89c-43b4-9b88-b0dcb8493a78
+                        record_type: meeting
+                        title: Встреча с Иваном
+                        date: '2026-10-23'
+                        time: '17:00'
+                        status: active
+                      - number: 5
+                        id: ee79bdbf-f5a8-4204-a821-4a4ab21d14f6
+                        record_type: meeting
+                        title: Встреча с Иваном
+                        date: '2026-10-23'
+                        time: '18:00'
+                        status: active
       responses:
         '200':
-          description: Требуется уточнение либо подготовлено действие
+          description: |
+            Требуется уточнение либо подготовлено действие. Заголовок
+            X-Task-Intent обязателен только для новых ответов on_delete;
+            прежние интенты по-прежнему находятся в JSON. OpenAPI 3.0 не
+            выражает условную обязательность заголовка для одного HTTP 200,
+            поэтому это правило проверяется при интеграции.
+          headers:
+            X-Task-Intent:
+              description: |
+                Только для on_delete: подтверждённый AI intent. В старых
+                ответах заголовок не требуется.
+              required: false
+              schema:
+                type: string
+                enum: [on_delete]
           content:
             application/json:
               schema:
@@ -188,6 +266,82 @@ paths:
                       recent_messages:
                         - role: user
                           text: Создай задачу купить молоко завтра в 18:00
+                      draft: null
+                deleteNeedsClarification:
+                  summary: Для удаления не хватает признаков
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: needs_clarification
+                    message: Какую запись нужно удалить?
+                    action: null
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Удали запись
+                        - role: assistant
+                          text: Какую запись нужно удалить?
+                      draft: {}
+                deleteFindCandidates:
+                  summary: Поиск встреч по заголовку и дате; удалять ещё нельзя
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: ready
+                    message: Подбираю записи для удаления.
+                    action:
+                      phase: find_candidates
+                      title_query: встречи с Иваном
+                      date_from: '2026-10-23'
+                      date_to_exclusive: '2026-10-24'
+                      time_from: null
+                      time_to_exclusive: null
+                      record_types: [meeting]
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Удали встречи с Иваном сегодня
+                      draft: null
+                deleteFindCandidatesByTime:
+                  summary: Поиск только по времени среди всех дат
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: d2297918-0960-483d-a26f-e9dfe38538c9
+                    status: ready
+                    message: Подбираю записи для удаления.
+                    action:
+                      phase: find_candidates
+                      title_query: null
+                      date_from: null
+                      date_to_exclusive: null
+                      time_from: '14:00'
+                      time_to_exclusive: '15:00'
+                      record_types: null
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Удали все записи с 14 до 15 часов
+                      draft: null
+                deleteConfirmed:
+                  summary: Пользователь выбрал кандидатов №1 и №5
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: ready
+                    message: Удаляю выбранные записи.
+                    action:
+                      phase: delete_confirmed
+                      task_ids:
+                        - 2d7f8e0b-2fae-4b46-835a-675f748f3b11
+                        - ee79bdbf-f5a8-4204-a821-4a4ab21d14f6
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Удали встречи с Иваном сегодня
+                        - role: assistant
+                          text: Нашёл пять встреч. Какие удалить?
+                        - role: user
+                          text: Удали №1 и №5
                       draft: null
         '400':
           $ref: '#/components/responses/BadRequest'
@@ -358,10 +512,14 @@ components:
         context:
           $ref: '#/components/schemas/JobRequestContext'
     JobRequestContext:
-      description: Пустой объект при первом запросе либо контекст из Redis при продолжении.
+      description: |
+        Пустой объект при первом запросе либо контекст из Redis при
+        продолжении. После поиска on_delete backend передаёт AI список
+        показанных пользователю кандидатов со стабильными номерами.
       oneOf:
         - $ref: '#/components/schemas/EmptyContext'
         - $ref: '#/components/schemas/StoredContext'
+        - $ref: '#/components/schemas/DeleteCandidateContext'
     EmptyContext:
       type: object
       additionalProperties: false
@@ -379,6 +537,55 @@ components:
             - $ref: '#/components/schemas/CreateEventDraft'
             - $ref: '#/components/schemas/ListEventsDraft'
             - $ref: '#/components/schemas/SearchEventsDraft'
+            - $ref: '#/components/schemas/DeleteSearchDraft'
+    DeleteCandidateContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft, candidates]
+      description: |
+        Контекст повторного запроса on_delete. Список создаёт backend из
+        фактически показанных записей; пользователь может выбрать один,
+        несколько или все показанные номера. Он не заменяет проверку кандидатов
+        в Redis перед удалением; после пустого списка пользователь может
+        уточнить признаки тем же task_id.
+      properties:
+        recent_messages:
+          $ref: '#/components/schemas/RecentMessages'
+        draft:
+          $ref: '#/components/schemas/DeleteSearchDraft'
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeleteCandidate'
+    DeleteCandidate:
+      type: object
+      additionalProperties: false
+      required: [number, id, record_type, title, date, time, status]
+      properties:
+        number:
+          type: integer
+          minimum: 1
+          description: Стабильный номер, показанный пользователю.
+        id:
+          type: string
+          format: uuid
+          description: ID строки tasks, не task_id диалога.
+        record_type:
+          $ref: '#/components/schemas/RecordType'
+        title:
+          type: string
+          minLength: 1
+        date:
+          type: string
+          format: date
+          nullable: true
+        time:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        status:
+          type: string
+          enum: [active, completed]
     RecentMessages:
       type: array
       minItems: 1
@@ -396,10 +603,104 @@ components:
           type: string
           minLength: 1
     JobResponse:
-      description: Бизнес-результат обработки реплики.
+      description: |
+        Бизнес-результат обработки реплики. Старые варианты несут intent
+        в JSON; новые варианты on_delete определяются по X-Task-Intent.
       oneOf:
         - $ref: '#/components/schemas/NeedsClarificationResponse'
         - $ref: '#/components/schemas/ReadyResponse'
+        - $ref: '#/components/schemas/DeleteNeedsClarificationResponse'
+        - $ref: '#/components/schemas/DeleteFindCandidatesResponse'
+        - $ref: '#/components/schemas/DeleteConfirmedResponse'
+    DeleteNeedsClarificationResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, action, context]
+      description: |
+        Ответ on_delete с X-Task-Intent: on_delete. AI ещё не получил
+        достаточно данных даже для поиска. Поле intent в JSON отсутствует.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [needs_clarification]
+        message:
+          type: string
+          minLength: 1
+          description: Уточняющий вопрос для пользователя.
+        action:
+          type: object
+          nullable: true
+          enum: [null]
+        context:
+          $ref: '#/components/schemas/DeleteClarificationContext'
+    DeleteClarificationContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft]
+      properties:
+        recent_messages:
+          $ref: '#/components/schemas/RecentMessages'
+        draft:
+          $ref: '#/components/schemas/DeleteSearchDraft'
+    DeleteFindCandidatesResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, action, context]
+      description: |
+        Ответ on_delete с X-Task-Intent: on_delete. ready означает только
+        готовность признаков для поиска. AI не видит PostgreSQL и не знает
+        число кандидатов; backend составляет сообщение о результатах поиска.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [ready]
+        message:
+          type: string
+          minLength: 1
+          description: Сообщение AI о подготовке поиска, не итог удаления.
+        action:
+          $ref: '#/components/schemas/DeleteFindCandidatesAction'
+        context:
+          $ref: '#/components/schemas/ReadyContext'
+    DeleteConfirmedResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, action, context]
+      description: |
+        Ответ on_delete с X-Task-Intent: on_delete после явного выбора
+        пользователя. Backend не доверяет task_ids без проверки каждого ID
+        по сохранённым кандидатам и владельцу записей. Сообщение об успехе
+        допустимо вернуть фронту только после удаления всех выбранных строк
+        в PostgreSQL; частичное удаление недопустимо.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [ready]
+        message:
+          type: string
+          minLength: 1
+        action:
+          $ref: '#/components/schemas/DeleteConfirmedAction'
+        context:
+          $ref: '#/components/schemas/ReadyContext'
     NeedsClarificationResponse:
       oneOf:
         - $ref: '#/components/schemas/ClarificationCreateEvent'
@@ -529,6 +830,40 @@ components:
           format: date
         record_types:
           $ref: '#/components/schemas/RecordTypes'
+    DeleteSearchDraft:
+      type: object
+      additionalProperties: false
+      description: |
+        Частичные признаки on_delete. Незаданные поля могут отсутствовать
+        или быть null. Сами по себе эти данные не разрешают удаление.
+      properties:
+        title_query:
+          type: string
+          minLength: 1
+          nullable: true
+        date_from:
+          type: string
+          format: date
+          nullable: true
+        date_to_exclusive:
+          type: string
+          format: date
+          nullable: true
+        time_from:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        time_to_exclusive:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        record_types:
+          type: array
+          nullable: true
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RecordType'
     ReadyResponse:
       oneOf:
         - $ref: '#/components/schemas/ReadyCreateEvent'
@@ -679,6 +1014,112 @@ components:
           format: date
         record_types:
           $ref: '#/components/schemas/RecordTypes'
+    DeleteFindCandidatesAction:
+      type: object
+      additionalProperties: false
+      required:
+        - phase
+        - title_query
+        - date_from
+        - date_to_exclusive
+        - time_from
+        - time_to_exclusive
+        - record_types
+      description: |
+        Поиск кандидатов на удаление без изменения БД. Все признаки
+        присутствуют, незаданные равны null. Хотя бы один признак должен
+        быть ненулевым. Backend применяет заполненные точные фильтры
+        совместно (AND). title_query используется для поиска по заголовку,
+        в том числе семантического при доступных совместимых embeddings.
+        Отсутствие даты допускает поиск по времени среди всех дат.
+        date_from и time_from включительны, date_to_exclusive и
+        time_to_exclusive исключительны. Если заданы обе границы одного
+        интервала, backend проверяет from < to. Относительные даты AI
+        переводит в календарные по request_time и timezone.
+      anyOf:
+        - required: [title_query]
+          properties:
+            title_query:
+              type: string
+              minLength: 1
+        - required: [date_from]
+          properties:
+            date_from:
+              type: string
+              format: date
+        - required: [date_to_exclusive]
+          properties:
+            date_to_exclusive:
+              type: string
+              format: date
+        - required: [time_from]
+          properties:
+            time_from:
+              type: string
+              pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        - required: [time_to_exclusive]
+          properties:
+            time_to_exclusive:
+              type: string
+              pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        - required: [record_types]
+          properties:
+            record_types:
+              type: array
+              minItems: 1
+      properties:
+        phase:
+          type: string
+          enum: [find_candidates]
+        title_query:
+          type: string
+          minLength: 1
+          nullable: true
+        date_from:
+          type: string
+          format: date
+          nullable: true
+        date_to_exclusive:
+          type: string
+          format: date
+          nullable: true
+        time_from:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        time_to_exclusive:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        record_types:
+          type: array
+          nullable: true
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RecordType'
+    DeleteConfirmedAction:
+      type: object
+      additionalProperties: false
+      required: [phase, task_ids]
+      description: |
+        AI сопоставляет подтверждённые пользователем номера со стабильными
+        ID кандидатов из JobRequestContext. task_ids содержит ID строк
+        PostgreSQL tasks, а верхнеуровневый task_id — ID диалога. Backend
+        проверяет весь список по сохранённым кандидатам и владельцу
+        действующей Bearer-сессии. Если хотя бы один ID невалиден или
+        устарел, ни одна строка не удаляется.
+      properties:
+        phase:
+          type: string
+          enum: [delete_confirmed]
+        task_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
     RecordType:
       type: string
       enum: [task, reminder, meeting]

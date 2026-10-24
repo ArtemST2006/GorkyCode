@@ -5,6 +5,44 @@ from live_support import LiveCase, ROOT, cloud, job_payload, parallel_calls, ses
 
 
 class JobTests(LiveCase):
+    def test_delete_candidates_then_selected_number(self):
+        if self.live.args.llm_suite == "smoke":
+            self.skipTest("not in --llm-suite smoke")
+        payload = job_payload(text="Удали встречи с Иваном сегодня")
+        first = self.live.call("/api/job", paid=True, payload=payload)
+        self.assertEqual(first["status"], 200)
+        self.assertEqual(first["headers"].get("x-task-intent"), "on_delete")
+        self.live.schema(first["body"], "JobResponse")
+        self.assertNotIn("intent", first["body"])
+        self.assertEqual(first["body"]["status"], "ready")
+        self.assertEqual(first["body"]["action"]["phase"], "find_candidates")
+
+        action = first["body"]["action"]
+        candidate_ids = ["2d7f8e0b-2fae-4b46-835a-675f748f3b11",
+                         "ee79bdbf-f5a8-4204-a821-4a4ab21d14f6"]
+        context = {
+            "recent_messages": first["body"]["context"]["recent_messages"]
+            + [{"role": "assistant", "text": "Нашёл две встречи. Какие удалить?"}],
+            "draft": {key: value for key, value in action.items()
+                      if key != "phase" and value is not None},
+            "candidates": [
+                {"number": index, "id": task_id, "record_type": "meeting",
+                 "title": "Встреча с Иваном", "date": action.get("date_from"),
+                 "time": "15:00", "status": "active"}
+                for index, task_id in enumerate(candidate_ids, start=1)
+            ],
+        }
+        second = self.live.call(
+            "/api/job", paid=True,
+            payload=payload | {"text": "Удали №2", "context": context},
+        )
+        self.assertEqual(second["status"], 200)
+        self.assertEqual(second["headers"].get("x-task-intent"), "on_delete")
+        self.live.schema(second["body"], "JobResponse")
+        self.assertNotIn("intent", second["body"])
+        self.assertEqual(second["body"]["action"],
+                         {"phase": "delete_confirmed", "task_ids": [candidate_ids[1]]})
+
     def test_parallel_requests_keep_their_own_ids(self):
         if self.live.args.llm_suite == "smoke":
             self.skipTest("not in --llm-suite smoke")
@@ -90,7 +128,6 @@ extra_scenarios = [
     dict(id="leap_day", steps=[cloud.step(
         "ready", "Создай задачу отправить отчёт завтра в 18:00", request_time="2028-02-28T12:00:00+03:00",
         action={"record_type": "task", "date": "2028-02-29", "time": "18:00"}, title_terms=("отчет",))]),
-    dict(id="unsupported_delete", steps=[cloud.step("reject", "Удали все мои встречи", code="unsupported_intent")]),
     dict(id="unsupported_update", steps=[cloud.step("reject", "Перенеси встречу с Иваном на завтра", code="unsupported_intent")]),
 ]
 
