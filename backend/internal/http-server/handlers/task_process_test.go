@@ -42,6 +42,7 @@ func (f *fakeTaskProcess) Process(_ context.Context, req model.TaskRequest) (*mo
 }
 
 type taskTestServices struct {
+	fakeCalendarService
 	fakeReadinessService
 	*fakeAuthService
 	*fakeTaskProcess

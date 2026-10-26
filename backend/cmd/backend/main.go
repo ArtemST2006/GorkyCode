@@ -8,6 +8,7 @@ import (
 	api "gorkycode/backend/internal/generated"
 	"gorkycode/backend/internal/http-server/apierr"
 	"gorkycode/backend/internal/http-server/handlers"
+	"gorkycode/backend/internal/integration/google"
 	"gorkycode/backend/internal/lib/logger"
 	"gorkycode/backend/internal/service"
 	"gorkycode/backend/internal/storage"
@@ -70,8 +71,16 @@ func run() error {
 	defer rec.Close()
 
 	repo := storage.NewRepository(pool, rdb)
-	services := service.New(repo, cfg.Database.QueryTimeout, cfg.Auth.SessionTTL, rec, cfg.AIServiceURL)
-	handler := handlers.NewServer(log, services)
+	// The interface stays nil while Google is disabled, so the service skips calendar sync.
+	var googleClient service.GoogleCalendarClient
+	if cfg.Google.Enabled() {
+		googleClient = google.New(cfg.Google)
+	} else {
+		log.Info("google calendar integration disabled")
+	}
+	services := service.New(repo, cfg.Database.QueryTimeout, cfg.Auth.SessionTTL, rec, cfg.AIServiceURL,
+		cfg.Google, googleClient, log)
+	handler := handlers.NewServer(log, services, handlers.WithGoogleFrontendRedirect(cfg.Google.FrontendRedirect))
 	router := chi.NewRouter()
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, r, apierr.NotFound("route not found"))

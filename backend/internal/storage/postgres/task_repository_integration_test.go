@@ -451,3 +451,68 @@ func taskTitles(tasks []model.Task) []string {
 	}
 	return titles
 }
+
+func TestTaskRepositoryFindOverlappingMeetingsWithPostgres(t *testing.T) {
+	url := os.Getenv("POSTGRES_TEST_URL")
+	if url == "" {
+		t.Skip("set POSTGRES_TEST_URL for a migrated test database")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err = pool.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	auth := NewAuthRepository(pool)
+	owner := createTaskTestUser(t, auth, pool)
+	stranger := createTaskTestUser(t, auth, pool)
+	for _, task := range []struct {
+		userID uuid.UUID
+		typ    string
+		title  string
+		date   any
+		time   any
+		status string
+	}{
+		{owner, "meeting", "ends at new start", "2026-10-21", "14:00", "active"},
+		{owner, "meeting", "starts inside", "2026-10-21", "15:30", "active"},
+		{owner, "meeting", "starts at new end", "2026-10-21", "16:00", "active"},
+		{owner, "meeting", "completed inside", "2026-10-21", "15:00", "completed"},
+		{owner, "reminder", "reminder inside", "2026-10-21", "15:00", "active"},
+		{owner, "meeting", "other day", "2026-10-22", "15:00", "active"},
+		{owner, "meeting", "starts before and overlaps", "2026-10-21", "14:30", "active"},
+		{stranger, "meeting", "stranger inside", "2026-10-21", "15:00", "active"},
+	} {
+		if _, err = pool.Exec(ctx,
+			"INSERT INTO tasks (user_id, type, title, date, time, status) VALUES ($1, $2, $3, $4::date, $5::time, $6)",
+			task.userID, task.typ, task.title, task.date, task.time, task.status,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	repo := NewTaskRepository(pool)
+	moscow, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 10, 21, 15, 0, 0, 0, moscow)
+
+	got, err := repo.FindOverlappingMeetings(ctx, owner, start, start.Add(time.Hour), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"starts before and overlaps", "starts inside"}
+	if titles := taskTitles(got); !slices.Equal(titles, want) {
+		t.Fatalf("titles = %v, want %v", titles, want)
+	}
+
+	free := time.Date(2026, 10, 21, 18, 0, 0, 0, moscow)
+	if got, err = repo.FindOverlappingMeetings(ctx, owner, free, free.Add(time.Hour), time.Hour); err != nil || len(got) != 0 {
+		t.Fatalf("FindOverlappingMeetings() in a free slot = %v, %v; want none", taskTitles(got), err)
+	}
+}

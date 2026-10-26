@@ -99,6 +99,21 @@ func (e RecordType) Valid() bool {
 	}
 }
 
+// Defines values for TaskCancelledResponseStatus.
+const (
+	Cancelled TaskCancelledResponseStatus = "cancelled"
+)
+
+// Valid indicates whether the value is a known member of the TaskCancelledResponseStatus enum.
+func (e TaskCancelledResponseStatus) Valid() bool {
+	switch e {
+	case Cancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskClarificationResponseStatus.
 const (
 	NeedsClarification TaskClarificationResponseStatus = "needs_clarification"
@@ -333,6 +348,28 @@ type FrontendUpdated struct {
 // FrontendUpdatedStatus defines model for FrontendUpdated.Status.
 type FrontendUpdatedStatus string
 
+// GoogleConnectResponse defines model for GoogleConnectResponse.
+type GoogleConnectResponse struct {
+	// AuthUrl URL страницы согласия Google, которую клиент открывает в браузере.
+	//
+	// Example: https://accounts.google.com/o/oauth2/v2/auth?client_id=...&state=...
+	AuthUrl string `json:"auth_url"`
+}
+
+// GoogleStatusResponse defines model for GoogleStatusResponse.
+type GoogleStatusResponse struct {
+	// Connected true, если у пользователя сохранены токены Google.
+	Connected bool `json:"connected"`
+
+	// ConnectedAt Когда Google Calendar был подключён; есть только при connected = true.
+	ConnectedAt *time.Time `json:"connected_at,omitempty"`
+
+	// GoogleEmail Email Google-аккаунта; есть только при connected = true, если Google его вернул.
+	//
+	// Example: artem@gmail.com
+	GoogleEmail *openapi_types.Email `json:"google_email,omitempty"`
+}
+
 // HealthResponse defines model for HealthResponse.
 type HealthResponse struct {
 	Service string               `json:"service"`
@@ -398,6 +435,23 @@ type TaskAudioRequest struct {
 	// UserId Текстовое поле multipart/form-data; должен совпадать с владельцем Bearer-сессии.
 	UserId openapi_types.UUID `json:"user_id"`
 }
+
+// TaskCancelledResponse Ответ на вопрос о конфликте встреч, если пользователь отказался.
+// Когда новая встреча пересекается с активной встречей пользователя
+// или с занятым временем в подключённом Google Calendar, backend не
+// создаёт её сразу, а возвращает 200 TaskClarificationResponse с
+// вопросом. Клиент повторяет запрос с тем же task_id: ответ «да»
+// создаёт встречу (201), «нет» возвращает этот ответ, другой текст
+// повторяет вопрос. Неподтверждённая встреча хранится 10 минут.
+type TaskCancelledResponse struct {
+	Message string                      `json:"message"`
+	Status  TaskCancelledResponseStatus `json:"status"`
+	TaskId  openapi_types.UUID          `json:"task_id"`
+	UserId  openapi_types.UUID          `json:"user_id"`
+}
+
+// TaskCancelledResponseStatus defines model for TaskCancelledResponse.Status.
+type TaskCancelledResponseStatus string
 
 // TaskClarificationResponse defines model for TaskClarificationResponse.
 type TaskClarificationResponse struct {
@@ -653,6 +707,9 @@ type Forbidden = Problem
 // GatewayTimeout Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type GatewayTimeout = Problem
 
+// GoogleDisabled Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
+type GoogleDisabled = Problem
+
 // InternalError Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type InternalError = Problem
 
@@ -680,6 +737,18 @@ type Unavailable = Problem
 // ProcessTask200JSONResponseBody defines parameters for ProcessTask.
 type ProcessTask200JSONResponseBody struct {
 	union json.RawMessage
+}
+
+// GoogleCallbackParams defines parameters for GoogleCallback.
+type GoogleCallbackParams struct {
+	// Code Код авторизации Google; отсутствует, если пользователь отказал.
+	Code *string `form:"code,omitempty" json:"code,omitempty"`
+
+	// State Одноразовый state, выданный в connect.
+	State string `form:"state" json:"state"`
+
+	// Error Ошибка от Google, например access_denied.
+	Error *string `form:"error,omitempty" json:"error,omitempty"`
 }
 
 // ProcessTaskJSONRequestBody defines body for ProcessTask for application/json ContentType.
@@ -753,6 +822,40 @@ func (t *ProcessTask200JSONResponseBody) MergeTaskCollectionResponse(v TaskColle
 		return err
 	}
 	b, err = runtime.JSONMerge(b, []byte(`{"status":"ok"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTaskCancelledResponse returns the union data inside the ProcessTask200JSONResponseBody as a TaskCancelledResponse
+func (t ProcessTask200JSONResponseBody) AsTaskCancelledResponse() (TaskCancelledResponse, error) {
+	var body TaskCancelledResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTaskCancelledResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskCancelledResponse
+func (t *ProcessTask200JSONResponseBody) FromTaskCancelledResponse(v TaskCancelledResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"cancelled"}`))
+	t.union = b
+	return err
+}
+
+// MergeTaskCancelledResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TaskCancelledResponse
+func (t *ProcessTask200JSONResponseBody) MergeTaskCancelledResponse(v TaskCancelledResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"cancelled"}`))
 	if err != nil {
 		return err
 	}
@@ -912,6 +1015,8 @@ func (t ProcessTask200JSONResponseBody) ValueByDiscriminator() (interface{}, err
 		return nil, err
 	}
 	switch discriminator {
+	case "cancelled":
+		return t.AsTaskCancelledResponse()
 	case "candidates":
 		return t.AsTaskDeleteCandidatesResponse()
 	case "deleted":
@@ -953,6 +1058,18 @@ type ServerInterface interface {
 	// AuthSignUp Регистрация пользователя
 	// (POST /api/v1/auth/sign-up)
 	AuthSignUp(w http.ResponseWriter, r *http.Request)
+	// GoogleDisconnect Отключить Google Calendar
+	// (DELETE /api/v1/integrations/google)
+	GoogleDisconnect(w http.ResponseWriter, r *http.Request)
+	// GoogleStatus Статус подключения Google Calendar
+	// (GET /api/v1/integrations/google)
+	GoogleStatus(w http.ResponseWriter, r *http.Request)
+	// GoogleCallback OAuth callback Google
+	// (GET /api/v1/integrations/google/callback)
+	GoogleCallback(w http.ResponseWriter, r *http.Request, params GoogleCallbackParams)
+	// GoogleConnect Начать подключение Google Calendar
+	// (POST /api/v1/integrations/google/connect)
+	GoogleConnect(w http.ResponseWriter, r *http.Request)
 	// Health Liveness
 	// (GET /health)
 	Health(w http.ResponseWriter, r *http.Request)
@@ -986,6 +1103,30 @@ func (_ Unimplemented) AuthSignOut(w http.ResponseWriter, r *http.Request) {
 // AuthSignUp Регистрация пользователя
 // (POST /api/v1/auth/sign-up)
 func (_ Unimplemented) AuthSignUp(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GoogleDisconnect Отключить Google Calendar
+// (DELETE /api/v1/integrations/google)
+func (_ Unimplemented) GoogleDisconnect(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GoogleStatus Статус подключения Google Calendar
+// (GET /api/v1/integrations/google)
+func (_ Unimplemented) GoogleStatus(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GoogleCallback OAuth callback Google
+// (GET /api/v1/integrations/google/callback)
+func (_ Unimplemented) GoogleCallback(w http.ResponseWriter, r *http.Request, params GoogleCallbackParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GoogleConnect Начать подключение Google Calendar
+// (POST /api/v1/integrations/google/connect)
+func (_ Unimplemented) GoogleConnect(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1057,6 +1198,107 @@ func (siw *ServerInterfaceWrapper) AuthSignUp(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AuthSignUp(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GoogleDisconnect operation middleware
+func (siw *ServerInterfaceWrapper) GoogleDisconnect(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GoogleDisconnect(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GoogleStatus operation middleware
+func (siw *ServerInterfaceWrapper) GoogleStatus(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GoogleStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GoogleCallback operation middleware
+func (siw *ServerInterfaceWrapper) GoogleCallback(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GoogleCallbackParams
+
+	// ------------- Optional query parameter "code" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "code", r.URL.Query(), &params.Code, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "code"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "error" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "error", r.URL.Query(), &params.Error, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "error"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "error", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GoogleCallback(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GoogleConnect operation middleware
+func (siw *ServerInterfaceWrapper) GoogleConnect(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GoogleConnect(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1224,6 +1466,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/auth/sign-out", wrapper.AuthSignOut)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/integrations/google", wrapper.GoogleDisconnect)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/integrations/google", wrapper.GoogleStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/integrations/google/connect", wrapper.GoogleConnect)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/integrations/google/callback", wrapper.GoogleCallback)
 	})
 
 	return r

@@ -82,6 +82,18 @@ func (p *TaskProcess) LockDialogue(ctx context.Context, key string, ttl time.Dur
 }
 
 // DeleteDraft removes completed dialogue state. Removing an absent key is safe.
+func (p *TaskProcess) SavePendingTask(ctx context.Context, key, value string, ttl time.Duration) error {
+	return p.client.Set(ctx, key, value, ttl).Err()
+}
+
+func (p *TaskProcess) TakePendingTask(ctx context.Context, key string) (string, error) {
+	value, err := p.client.GetDel(ctx, key).Result()
+	if errors.Is(err, goredis.Nil) {
+		return "", model.ErrPendingTaskNotFound
+	}
+	return value, err
+}
+
 func (p *TaskProcess) DeleteDraft(ctx context.Context, key string) error {
 	if err := p.client.Del(ctx, key).Err(); err != nil {
 		return fmt.Errorf("delete draft: %w", err)

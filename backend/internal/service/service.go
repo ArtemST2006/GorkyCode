@@ -2,8 +2,10 @@
 package service
 
 import (
+	"gorkycode/backend/internal/config"
 	"gorkycode/backend/internal/service/subservice"
 	"gorkycode/backend/internal/voice"
+	"log/slog"
 	"time"
 )
 
@@ -15,11 +17,15 @@ type Repositories interface {
 	DraftStore
 	TimezoneStore
 	subservice.TaskCreateRepository
-	subservice.EmbeddingStore
 	subservice.TaskLister
 	subservice.TaskSearcher
+	subservice.EmbeddingStore
 	subservice.TaskDeleteRepository
 	subservice.TaskUpdateRepository
+	GoogleIntegrationStore
+	OAuthStateStore
+	MeetingOverlapFinder
+	PendingTaskStore
 }
 
 // Services groups application services for HTTP wiring.
@@ -30,21 +36,41 @@ type Services struct {
 	*subservice.TaskCreate
 	*subservice.TaskDelete
 	*subservice.TaskUpdate
+	*CalendarService
 }
 
-// New constructs all services from the repository bundle.
-func New(repo Repositories, queryTimeout, sessionTTL time.Duration, rec *voice.Recognizer, aiServiceURL string) *Services {
+// New constructs all services from the repository bundle. A nil googleClient
+// disables Google Calendar: new tasks are then saved without sync.
+func New(
+	repo Repositories,
+	queryTimeout, sessionTTL time.Duration,
+	rec *voice.Recognizer,
+	aiServiceURL string,
+	googleCfg config.Google,
+	googleClient GoogleCalendarClient,
+	log *slog.Logger,
+) *Services {
 	embedder := NewAIEmbedder(aiServiceURL)
 	taskCreate := subservice.NewTaskCreateService(repo, repo, embedder)
 	eventReader := subservice.NewSemanticLister(repo, repo, embedder)
 	taskDelete := subservice.NewTaskDeleteService(repo, embedder)
 	taskUpdate := subservice.NewTaskUpdateService(repo, taskDelete, embedder)
+	calendar := NewCalendarService(repo, repo, repo, googleClient, log, queryTimeout, googleCfg.EventDuration)
+
+	var creator TaskCreator = taskCreate
+	var googleBusy GoogleBusyChecker
+	if calendar.Enabled() {
+		creator = NewCalendarSyncingCreator(taskCreate, calendar, log)
+		googleBusy = calendar
+	}
+	conflicts := NewMeetingConflicts(repo, googleBusy, log, queryTimeout, googleCfg.EventDuration)
 	return &Services{
-		HealthService: NewHealthService(repo, queryTimeout),
-		AuthService:   NewAuthService(repo, repo, queryTimeout, sessionTTL),
-		TaskProcess:   NewTaskProcess(rec, repo, repo, taskCreate, eventReader, taskDelete, aiServiceURL, taskUpdate),
-		TaskCreate:    taskCreate,
-		TaskDelete:    taskDelete,
-		TaskUpdate:    taskUpdate,
+		HealthService:   NewHealthService(repo, queryTimeout),
+		AuthService:     NewAuthService(repo, repo, queryTimeout, sessionTTL),
+		TaskProcess:     NewTaskProcess(rec, repo, repo, creator, eventReader, taskDelete, aiServiceURL, taskUpdate).WithMeetingConflicts(conflicts, repo),
+		TaskCreate:      taskCreate,
+		TaskDelete:      taskDelete,
+		TaskUpdate:      taskUpdate,
+		CalendarService: calendar,
 	}
 }

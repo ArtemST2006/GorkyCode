@@ -81,6 +81,8 @@ type TaskProcess struct {
 	deleter   DeleteService
 	updater   UpdateService
 	aiURL     string
+	conflicts ConflictFinder
+	pending   PendingTaskStore
 }
 
 // NewTaskProcess constructs a task processor with the given dependencies.
@@ -336,6 +338,13 @@ func (t *TaskProcess) processAIResult(
 				return nil, fmt.Errorf("%w: %w", model.ErrBadGateway, err)
 			}
 
+			question, err := t.checkMeetingConflict(ctx, result, cmd, message)
+			if err != nil {
+				return nil, err
+			}
+			if question != nil {
+				return question, nil
+			}
 			task, err := t.creator.Create(ctx, cmd)
 			if err != nil {
 				return nil, fmt.Errorf("create task: %w", err)
@@ -681,6 +690,12 @@ func (t *TaskProcess) Process(
 		return nil, err
 	}
 	defer unlock()
+	if !newDialogue {
+		confirmed, err := t.confirmPending(ctx, userID, *taskID, text, location)
+		if err != nil || confirmed != nil {
+			return confirmed, err
+		}
+	}
 	if newDialogue {
 		if err = taskContext.FromEmptyContext(ai.EmptyContext{}); err != nil {
 			return nil, fmt.Errorf("prepare empty context: %w", err)

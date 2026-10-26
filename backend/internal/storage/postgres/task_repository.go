@@ -471,6 +471,27 @@ func (r *TaskRepository) CreateTask(ctx context.Context, task *model.Task) error
 	return nil
 }
 
+// FindOverlappingMeetings returns the user's active meetings that overlap
+// [start, end) when each meeting lasts duration. start and end are wall-clock
+// times in the user's time zone, like tasks.date and tasks.time.
+func (r *TaskRepository) FindOverlappingMeetings(
+	ctx context.Context,
+	userID uuid.UUID,
+	start, end time.Time,
+	duration time.Duration,
+) ([]model.Task, error) {
+	const wallClock = "2006-01-02 15:04:05"
+	q := r.sb.
+		Select("id", "user_id", "type", "title", "date", "to_char(time, 'HH24:MI')", "status", "created_at").
+		From("tasks").
+		Where(sq.Eq{"user_id": userID, "type": "meeting", "status": "active"}).
+		Where("date IS NOT NULL AND time IS NOT NULL").
+		Where(sq.Expr("date + time < ?::timestamp", end.Format(wallClock))).
+		Where(sq.Expr("date + time + make_interval(secs => ?) > ?::timestamp", duration.Seconds(), start.Format(wallClock))).
+		OrderBy("date", "time", "created_at", "id")
+	return r.fetchTasks(ctx, q)
+}
+
 func escapeLike(query string) string {
 	replacer := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_")
 	return replacer.Replace(query)

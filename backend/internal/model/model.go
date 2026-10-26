@@ -36,6 +36,16 @@ var (
 	// ErrStaleSelection marks a delete selection that no longer matches the
 	// shown candidates or the session owner.
 	ErrStaleSelection = errors.New("selected tasks are missing or outdated")
+	// ErrGoogleNotConnected is returned when the user has not connected Google Calendar.
+	ErrGoogleNotConnected = errors.New("google calendar not connected")
+	// ErrOAuthStateNotFound is returned when an OAuth state does not exist, has expired or was already used.
+	ErrOAuthStateNotFound = errors.New("oauth state not found")
+	// ErrGoogleTokenRevoked is returned when Google no longer accepts the user's token.
+	ErrGoogleTokenRevoked = errors.New("google token revoked")
+	// ErrGoogleDisabled is returned when Google Calendar credentials are not configured.
+	ErrGoogleDisabled = errors.New("google calendar integration disabled")
+	// ErrPendingTaskNotFound is returned when no task waits for the user's confirmation.
+	ErrPendingTaskNotFound = errors.New("pending task not found")
 )
 
 // EmbeddingDimension must match the vector(384) column in task_embeddings

@@ -21,3 +21,6 @@ ars_model:
   provider: "cpu"
 
 ai_service_url: "http://localhost:8090"
+
+google:
+  event_duration: 1h

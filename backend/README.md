@@ -52,6 +52,88 @@
 
 Access token — случайная строка; сессии хранятся в Redis (`REDIS_URL`) со сроком жизни `AUTH_SESSION_TTL` (по умолчанию 24h).
 
+## Google Calendar
+
+Пользователь может подключить свой Google Calendar: после этого каждая новая
+встреча (`record_type: meeting`), созданная через `POST /api/task`, сразу
+появляется в его основном календаре. ID события сохраняется в
+`tasks.google_event_id`. Задачи и напоминания в календарь не отправляются.
+Пока `GOOGLE_CLIENT_ID` и `GOOGLE_CLIENT_SECRET` не заданы, интеграция
+выключена: ручки ниже отвечают 503 `google_disabled`, а записи создаются как
+раньше.
+
+### Настройка в Google Cloud
+
+1. Создайте проект в [Google Cloud Console](https://console.cloud.google.com/)
+   и включите **Google Calendar API** (APIs & Services → Library).
+2. Настройте OAuth consent screen: тип **External**, статус **Testing**.
+   Добавьте свои Google-аккаунты в **Test users** — только они смогут
+   подключиться.
+3. Добавьте scopes: `https://www.googleapis.com/auth/calendar.events`,
+   `https://www.googleapis.com/auth/calendar.events.freebusy` (проверка
+   занятости для конфликтов встреч), `openid`, `email`. После добавления
+   scope календарь нужно подключить заново.
+4. Создайте OAuth client ID типа **Web application** и укажите Authorized
+   redirect URI `http://localhost:8088/api/v1/integrations/google/callback`
+   (через Nginx из Compose) или
+   `http://localhost:8080/api/v1/integrations/google/callback` (для `make run`).
+5. Скопируйте Client ID и Client secret в `.env` (корневой для Compose или
+   `backend/.env` для `make run`) и примените миграции командой `make migrate`.
+
+### Переменные окружения
+
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — данные OAuth-клиента; без них интеграция выключена.
+- `GOOGLE_REDIRECT_URL` — адрес callback; должен совпадать с redirect URI в Google Cloud.
+- `GOOGLE_FRONTEND_REDIRECT` — куда backend вернёт браузер после callback
+  (к адресу добавляется `?google=connected` или `?google=error`). Адрес
+  берётся только из конфига; если он пустой, используется `/`.
+- `GOOGLE_EVENT_DURATION` — длительность события в календаре, по умолчанию `1h`.
+
+### Эндпоинты
+
+- `POST /api/v1/integrations/google/connect` — Bearer; возвращает `auth_url`
+  страницы согласия Google. Одноразовый `state` хранится в Redis 10 минут.
+- `GET /api/v1/integrations/google/callback` — сюда Google возвращает браузер;
+  Bearer не нужен, пользователь определяется по `state`. Всегда отвечает 302 на
+  `GOOGLE_FRONTEND_REDIRECT`.
+- `GET /api/v1/integrations/google` — Bearer; `connected`, `google_email`, `connected_at`.
+- `DELETE /api/v1/integrations/google` — Bearer; отзывает токен в Google и
+  удаляет подключение, 204 даже если подключения не было.
+
+### Конфликты встреч
+
+Перед созданием встречи backend проверяет, не пересекается ли она
+(`[начало, начало + GOOGLE_EVENT_DURATION)`) с активными встречами
+пользователя в PostgreSQL и, если календарь подключён, с занятым временем в
+Google Calendar (free/busy). При пересечении встреча не создаётся сразу:
+`POST /api/task` отвечает 200 `needs_clarification` с вопросом «В это время
+уже есть встреча «X», всё равно поставить?». Клиент повторяет запрос с тем же
+`task_id`: «да» создаёт встречу (201), «нет» возвращает 200 со
+`status: cancelled`, другой ответ повторяет вопрос. Неподтверждённая встреча
+хранится в Redis 10 минут. Ответ «да»/«нет» распознаёт backend, без
+AI-сервиса. Ошибка Google при проверке только логируется и не мешает созданию
+встречи. Задачи и напоминания на конфликты не проверяются.
+
+### Ограничения
+
+- Пока приложение в статусе Testing, Google выдаёт refresh token на 7 дней:
+  после этого синхронизация перестаёт работать, backend удаляет подключение,
+  и календарь нужно подключить заново.
+- В календарь отправляется только создание встреч; изменения и удаление
+  записей не синхронизируются, события из Google не импортируются.
+- Синхронизация выполняется сразу в запросе создания записи с таймаутом 3
+  секунды на каждый вызов Google. Ошибка синхронизации только логируется:
+  запись всё равно создаётся, но события в календаре не будет.
+- Refresh token хранится в PostgreSQL в открытом виде.
+
+### Что можно улучшить
+
+- Отправлять события через outbox и фоновый воркер с повторами, чтобы не
+  замедлять создание записи и не терять события при сбоях Google.
+- Шифровать refresh token в базе (например, ключом из KMS или переменной окружения).
+- Синхронизировать изменение и удаление записей (`UpdateEvent`, `DeleteEvent` уже есть в клиенте).
+- Добавить двустороннюю синхронизацию: импорт событий из Google Calendar.
+
 ## Разработка
 
 - При разработке периодически запускайте `make lint` и `make test`.

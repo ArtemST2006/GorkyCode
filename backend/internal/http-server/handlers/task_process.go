@@ -98,6 +98,8 @@ func writeTaskResult(w http.ResponseWriter, r *http.Request, log *slog.Logger, r
 
 	var status int
 	switch result.Body.(type) {
+	case *api.TaskCancelledResponse:
+		status = http.StatusOK
 	case *api.TaskClarificationResponse:
 		status = http.StatusOK
 	case *api.TaskCollectionResponse:

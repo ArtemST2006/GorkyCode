@@ -21,6 +21,7 @@ type Config struct {
 	AIServiceURL    string        `yaml:"ai_service_url" env:"AI_SERVICE_URL" env-default:"http://localhost:8090"`
 	Redis           Redis         `yaml:"redis"`
 	Auth            Auth          `yaml:"auth"`
+	Google          Google        `yaml:"google"`
 }
 
 // HTTPServer holds HTTP listener settings.
@@ -58,6 +59,21 @@ type Redis struct {
 // Auth holds session settings.
 type Auth struct {
 	SessionTTL time.Duration `yaml:"session_ttl" env:"AUTH_SESSION_TTL" env-default:"24h"`
+}
+
+// Google holds Google Calendar OAuth settings. The integration is off while
+// ClientID or ClientSecret is empty.
+type Google struct {
+	ClientID         string        `yaml:"client_id" env:"GOOGLE_CLIENT_ID"`
+	ClientSecret     string        `yaml:"client_secret" env:"GOOGLE_CLIENT_SECRET"`
+	RedirectURL      string        `yaml:"redirect_url" env:"GOOGLE_REDIRECT_URL"`
+	FrontendRedirect string        `yaml:"frontend_redirect" env:"GOOGLE_FRONTEND_REDIRECT"`
+	EventDuration    time.Duration `yaml:"event_duration" env:"GOOGLE_EVENT_DURATION" env-default:"1h"`
+}
+
+// Enabled reports whether Google Calendar credentials are configured.
+func (g Google) Enabled() bool {
+	return g.ClientID != "" && g.ClientSecret != ""
 }
 
 // Load reads CONFIG_PATH when set, then applies environment variables.
