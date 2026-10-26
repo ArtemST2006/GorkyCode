@@ -19,6 +19,8 @@ var (
 	ErrSessionNotFound = errors.New("session not found")
 	// ErrDraftNotFound is returned when a task draft does not exist or has expired.
 	ErrDraftNotFound = errors.New("draft not found")
+	// ErrDialogueBusy means another request is processing this user's dialogue.
+	ErrDialogueBusy = errors.New("dialogue is already being processed")
 	// ErrEmailTaken is returned when a user with the same email already exists.
 	ErrEmailTaken = errors.New("email already taken")
 	// ErrBadGateway marks an invalid response from STT or AI-service.
@@ -29,6 +31,8 @@ var (
 	ErrServiceUnavailable = errors.New("upstream service unavailable")
 	// ErrInvalidAction marks an invalid action returned by the AI service.
 	ErrInvalidAction = errors.New("invalid action")
+	// ErrUnsupportedIntent means the user asked for an operation the product does not support.
+	ErrUnsupportedIntent = errors.New("unsupported intent")
 	// ErrStaleSelection marks a delete selection that no longer matches the
 	// shown candidates or the session owner.
 	ErrStaleSelection = errors.New("selected tasks are missing or outdated")
@@ -44,6 +48,15 @@ type EmbeddingResult struct {
 	Vector  []float32
 	Model   string
 	Version string
+}
+
+// TaskChanges contains only fields the user asked to change. Nil preserves
+// the corresponding value already stored in PostgreSQL.
+type TaskChanges struct {
+	Title  *string
+	Date   *time.Time
+	Time   *string
+	Status *string
 }
 
 // Embedder computes embeddings for semantic task search. The values of

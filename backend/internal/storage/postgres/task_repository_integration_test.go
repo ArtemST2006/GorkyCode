@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"gorkycode/backend/internal/model"
 	"gorkycode/backend/internal/service/subservice"
 	"os"
@@ -123,6 +125,55 @@ func TestTaskRepositoryListEventsWithPostgres(t *testing.T) {
 	})
 }
 
+func TestDeleteTasksIsAtomicAndOwnerScoped(t *testing.T) {
+	url := os.Getenv("POSTGRES_TEST_URL")
+	if url == "" {
+		t.Skip("set POSTGRES_TEST_URL for a migrated test database")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err = pool.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTaskTestUser(t, NewAuthRepository(pool), pool)
+	stranger := createTaskTestUser(t, NewAuthRepository(pool), pool)
+	insert := func(userID uuid.UUID) uuid.UUID {
+		t.Helper()
+		var id uuid.UUID
+		if err := pool.QueryRow(ctx,
+			"INSERT INTO tasks (user_id, type, title, date, time) VALUES ($1, 'task', 'atomic delete test', '2026-10-27', '14:00') RETURNING id",
+			userID,
+		).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	first, second, foreign := insert(owner), insert(owner), insert(stranger)
+	repo := NewTaskRepository(pool)
+	shown, err := repo.FindCandidates(ctx, owner, "", nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.DeleteTasks(ctx, owner, []uuid.UUID{first, foreign}, shown); !errors.Is(err, model.ErrStaleSelection) {
+		t.Fatalf("mixed-owner delete error = %v; want ErrStaleSelection", err)
+	}
+	var remaining int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM tasks WHERE id = ANY($1)", []uuid.UUID{first, second, foreign}).Scan(&remaining); err != nil || remaining != 3 {
+		t.Fatalf("rows after rollback = %d, %v; want 3", remaining, err)
+	}
+	deleted, err := repo.DeleteTasks(ctx, owner, []uuid.UUID{first, second}, shown)
+	if err != nil || len(deleted) != 2 {
+		t.Fatalf("owner delete result = %+v, %v; want two rows", deleted, err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM tasks WHERE id = ANY($1)", []uuid.UUID{first, second, foreign}).Scan(&remaining); err != nil || remaining != 1 {
+		t.Fatalf("rows after commit = %d, %v; want foreign row only", remaining, err)
+	}
+}
+
 func TestTaskRepositorySearchEventsWithPostgres(t *testing.T) {
 	url := os.Getenv("POSTGRES_TEST_URL")
 	if url == "" {
@@ -199,6 +250,186 @@ func TestCreateTaskIsVisibleToListEvents(t *testing.T) {
 	got, err := NewTaskRepository(pool).ListEvents(ctx, owner, from, to, nil)
 	if err != nil || len(got) != 1 || got[0].ID != task.ID || got[0].Date == nil || got[0].Date.Format(time.DateOnly) != "2026-10-21" || got[0].Time == nil || *got[0].Time != clock {
 		t.Fatalf("listed created task = %+v, %v", got, err)
+	}
+}
+
+func TestCreateDateOnlyTaskIsVisibleToListEvents(t *testing.T) {
+	url := os.Getenv("POSTGRES_TEST_URL")
+	if url == "" {
+		t.Skip("set POSTGRES_TEST_URL for a migrated test database")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTaskTestUser(t, NewAuthRepository(pool), pool)
+	date := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	task := &model.Task{UserID: owner, Type: "task", Title: "Купить билеты", Date: &date}
+	rep := NewTaskRepository(pool)
+	if err := rep.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	from := date
+	to := date.AddDate(0, 0, 1)
+	got, err := rep.ListEvents(ctx, owner, from, to, nil)
+	if err != nil || len(got) != 1 || got[0].ID != task.ID || got[0].Time != nil {
+		t.Fatalf("listed date-only task = %+v, %v", got, err)
+	}
+	search, err := rep.SearchEvents(ctx, owner, "билеты", &from, &to, []string{"task"})
+	if err != nil || len(search) != 1 || search[0].ID != task.ID || search[0].Time != nil {
+		t.Fatalf("searched date-only task = %+v, %v", search, err)
+	}
+	vector := make([]float32, model.EmbeddingDimension)
+	vector[0] = 1
+	if err := rep.StoreEmbedding(ctx, task.ID, model.EmbeddingResult{
+		Vector: vector, Model: "test/date-only", Version: "v1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	semantic, err := rep.FindSemantic(ctx, owner, vector, "test/date-only", "v1",
+		&from, &to, nil, nil, []string{"task"})
+	if err != nil || len(semantic) != 1 || semantic[0].ID != task.ID || semantic[0].Time != nil {
+		t.Fatalf("semantic date-only task = %+v, %v", semantic, err)
+	}
+	timeFrom := "10:00"
+	withoutTime, err := rep.FindCandidates(ctx, owner, "билеты", &from, &to,
+		&timeFrom, nil, []string{"task"})
+	if err != nil || len(withoutTime) != 0 {
+		t.Fatalf("time-filtered date-only task = %+v, %v", withoutTime, err)
+	}
+
+	deleter := subservice.NewTaskDeleteService(rep, nil)
+	find := json.RawMessage(`{"phase":"find_candidates","title_query":"билеты",` +
+		`"date_from":"2026-11-01","date_to_exclusive":"2026-11-02",` +
+		`"time_from":null,"time_to_exclusive":null,"record_types":["task"]}`)
+	candidates, err := deleter.FindCandidates(ctx, owner, find)
+	if err != nil || len(candidates.Stored) != 1 || candidates.Stored[0].Id != task.ID ||
+		candidates.Stored[0].Time != nil || candidates.Items[0].Event.Time != nil {
+		t.Fatalf("delete candidates = %+v, %v", candidates, err)
+	}
+
+	updater := subservice.NewTaskUpdateService(rep, deleter, nil)
+	updateFind := json.RawMessage(`{"phase":"find_candidates","title_query":"билеты",` +
+		`"date_from":"2026-11-01","date_to_exclusive":"2026-11-02",` +
+		`"time_from":null,"time_to_exclusive":null,"record_types":["task"],` +
+		`"changes":{"status":"completed"}}`)
+	updateCandidates, err := updater.FindCandidates(ctx, owner, updateFind)
+	if err != nil || len(updateCandidates.Stored) != 1 || updateCandidates.Stored[0].Time != nil {
+		t.Fatalf("update candidates = %+v, %v", updateCandidates, err)
+	}
+	updated, err := updater.UpdateConfirmed(ctx, owner,
+		json.RawMessage(`{"phase":"update_confirmed","record_ids":["`+task.ID.String()+`"]}`),
+		updateCandidates.Snapshots, updateCandidates.Changes)
+	if err != nil || len(updated) != 1 || updated[0].Status != "completed" || updated[0].Time != nil {
+		t.Fatalf("updated date-only task = %+v, %v", updated, err)
+	}
+
+	// The earlier candidates describe active rows; refresh after the update.
+	candidates, err = deleter.FindCandidates(ctx, owner, find)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := deleter.DeleteConfirmed(ctx, owner,
+		json.RawMessage(`{"phase":"delete_confirmed","task_ids":["`+task.ID.String()+`"]}`),
+		candidates.Stored)
+	if err != nil || len(deleted) != 1 || deleted[0].Id != task.ID || deleted[0].Time != nil {
+		t.Fatalf("deleted date-only task = %+v, %v", deleted, err)
+	}
+	remaining, err := rep.ListEvents(ctx, owner, from, to, nil)
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("remaining after delete = %+v, %v", remaining, err)
+	}
+}
+
+func TestUpdateTasksChecksSnapshotsAndCommitsAtomically(t *testing.T) {
+	url := os.Getenv("POSTGRES_TEST_URL")
+	if url == "" {
+		t.Skip("set POSTGRES_TEST_URL for a migrated test database")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTaskTestUser(t, NewAuthRepository(pool), pool)
+	other := createTaskTestUser(t, NewAuthRepository(pool), pool)
+	repo := NewTaskRepository(pool)
+	ids := make([]uuid.UUID, 0, 2)
+	for _, entry := range []struct {
+		user  uuid.UUID
+		title string
+	}{
+		{owner, "Встреча с Иваном"}, {owner, "Встреча с Петром"},
+		{other, "Чужая встреча"},
+	} {
+		var id uuid.UUID
+		if err := pool.QueryRow(ctx, `INSERT INTO tasks (user_id, type, title, date, time)
+			VALUES ($1, 'meeting', $2, '2026-10-25', '15:00') RETURNING id`,
+			entry.user, entry.title).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		if entry.user == owner {
+			ids = append(ids, id)
+		}
+	}
+	from := time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC)
+	shown, err := repo.ListEvents(ctx, owner, from, from.AddDate(0, 0, 1), nil)
+	if err != nil || len(shown) != 2 {
+		t.Fatalf("shown = %+v, %v", shown, err)
+	}
+	newDate := from.AddDate(0, 0, 1)
+	newTime := "16:00"
+	changes := model.TaskChanges{Date: &newDate, Time: &newTime}
+	updated, err := repo.UpdateTasks(ctx, owner, ids, shown, changes, nil)
+	if err != nil || len(updated) != 2 {
+		t.Fatalf("updated = %+v, %v", updated, err)
+	}
+	for _, task := range updated {
+		if task.Date == nil || task.Date.Format(time.DateOnly) != "2026-10-26" || task.Time == nil || *task.Time != "16:00" {
+			t.Fatalf("updated row = %+v", task)
+		}
+	}
+	var otherTime string
+	if err := pool.QueryRow(ctx, `SELECT to_char(time, 'HH24:MI') FROM tasks WHERE user_id = $1`, other).Scan(&otherTime); err != nil || otherTime != "15:00" {
+		t.Fatalf("other user's time = %q, %v", otherTime, err)
+	}
+	newTitle := "Встреча перенесена"
+	vector := make([]float32, model.EmbeddingDimension)
+	vector[0] = 1
+	titleUpdated, err := repo.UpdateTasks(ctx, owner, ids, updated,
+		model.TaskChanges{Title: &newTitle},
+		&model.EmbeddingResult{Vector: vector, Model: "integration-test", Version: "1"})
+	if err != nil || len(titleUpdated) != 2 {
+		t.Fatalf("title update = %+v, %v", titleUpdated, err)
+	}
+	for _, task := range titleUpdated {
+		if task.Title != newTitle {
+			t.Fatalf("updated title = %q", task.Title)
+		}
+	}
+	var embeddings int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM task_embeddings e
+		JOIN tasks t ON t.id = e.task_id WHERE t.user_id = $1`, owner).Scan(&embeddings); err != nil || embeddings != 2 {
+		t.Fatalf("updated embeddings = %d, %v", embeddings, err)
+	}
+	// A stale choice must roll the whole batch back, including the first ID.
+	newTime = "17:00"
+	_, err = repo.UpdateTasks(ctx, owner, ids, shown, model.TaskChanges{Time: &newTime}, nil)
+	if !errors.Is(err, model.ErrStaleSelection) {
+		t.Fatalf("stale selection error = %v", err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE user_id = $1 AND time = '16:00'`, owner).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("rows kept after failed batch = %d, %v", count, err)
 	}
 }
 

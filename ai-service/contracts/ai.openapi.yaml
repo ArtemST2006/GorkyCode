@@ -31,14 +31,23 @@ paths:
         user_id и task_id возвращаются без изменений. Относительные даты
         вычисляются по request_time и timezone. При needs_clarification
         backend сохраняет context и задаёт пользователю message. При ready
-        backend валидирует action, выполняет его и после успешного выполнения
-        передаёт пользователю message без изменений.
+        backend валидирует action и выполняет его. Для create_event,
+        list_events, search_events и подтверждённого on_update backend
+        передаёт message пользователю после успешного выполнения без
+        изменений. При поиске кандидатов on_delete/on_update и после
+        удаления backend формирует сообщение по фактическому результату БД:
+        AI на момент ответа ещё не знает число найденных или удалённых строк.
+        При задаче со сроком без точного времени action.time отсутствует или
+        равен null; backend сохраняет такую задачу без времени.
         Если пользователь сменил тему во время уточнения, AI не переносит
         старый draft в новое действие и возвращает context только новой темы.
         user_id и task_id при этом остаются прежними; backend перезаписывает
         черновик либо завершает диалог по обычным правилам status.
-        Для нового on_delete AI возвращает intent только в заголовке
-        X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+        Для on_delete и on_update AI возвращает intent только в заголовке
+        X-Task-Intent; в JSON этих ответов поля intent нет.
+        Подтверждение относится только к текущему показанному списку и его
+        операции. Вопрос с номером записи, время, отрицание или команда
+        другого действия не являются подтверждением удаления/изменения.
         Существующие create_event, list_events и search_events продолжают
         возвращать intent в JSON без обязательного X-Task-Intent.
         ready/on_delete с phase=find_candidates разрешает только поиск:
@@ -47,6 +56,8 @@ paths:
         номера с ID строк tasks и возвращает их в action.task_ids. Backend
         проверяет все ID по сохранённому списку кандидатов и владельцу
         сессии; удаление выбранных строк выполняется одной транзакцией.
+        on_update использует такие же две фазы; changes сохраняются до показа
+        кандидатов, а update_confirmed содержит ID выбранных строк.
         Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
       requestBody:
         required: true
@@ -62,6 +73,15 @@ paths:
                   task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
                   text: Назначь встречу с Иваном завтра
                   request_time: '2026-10-18T12:00:00+03:00'
+                  timezone: Europe/Moscow
+                  context: {}
+              dateOnlyTask:
+                summary: Задача со сроком без точного времени
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 8513f479-309c-4816-b5bc-53c1217c5571
+                  text: Поставь задачу купить билеты до конца недели
+                  request_time: '2026-10-26T12:00:00+03:00'
                   timezone: Europe/Moscow
                   context: {}
               clarificationReply:
@@ -154,23 +174,49 @@ paths:
                         date: '2026-10-23'
                         time: '18:00'
                         status: active
+              updateSelection:
+                summary: Выбор показанной задачи без точного времени
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 98fa7a94-7473-40b2-8678-11d3c1662eed
+                  text: Выбери №1
+                  request_time: '2026-10-26T12:02:00+03:00'
+                  timezone: Europe/Moscow
+                  context:
+                    recent_messages:
+                      - role: user
+                        text: Отметь задачу купить билеты выполненной
+                      - role: assistant
+                        text: 'Поиск завершён. Найдено записей: 1. Какие изменить?'
+                    draft:
+                      title_query: купить билеты
+                      changes:
+                        status: completed
+                    candidates:
+                      - number: 1
+                        id: ef906c03-d7c2-41d6-bac4-694db14cc07a
+                        record_type: task
+                        title: Купить билеты
+                        date: '2026-11-01'
+                        time: null
+                        status: active
       responses:
         '200':
           description: |
             Требуется уточнение либо подготовлено действие. Заголовок
-            X-Task-Intent обязателен только для новых ответов on_delete;
+            X-Task-Intent обязателен для ответов on_delete и on_update;
             прежние интенты по-прежнему находятся в JSON. OpenAPI 3.0 не
             выражает условную обязательность заголовка для одного HTTP 200,
             поэтому это правило проверяется при интеграции.
           headers:
             X-Task-Intent:
               description: |
-                Только для on_delete: подтверждённый AI intent. В старых
+                Только для on_delete/on_update: подтверждённый AI intent. В старых
                 ответах заголовок не требуется.
               required: false
               schema:
                 type: string
-                enum: [on_delete]
+                enum: [on_delete, on_update]
           content:
             application/json:
               schema:
@@ -216,6 +262,82 @@ paths:
                           text: В какое время?
                         - role: user
                           text: 'В 15:00'
+                      draft: null
+                readyCreateTaskWithoutTime:
+                  summary: Задача со сроком, но без точного времени
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 8513f479-309c-4816-b5bc-53c1217c5571
+                    status: ready
+                    intent: create_event
+                    message: Задача купить билеты создана со сроком до 1 ноября.
+                    action:
+                      record_type: task
+                      title: Купить билеты
+                      date: '2026-11-01'
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Поставь задачу купить билеты до конца недели
+                      draft: null
+                updateNeedsClarification:
+                  summary: Не указано, какую запись изменить; X-Task-Intent=on_update
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 98fa7a94-7473-40b2-8678-11d3c1662eed
+                    status: needs_clarification
+                    message: Какую запись изменить?
+                    action: null
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Отметь запись выполненной
+                        - role: assistant
+                          text: Какую запись изменить?
+                      draft:
+                        changes:
+                          status: completed
+                updateFindCandidates:
+                  summary: Подготовлен поиск задачи; изменений в БД ещё нет
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 98fa7a94-7473-40b2-8678-11d3c1662eed
+                    status: ready
+                    message: Подбираю записи для изменения.
+                    action:
+                      phase: find_candidates
+                      title_query: купить билеты
+                      date_from: null
+                      date_to_exclusive: null
+                      time_from: null
+                      time_to_exclusive: null
+                      record_types: [task]
+                      changes:
+                        status: completed
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Отметь задачу купить билеты выполненной
+                      draft: null
+                updateConfirmed:
+                  summary: Пользователь выбрал №1; X-Task-Intent=on_update
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 98fa7a94-7473-40b2-8678-11d3c1662eed
+                    status: ready
+                    message: Выбранные записи изменены.
+                    action:
+                      phase: update_confirmed
+                      record_ids:
+                        - ef906c03-d7c2-41d6-bac4-694db14cc07a
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Отметь задачу купить билеты выполненной
+                        - role: assistant
+                          text: 'Поиск завершён. Найдено записей: 1. Какие изменить?'
+                        - role: user
+                          text: Выбери №1
                       draft: null
                 readyListEvents:
                   summary: Границы выборки готовы
@@ -514,12 +636,16 @@ components:
     JobRequestContext:
       description: |
         Пустой объект при первом запросе либо контекст из Redis при
-        продолжении. После поиска on_delete backend передаёт AI список
-        показанных пользователю кандидатов со стабильными номерами.
-      oneOf:
+        продолжении. После поиска on_delete/on_update backend передаёт AI
+        список показанных пользователю кандидатов со стабильными номерами;
+        для on_update draft также содержит предлагаемые changes.
+        Формы контекста кандидатов могут совпасть, если частичный draft
+        ещё не содержит changes, поэтому используется anyOf.
+      anyOf:
         - $ref: '#/components/schemas/EmptyContext'
         - $ref: '#/components/schemas/StoredContext'
         - $ref: '#/components/schemas/DeleteCandidateContext'
+        - $ref: '#/components/schemas/UpdateCandidateContext'
     EmptyContext:
       type: object
       additionalProperties: false
@@ -538,6 +664,7 @@ components:
             - $ref: '#/components/schemas/ListEventsDraft'
             - $ref: '#/components/schemas/SearchEventsDraft'
             - $ref: '#/components/schemas/DeleteSearchDraft'
+            - $ref: '#/components/schemas/UpdateSearchDraft'
     DeleteCandidateContext:
       type: object
       additionalProperties: false
@@ -588,6 +715,7 @@ components:
           enum: [active, completed]
     RecentMessages:
       type: array
+      description: AI использует и возвращает последние 20 сообщений; draft и candidates сохраняются отдельно. Более длинная входная история допускается, её начало не передаётся модели.
       minItems: 1
       items:
         $ref: '#/components/schemas/DialogueMessage'
@@ -605,13 +733,18 @@ components:
     JobResponse:
       description: |
         Бизнес-результат обработки реплики. Старые варианты несут intent
-        в JSON; новые варианты on_delete определяются по X-Task-Intent.
-      oneOf:
+        в JSON; on_delete и on_update определяются по X-Task-Intent.
+        Схемы уточнения для on_delete и on_update могут совпадать по JSON,
+        поэтому здесь anyOf; заголовок различает их при HTTP-обмене.
+      anyOf:
         - $ref: '#/components/schemas/NeedsClarificationResponse'
         - $ref: '#/components/schemas/ReadyResponse'
         - $ref: '#/components/schemas/DeleteNeedsClarificationResponse'
         - $ref: '#/components/schemas/DeleteFindCandidatesResponse'
         - $ref: '#/components/schemas/DeleteConfirmedResponse'
+        - $ref: '#/components/schemas/UpdateClarification'
+        - $ref: '#/components/schemas/UpdateFindCandidates'
+        - $ref: '#/components/schemas/UpdateConfirmed'
     DeleteNeedsClarificationResponse:
       type: object
       additionalProperties: false
@@ -940,16 +1073,18 @@ components:
               $ref: '#/components/schemas/SearchEventsAction'
     CreateEventAction:
       description: |
-        Для task, meeting и reminder обязательны record_type, title, date и time.
-        draft при уточнении может быть неполным; при ready action всегда полный.
-        Backend проверяет дату и время до сохранения.
+        Для task обязательны record_type, title и date; time передаётся, только
+        если указано или однозначно выведено время. Срок «до конца недели»
+        означает воскресенье текущей недели без точного времени.
+        Для meeting и reminder обязательны record_type, title, date и time.
+        Backend проверяет переданные дату и время до сохранения.
       oneOf:
         - $ref: '#/components/schemas/TaskAction'
         - $ref: '#/components/schemas/TimedEventAction'
     TaskAction:
       type: object
       additionalProperties: false
-      required: [record_type, title, date, time]
+      required: [record_type, title, date]
       properties:
         record_type:
           type: string
@@ -961,7 +1096,10 @@ components:
           type: string
           format: date
         time:
-          $ref: '#/components/schemas/LocalTime'
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: Отсутствует или null, если задача не привязана к точному времени.
     TimedEventAction:
       type: object
       additionalProperties: false
@@ -997,10 +1135,14 @@ components:
       additionalProperties: false
       required: [query]
       description: |
-        Backend ищет по title без требования точного совпадения: как минимум
-        подстроку без учёта регистра. Поиск близких по смыслу формулировок
-        можно добавить отдельно. Если указаны обе границы периода, backend
-        проверяет date_from < date_to_exclusive.
+        Backend ищет подстроку title без учёта регистра и дополняет результат
+        семантически близкими записями при наличии совместимых embeddings.
+        Для семантических совпадений учитываются владелец, типы и границы
+        периода. При недоступности embeddings подстрочный поиск продолжает
+        работать. Если указаны обе границы периода, backend проверяет
+        date_from < date_to_exclusive; записи без даты не попадают в выборку
+        с фильтром по дате. AI сохраняет значимую часть запроса, например
+        имя в «встрече с Иваном», чтобы не искать все встречи подряд.
       properties:
         query:
           type: string
@@ -1134,6 +1276,223 @@ components:
       type: string
       pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
       example: '15:00'
+    UUID:
+      type: string
+      format: uuid
+    Date:
+      type: string
+      format: date
+    TaskStatus:
+      type: string
+      enum: [active, completed]
+    UpdateChanges:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: |
+        Только переданные поля меняются. Отсутствие поля сохраняет прежнее
+        значение; null запрещён. record_type, user_id, id и created_at
+        неизменяемы. Если time задано для записи без date, changes обязано
+        задать date. Дату без времени и время без даты можно сохранять только
+        если итоговая строка удовлетворяет ограничению БД.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: После trim строка должна быть непустой.
+        date: {$ref: '#/components/schemas/Date'}
+        time: {$ref: '#/components/schemas/LocalTime'}
+        status: {$ref: '#/components/schemas/TaskStatus'}
+    UpdateSearchDraft:
+      type: object
+      additionalProperties: false
+      description: Частично собранные признаки поиска и новое состояние.
+      properties:
+        title_query:
+          type: string
+          minLength: 1
+          nullable: true
+        date_from:
+          type: string
+          format: date
+          nullable: true
+        date_to_exclusive:
+          type: string
+          format: date
+          nullable: true
+        time_from:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        time_to_exclusive:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        record_types:
+          type: array
+          nullable: true
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/RecordType'}
+        changes:
+          type: object
+          additionalProperties: false
+          description: Частичные изменения для needs_clarification.
+          properties:
+            title: {type: string, minLength: 1}
+            date: {$ref: '#/components/schemas/Date'}
+            time: {$ref: '#/components/schemas/LocalTime'}
+            status: {$ref: '#/components/schemas/TaskStatus'}
+    UpdateFindAction:
+      type: object
+      additionalProperties: false
+      required: [phase, title_query, date_from, date_to_exclusive, time_from, time_to_exclusive, record_types, changes]
+      description: |
+        Все фильтры присутствуют, неизвестные равны null. Требуется хотя бы
+        один ненулевой фильтр. Заполненные фильтры объединяются через AND;
+        нижние границы включаются, верхние исключаются. При title_query
+        допустимо семантическое дополнение поиска по той же модели векторов.
+        При обеих границах date_from < date_to_exclusive и
+        time_from < time_to_exclusive. changes содержит хотя бы одно поле.
+      properties:
+        phase: {type: string, enum: [find_candidates]}
+        title_query: {type: string, minLength: 1, nullable: true}
+        date_from: {type: string, format: date, nullable: true}
+        date_to_exclusive: {type: string, format: date, nullable: true}
+        time_from:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        time_to_exclusive:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        record_types:
+          type: array
+          nullable: true
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/RecordType'}
+        changes: {$ref: '#/components/schemas/UpdateChanges'}
+      anyOf:
+        - required: [title_query]
+          properties: {title_query: {type: string}}
+        - required: [date_from]
+          properties: {date_from: {type: string}}
+        - required: [date_to_exclusive]
+          properties: {date_to_exclusive: {type: string}}
+        - required: [time_from]
+          properties: {time_from: {type: string}}
+        - required: [time_to_exclusive]
+          properties: {time_to_exclusive: {type: string}}
+        - required: [record_types]
+          properties: {record_types: {type: array}}
+    UpdateConfirmedAction:
+      type: object
+      additionalProperties: false
+      required: [phase, record_ids]
+      description: |
+        AI переводит selected_numbers в ID из context.candidates; никакие
+        изменения из LLM повторно не принимаются. Backend использует
+        сохранённые в Redis changes и сравнивает текущие строки с показанными.
+      properties:
+        phase: {type: string, enum: [update_confirmed]}
+        record_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/UUID'}
+    UpdateCandidate:
+      type: object
+      additionalProperties: false
+      required: [number, id, record_type, title, date, time, status]
+      properties:
+        number: {type: integer, minimum: 1}
+        id: {$ref: '#/components/schemas/UUID'}
+        record_type: {$ref: '#/components/schemas/RecordType'}
+        title: {type: string, minLength: 1}
+        date: {type: string, format: date, nullable: true}
+        time:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        status: {$ref: '#/components/schemas/TaskStatus'}
+    UpdateClarificationContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft]
+      properties:
+        recent_messages:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/DialogueMessage'}
+        draft: {$ref: '#/components/schemas/UpdateSearchDraft'}
+    UpdateCandidateContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft, candidates]
+      description: |
+        Backend записывает в Redis показанные номера, ID, полные снимки
+        записей и changes. AI получает только необходимые для выбора поля;
+        backend повторно сверяет ID и снимки перед записью в PostgreSQL.
+      properties:
+        recent_messages:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/DialogueMessage'}
+        draft: {$ref: '#/components/schemas/UpdateSearchDraft'}
+        candidates:
+          type: array
+          items: {$ref: '#/components/schemas/UpdateCandidate'}
+    UpdateReadyContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft]
+      properties:
+        recent_messages:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/DialogueMessage'}
+        draft:
+          type: object
+          nullable: true
+          enum: [null]
+    UpdateClarification:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, action, context]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [needs_clarification]}
+        message: {type: string, minLength: 1}
+        action:
+          type: object
+          nullable: true
+          enum: [null]
+        context: {$ref: '#/components/schemas/UpdateClarificationContext'}
+    UpdateFindCandidates:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, action, context]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [ready]}
+        message: {type: string, minLength: 1}
+        action: {$ref: '#/components/schemas/UpdateFindAction'}
+        context: {$ref: '#/components/schemas/UpdateReadyContext'}
+    UpdateConfirmed:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, action, context]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [ready]}
+        message: {type: string, minLength: 1}
+        action: {$ref: '#/components/schemas/UpdateConfirmedAction'}
+        context: {$ref: '#/components/schemas/UpdateReadyContext'}
   responses:
     BadRequest:
       description: Некорректный JSON или нарушен контракт запроса

@@ -1,7 +1,7 @@
 # Tested Python 3.12 dependency snapshot (runtime and optional dev tools).
 # Constraints only: Docker installs runtime dependencies, not dev extras.
-# Main index: https://pypi-mirror.gitverse.ru/simple/
-# CPU torch uses the official PyTorch CPU index; other packages use GitVerse.
+# Main index: https://pypi.org/simple/
+# CPU torch uses the official PyTorch CPU index; other packages use PyPI.
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1

@@ -12,6 +12,9 @@ from app.schemas.job import (
     DeleteNeedsClarificationResponse,
     JobRequest,
     JobResponse,
+    UpdateConfirmedResponse,
+    UpdateFindCandidatesResponse,
+    UpdateNeedsClarificationResponse,
 )
 
 router = APIRouter(prefix="/api", tags=["AI"])
@@ -34,4 +37,9 @@ async def process_job(
         (DeleteNeedsClarificationResponse, DeleteFindCandidatesResponse, DeleteConfirmedResponse),
     ):
         response.headers["X-Task-Intent"] = "on_delete"
+    if isinstance(
+        result,
+        (UpdateNeedsClarificationResponse, UpdateFindCandidatesResponse, UpdateConfirmedResponse),
+    ):
+        response.headers["X-Task-Intent"] = "on_update"
     return result

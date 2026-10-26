@@ -1,0 +1,683 @@
+openapi: 3.0.3
+info:
+  title: GorkyCode on_update — проект расширения контрактов
+  version: 0.1.0
+  description: |
+    Проект контракта для двух существующих ручек разных сервисов:
+    публичной backend POST /api/task и внутренней AI POST /api/job.
+    on_update пока не реализован. Действующие operationId и формы входных
+    запросов сохраняются; этот документ описывает только новый вариант
+    диалога. Канонические действующие контракты:
+    backend.openapi.yaml и ai.openapi.yaml. После согласования этого проекта
+    схемы переносятся в оба контракта, а затем реализуются сервисы.
+    Верхнеуровневый task_id — UUID диалога; record_ids — UUID строк tasks.
+paths:
+  /api/task:
+    post:
+      tags: [Backend]
+      operationId: processTask
+      summary: Принять команду изменения события и продолжить диалог
+      description: |
+        Используется существующая POST /api/task. Первый запрос содержит user_id
+        и текст или WAV; backend распознаёт WAV в текст, создаёт task_id диалога
+        и обращается к AI. При продолжении фронтенд передаёт тот же task_id.
+        user_id обязан совпадать с владельцем Bearer-сессии. До показа
+        кандидатов и явного выбора номеров запись не изменяется.
+        Если AI вернул needs_clarification, backend сохраняет context в Redis
+        и возвращает вопрос. При ready/find_candidates backend ищет только
+        записи владельца, сохраняет показанный список, значения до изменения
+        и предложенные changes в Redis и возвращает update_candidates даже
+        при 0 или 1 совпадении. Фронтенд показывает кандидатов и changes,
+        затем отправляет выбранные номера новым запросом с тем же task_id.
+        При ready/update_confirmed backend сверяет record_ids с сохранённым
+        списком и с владельцем сессии. Обновление выбранных строк выполняется
+        одной транзакцией; если запись удалена, сменила владельца или изменилась
+        со времени показа, возвращается 409 и не обновляется ничего.
+        Для изменения title backend получает новый document embedding до
+        транзакции и сохраняет его вместе с новым названием. Ошибка encoder
+        не должна оставлять старый вектор у нового названия.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FrontendTextRequest'
+            examples:
+              first:
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  text: Перенеси встречу с Иваном на 26 октября в 16:00
+              confirmTwo:
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                  text: Измени №1 и №2
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FrontendAudioRequest'
+            encoding:
+              file:
+                contentType: audio/wav, audio/x-wav
+      responses:
+        '200':
+          description: Уточнение, показ кандидатов либо подтверждённое обновление.
+          headers:
+            X-Task-Intent:
+              required: true
+              schema:
+                type: string
+                enum: [on_update]
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/FrontendClarification'
+                  - $ref: '#/components/schemas/FrontendUpdateCandidates'
+                  - $ref: '#/components/schemas/FrontendUpdated'
+                discriminator:
+                  propertyName: status
+                  mapping:
+                    needs_clarification: '#/components/schemas/FrontendClarification'
+                    update_candidates: '#/components/schemas/FrontendUpdateCandidates'
+                    updated: '#/components/schemas/FrontendUpdated'
+              examples:
+                candidates:
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: update_candidates
+                    message: Найдено две встречи. Какие изменить?
+                    data:
+                      changes:
+                        date: '2026-10-26'
+                        time: '16:00'
+                      candidates:
+                        - number: 1
+                          event:
+                            id: 2d7f8e0b-2fae-4b46-835a-675f748f3b11
+                            user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                            record_type: meeting
+                            title: Встреча с Иваном
+                            date: '2026-10-23'
+                            time: '11:00'
+                            created_at: '2026-10-18T12:00:20+03:00'
+                            status: active
+                        - number: 2
+                          event:
+                            id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                            user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                            record_type: meeting
+                            title: Встреча с Иваном
+                            date: '2026-10-23'
+                            time: '15:00'
+                            created_at: '2026-10-18T12:00:30+03:00'
+                            status: active
+                updated:
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: updated
+                    message: 'Обновлено записей: 2.'
+                    data:
+                      updated_events:
+                        - id: 2d7f8e0b-2fae-4b46-835a-675f748f3b11
+                          user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                          record_type: meeting
+                          title: Встреча с Иваном
+                          date: '2026-10-26'
+                          time: '16:00'
+                          created_at: '2026-10-18T12:00:20+03:00'
+                          status: active
+                        - id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                          user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                          record_type: meeting
+                          title: Встреча с Иваном
+                          date: '2026-10-26'
+                          time: '16:00'
+                          created_at: '2026-10-18T12:00:30+03:00'
+                          status: active
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          description: Кандидат устарел или изменился; ничего не обновлено.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '502':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '504':
+          $ref: '#/components/responses/Problem'
+  /api/job:
+    post:
+      tags: [AI]
+      operationId: processJob
+      summary: Подготовить поиск либо подтвердить выбранные записи
+      description: |
+        Используется существующая AI POST /api/job. AI получает уже
+        распознанный текст и context из backend, сам не обращается к Redis
+        или PostgreSQL. AI возвращает неизменные user_id/task_id и
+        X-Task-Intent: on_update, без поля intent в JSON. Для on_delete
+        сохраняется его заголовок, для старых intent — поле intent в JSON.
+        Неизвестные фильтры первого
+        ready action передаются явным null. При needs_clarification action=null,
+        а draft содержит известные признаки поиска и изменений.
+        Для готового find_candidates нужен хотя бы один ненулевой признак
+        поиска и хотя бы одно изменение. AI не знает результата поиска.
+        После показа кандидатов AI может вернуть update_confirmed только при
+        явном выборе одного или нескольких показанных номеров. Внутреннее
+        решение модели содержит selected_numbers; код AI сопоставляет их с
+        UUID кандидатов из входного context и публикует record_ids. Простое
+        «да» без номера не считается выбором. Если пользователь меняет
+        условия поиска или предложенные changes, выполняется новый поиск и
+        backend снова показывает кандидатов до любого изменения.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateJobRequest'
+            examples:
+              first:
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                  text: Перенеси встречу с Иваном на 26 октября в 16:00
+                  request_time: '2026-10-24T12:00:00+03:00'
+                  timezone: Europe/Moscow
+                  context: {}
+              selected:
+                value:
+                  user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                  task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                  text: Измени №1 и №2
+                  request_time: '2026-10-24T12:00:20+03:00'
+                  timezone: Europe/Moscow
+                  context:
+                    recent_messages:
+                      - role: user
+                        text: Перенеси встречу с Иваном на 26 октября в 16:00
+                      - role: assistant
+                        text: Найдено две встречи. Какие изменить?
+                    draft:
+                      title_query: встреча с Иваном
+                      date_from: null
+                      date_to_exclusive: null
+                      time_from: null
+                      time_to_exclusive: null
+                      record_types: [meeting]
+                      changes:
+                        date: '2026-10-26'
+                        time: '16:00'
+                    candidates:
+                      - number: 1
+                        id: 2d7f8e0b-2fae-4b46-835a-675f748f3b11
+                        record_type: meeting
+                        title: Встреча с Иваном
+                        date: '2026-10-23'
+                        time: '11:00'
+                        status: active
+                      - number: 2
+                        id: 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                        record_type: meeting
+                        title: Встреча с Иваном
+                        date: '2026-10-23'
+                        time: '15:00'
+                        status: active
+      responses:
+        '200':
+          description: AI просит уточнение или готовит одну из двух фаз.
+          headers:
+            X-Task-Intent:
+              required: true
+              schema:
+                type: string
+                enum: [on_update]
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/UpdateClarification'
+                  - $ref: '#/components/schemas/UpdateFindCandidates'
+                  - $ref: '#/components/schemas/UpdateConfirmed'
+              examples:
+                clarify:
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: needs_clarification
+                    message: Какую встречу и на какое время перенести?
+                    action: null
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Перенеси встречу
+                        - role: assistant
+                          text: Какую встречу и на какое время перенести?
+                      draft: {}
+                find:
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: ready
+                    message: Подбираю записи для изменения.
+                    action:
+                      phase: find_candidates
+                      title_query: встреча с Иваном
+                      date_from: null
+                      date_to_exclusive: null
+                      time_from: null
+                      time_to_exclusive: null
+                      record_types: [meeting]
+                      changes:
+                        date: '2026-10-26'
+                        time: '16:00'
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Перенеси встречу с Иваном на 26 октября в 16:00
+                      draft: null
+                confirmed:
+                  value:
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 70ce187e-a2a6-4499-91a0-5c61e5920b51
+                    status: ready
+                    message: Изменяю выбранные записи.
+                    action:
+                      phase: update_confirmed
+                      record_ids:
+                        - 2d7f8e0b-2fae-4b46-835a-675f748f3b11
+                        - 0e083fa1-c33e-4c44-85e6-5b977ae17808
+                    context:
+                      recent_messages:
+                        - role: user
+                          text: Перенеси встречу с Иваном на 26 октября в 16:00
+                        - role: assistant
+                          text: Найдено две встречи. Какие изменить?
+                        - role: user
+                          text: Измени №1 и №2
+                      draft: null
+        '400':
+          $ref: '#/components/responses/Problem'
+        '500':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '504':
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    Problem:
+      description: Ошибка с HTTP-статусом и машинным кодом.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, detail]
+      properties:
+        type: {type: string}
+        title: {type: string}
+        status: {type: integer}
+        detail: {type: string}
+    FrontendTextRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id, text]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id:
+          allOf:
+            - $ref: '#/components/schemas/UUID'
+          description: ID диалога при продолжении.
+        text: {type: string, minLength: 1}
+    FrontendAudioRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id, file]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        file:
+          type: string
+          format: binary
+          description: WAV (.wav или .wave).
+    UUID:
+      type: string
+      format: uuid
+    RecordType:
+      type: string
+      enum: [task, reminder, meeting]
+    TaskStatus:
+      type: string
+      enum: [active, completed]
+    Date:
+      type: string
+      format: date
+    LocalTime:
+      type: string
+      pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+    TaskItem:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, record_type, title, created_at, status]
+      properties:
+        id: {$ref: '#/components/schemas/UUID'}
+        user_id: {$ref: '#/components/schemas/UUID'}
+        record_type: {$ref: '#/components/schemas/RecordType'}
+        title:
+          type: string
+          minLength: 1
+          description: После trim строка должна быть непустой.
+        date:
+          allOf:
+            - $ref: '#/components/schemas/Date'
+          nullable: true
+        time:
+          allOf:
+            - $ref: '#/components/schemas/LocalTime'
+          nullable: true
+        created_at: {type: string, format: date-time}
+        status: {$ref: '#/components/schemas/TaskStatus'}
+    UpdateChanges:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: |
+        Только переданные поля меняются. Отсутствие поля сохраняет прежнее
+        значение; null запрещён. record_type, user_id, id и created_at
+        неизменяемы. Если time задано для записи без date, changes обязано
+        задать date. Дату без времени и время без даты можно сохранять только
+        если итоговая строка удовлетворяет ограничению БД.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: После trim строка должна быть непустой.
+        date: {$ref: '#/components/schemas/Date'}
+        time: {$ref: '#/components/schemas/LocalTime'}
+        status: {$ref: '#/components/schemas/TaskStatus'}
+    UpdateSearchDraft:
+      type: object
+      additionalProperties: false
+      description: Частично собранные признаки поиска и новое состояние.
+      properties:
+        title_query:
+          type: string
+          minLength: 1
+          nullable: true
+        date_from:
+          type: string
+          format: date
+          nullable: true
+        date_to_exclusive:
+          type: string
+          format: date
+          nullable: true
+        time_from:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        time_to_exclusive:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        record_types:
+          type: array
+          nullable: true
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/RecordType'}
+        changes:
+          type: object
+          additionalProperties: false
+          description: Частичные изменения для needs_clarification.
+          properties:
+            title: {type: string, minLength: 1}
+            date: {$ref: '#/components/schemas/Date'}
+            time: {$ref: '#/components/schemas/LocalTime'}
+            status: {$ref: '#/components/schemas/TaskStatus'}
+    UpdateFindAction:
+      type: object
+      additionalProperties: false
+      required: [phase, title_query, date_from, date_to_exclusive, time_from, time_to_exclusive, record_types, changes]
+      description: |
+        Все фильтры присутствуют, неизвестные равны null. Требуется хотя бы
+        один ненулевой фильтр. Заполненные фильтры объединяются через AND;
+        нижние границы включаются, верхние исключаются. При title_query
+        допустимо семантическое дополнение поиска по той же модели векторов.
+        При обеих границах date_from < date_to_exclusive и
+        time_from < time_to_exclusive. changes содержит хотя бы одно поле.
+      properties:
+        phase: {type: string, enum: [find_candidates]}
+        title_query: {type: string, minLength: 1, nullable: true}
+        date_from: {type: string, format: date, nullable: true}
+        date_to_exclusive: {type: string, format: date, nullable: true}
+        time_from:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        time_to_exclusive:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        record_types:
+          type: array
+          nullable: true
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/RecordType'}
+        changes: {$ref: '#/components/schemas/UpdateChanges'}
+      anyOf:
+        - required: [title_query]
+          properties: {title_query: {type: string}}
+        - required: [date_from]
+          properties: {date_from: {type: string}}
+        - required: [date_to_exclusive]
+          properties: {date_to_exclusive: {type: string}}
+        - required: [time_from]
+          properties: {time_from: {type: string}}
+        - required: [time_to_exclusive]
+          properties: {time_to_exclusive: {type: string}}
+        - required: [record_types]
+          properties: {record_types: {type: array}}
+    UpdateConfirmedAction:
+      type: object
+      additionalProperties: false
+      required: [phase, record_ids]
+      description: |
+        AI переводит selected_numbers в ID из context.candidates; никакие
+        изменения из LLM повторно не принимаются. Backend использует
+        сохранённые в Redis changes и сравнивает текущие строки с показанными.
+      properties:
+        phase: {type: string, enum: [update_confirmed]}
+        record_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/UUID'}
+    UpdateCandidate:
+      type: object
+      additionalProperties: false
+      required: [number, id, record_type, title, date, time, status]
+      properties:
+        number: {type: integer, minimum: 1}
+        id: {$ref: '#/components/schemas/UUID'}
+        record_type: {$ref: '#/components/schemas/RecordType'}
+        title: {type: string, minLength: 1}
+        date: {type: string, format: date, nullable: true}
+        time:
+          type: string
+          nullable: true
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+        status: {$ref: '#/components/schemas/TaskStatus'}
+    DialogueMessage:
+      type: object
+      additionalProperties: false
+      required: [role, text]
+      properties:
+        role: {type: string, enum: [user, assistant]}
+        text: {type: string, minLength: 1}
+    UpdateJobRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, text, request_time, timezone, context]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        text: {type: string, minLength: 1}
+        request_time: {type: string, format: date-time}
+        timezone: {type: string, minLength: 1}
+        context:
+          oneOf:
+            - $ref: '#/components/schemas/EmptyContext'
+            - $ref: '#/components/schemas/UpdateClarificationContext'
+            - $ref: '#/components/schemas/UpdateCandidateContext'
+    EmptyContext:
+      type: object
+      additionalProperties: false
+      maxProperties: 0
+    UpdateClarificationContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft]
+      properties:
+        recent_messages:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/DialogueMessage'}
+        draft: {$ref: '#/components/schemas/UpdateSearchDraft'}
+    UpdateCandidateContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft, candidates]
+      description: |
+        Backend записывает в Redis показанные номера, ID, полные снимки
+        записей и changes. AI получает только необходимые для выбора поля;
+        backend повторно сверяет ID и снимки перед записью в PostgreSQL.
+      properties:
+        recent_messages:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/DialogueMessage'}
+        draft: {$ref: '#/components/schemas/UpdateSearchDraft'}
+        candidates:
+          type: array
+          items: {$ref: '#/components/schemas/UpdateCandidate'}
+    UpdateReadyContext:
+      type: object
+      additionalProperties: false
+      required: [recent_messages, draft]
+      properties:
+        recent_messages:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/DialogueMessage'}
+        draft:
+          type: object
+          nullable: true
+          enum: [null]
+    UpdateClarification:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, action, context]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [needs_clarification]}
+        message: {type: string, minLength: 1}
+        action:
+          type: object
+          nullable: true
+          enum: [null]
+        context: {$ref: '#/components/schemas/UpdateClarificationContext'}
+    UpdateFindCandidates:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, action, context]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [ready]}
+        message: {type: string, minLength: 1}
+        action: {$ref: '#/components/schemas/UpdateFindAction'}
+        context: {$ref: '#/components/schemas/UpdateReadyContext'}
+    UpdateConfirmed:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, action, context]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [ready]}
+        message: {type: string, minLength: 1}
+        action: {$ref: '#/components/schemas/UpdateConfirmedAction'}
+        context: {$ref: '#/components/schemas/UpdateReadyContext'}
+    FrontendClarification:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [needs_clarification]}
+        message: {type: string, minLength: 1}
+    FrontendUpdateCandidates:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, data]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [update_candidates]}
+        message: {type: string, minLength: 1}
+        data:
+          type: object
+          additionalProperties: false
+          required: [candidates, changes]
+          properties:
+            candidates:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [number, event]
+                properties:
+                  number: {type: integer, minimum: 1}
+                  event: {$ref: '#/components/schemas/TaskItem'}
+            changes: {$ref: '#/components/schemas/UpdateChanges'}
+    FrontendUpdated:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message, data]
+      properties:
+        user_id: {$ref: '#/components/schemas/UUID'}
+        task_id: {$ref: '#/components/schemas/UUID'}
+        status: {type: string, enum: [updated]}
+        message: {type: string, minLength: 1}
+        data:
+          type: object
+          additionalProperties: false
+          required: [updated_events]
+          properties:
+            updated_events:
+              type: array
+              minItems: 1
+              description: Полные записи после commit, в порядке выбранных ID.
+              items: {$ref: '#/components/schemas/TaskItem'}

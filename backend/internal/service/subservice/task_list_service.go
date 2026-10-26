@@ -25,6 +25,11 @@ type TaskSearcher interface {
 	SearchEvents(ctx context.Context, userID uuid.UUID, query string, from, to *time.Time, types []string) ([]model.Task, error)
 }
 
+// TaskSemanticSearcher finds compatible title vectors with the same filters.
+type TaskSemanticSearcher interface {
+	FindSemantic(ctx context.Context, userID uuid.UUID, query []float32, modelName, version string, dateFrom, dateTo *time.Time, timeFrom, timeTo *string, types []string) ([]model.Task, error)
+}
+
 // TaskReader supports both list_events and search_events.
 type TaskReader interface {
 	TaskLister
@@ -33,12 +38,19 @@ type TaskReader interface {
 
 // Lister returns user events for list and search actions.
 type Lister struct {
-	store TaskReader
+	store         TaskReader
+	semanticStore TaskSemanticSearcher
+	embedder      model.Embedder
 }
 
 // NewLister constructs an event lister over the given task storage.
 func NewLister(store TaskReader) *Lister {
 	return &Lister{store: store}
+}
+
+// NewSemanticLister also searches compatible title embeddings for search_events.
+func NewSemanticLister(store TaskReader, semanticStore TaskSemanticSearcher, embedder model.Embedder) *Lister {
+	return &Lister{store: store, semanticStore: semanticStore, embedder: embedder}
 }
 
 // ListEvents returns a collection of tasks for the given user and action.

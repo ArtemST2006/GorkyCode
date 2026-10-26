@@ -19,7 +19,7 @@ class TaskAction(ContractModel):
     record_type: Literal["task"]
     title: NonEmptyString
     date: ISODate
-    time: LocalTime
+    time: LocalTime | None = None
 
 
 class TimedEventAction(ContractModel):

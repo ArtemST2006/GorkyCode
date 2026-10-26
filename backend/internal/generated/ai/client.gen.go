@@ -155,16 +155,16 @@ func (e ClarificationSearchEventsStatus) Valid() bool {
 
 // Defines values for DeleteCandidateStatus.
 const (
-	Active    DeleteCandidateStatus = "active"
-	Completed DeleteCandidateStatus = "completed"
+	DeleteCandidateStatusActive    DeleteCandidateStatus = "active"
+	DeleteCandidateStatusCompleted DeleteCandidateStatus = "completed"
 )
 
 // Valid indicates whether the value is a known member of the DeleteCandidateStatus enum.
 func (e DeleteCandidateStatus) Valid() bool {
 	switch e {
-	case Active:
+	case DeleteCandidateStatusActive:
 		return true
-	case Completed:
+	case DeleteCandidateStatusCompleted:
 		return true
 	default:
 		return false
@@ -203,13 +203,13 @@ func (e DeleteConfirmedResponseStatus) Valid() bool {
 
 // Defines values for DeleteFindCandidatesActionPhase.
 const (
-	FindCandidates DeleteFindCandidatesActionPhase = "find_candidates"
+	DeleteFindCandidatesActionPhaseFindCandidates DeleteFindCandidatesActionPhase = "find_candidates"
 )
 
 // Valid indicates whether the value is a known member of the DeleteFindCandidatesActionPhase enum.
 func (e DeleteFindCandidatesActionPhase) Valid() bool {
 	switch e {
-	case FindCandidates:
+	case DeleteFindCandidatesActionPhaseFindCandidates:
 		return true
 	default:
 		return false
@@ -423,6 +423,24 @@ func (e TaskActionRecordType) Valid() bool {
 	}
 }
 
+// Defines values for TaskStatus.
+const (
+	TaskStatusActive    TaskStatus = "active"
+	TaskStatusCompleted TaskStatus = "completed"
+)
+
+// Valid indicates whether the value is a known member of the TaskStatus enum.
+func (e TaskStatus) Valid() bool {
+	switch e {
+	case TaskStatusActive:
+		return true
+	case TaskStatusCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TimedEventActionRecordType.
 const (
 	TimedEventActionRecordTypeMeeting  TimedEventActionRecordType = "meeting"
@@ -435,6 +453,81 @@ func (e TimedEventActionRecordType) Valid() bool {
 	case TimedEventActionRecordTypeMeeting:
 		return true
 	case TimedEventActionRecordTypeReminder:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateClarificationStatus.
+const (
+	UpdateClarificationStatusNeedsClarification UpdateClarificationStatus = "needs_clarification"
+)
+
+// Valid indicates whether the value is a known member of the UpdateClarificationStatus enum.
+func (e UpdateClarificationStatus) Valid() bool {
+	switch e {
+	case UpdateClarificationStatusNeedsClarification:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateConfirmedStatus.
+const (
+	UpdateConfirmedStatusReady UpdateConfirmedStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the UpdateConfirmedStatus enum.
+func (e UpdateConfirmedStatus) Valid() bool {
+	switch e {
+	case UpdateConfirmedStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateConfirmedActionPhase.
+const (
+	UpdateConfirmedActionPhaseUpdateConfirmed UpdateConfirmedActionPhase = "update_confirmed"
+)
+
+// Valid indicates whether the value is a known member of the UpdateConfirmedActionPhase enum.
+func (e UpdateConfirmedActionPhase) Valid() bool {
+	switch e {
+	case UpdateConfirmedActionPhaseUpdateConfirmed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateFindActionPhase.
+const (
+	UpdateFindActionPhaseFindCandidates UpdateFindActionPhase = "find_candidates"
+)
+
+// Valid indicates whether the value is a known member of the UpdateFindActionPhase enum.
+func (e UpdateFindActionPhase) Valid() bool {
+	switch e {
+	case UpdateFindActionPhaseFindCandidates:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateFindCandidatesStatus.
+const (
+	UpdateFindCandidatesStatusReady UpdateFindCandidatesStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the UpdateFindCandidatesStatus enum.
+func (e UpdateFindCandidatesStatus) Valid() bool {
+	switch e {
+	case UpdateFindCandidatesStatusReady:
 		return true
 	default:
 		return false
@@ -528,9 +621,11 @@ type ClarificationSearchEventsIntent string
 // ClarificationSearchEventsStatus defines model for ClarificationSearchEvents.Status.
 type ClarificationSearchEventsStatus string
 
-// CreateEventAction Для task, meeting и reminder обязательны record_type, title, date и time.
-// draft при уточнении может быть неполным; при ready action всегда полный.
-// Backend проверяет дату и время до сохранения.
+// CreateEventAction Для task обязательны record_type, title и date; time передаётся, только
+// если указано или однозначно выведено время. Срок «до конца недели»
+// означает воскресенье текущей недели без точного времени.
+// Для meeting и reminder обязательны record_type, title, date и time.
+// Backend проверяет переданные дату и время до сохранения.
 type CreateEventAction struct {
 	union json.RawMessage
 }
@@ -538,8 +633,10 @@ type CreateEventAction struct {
 // CreateEventContext defines model for CreateEventContext.
 type CreateEventContext struct {
 	// Draft Поля заполняются по мере уточнения.
-	Draft          CreateEventDraft `json:"draft"`
-	RecentMessages RecentMessages   `json:"recent_messages"`
+	Draft CreateEventDraft `json:"draft"`
+
+	// RecentMessages AI использует и возвращает последние 20 сообщений; draft и candidates сохраняются отдельно. Более длинная входная история допускается, её начало не передаётся модели.
+	RecentMessages RecentMessages `json:"recent_messages"`
 }
 
 // CreateEventDraft Поля заполняются по мере уточнения.
@@ -551,6 +648,9 @@ type CreateEventDraft struct {
 	Time  *LocalTime `json:"time,omitempty"`
 	Title *string    `json:"title,omitempty"`
 }
+
+// Date defines model for Date.
+type Date = openapi_types.Date
 
 // DeleteCandidate defines model for DeleteCandidate.
 type DeleteCandidate struct {
@@ -580,16 +680,20 @@ type DeleteCandidateContext struct {
 
 	// Draft Частичные признаки on_delete. Незаданные поля могут отсутствовать
 	// или быть null. Сами по себе эти данные не разрешают удаление.
-	Draft          DeleteSearchDraft `json:"draft"`
-	RecentMessages RecentMessages    `json:"recent_messages"`
+	Draft DeleteSearchDraft `json:"draft"`
+
+	// RecentMessages AI использует и возвращает последние 20 сообщений; draft и candidates сохраняются отдельно. Более длинная входная история допускается, её начало не передаётся модели.
+	RecentMessages RecentMessages `json:"recent_messages"`
 }
 
 // DeleteClarificationContext defines model for DeleteClarificationContext.
 type DeleteClarificationContext struct {
 	// Draft Частичные признаки on_delete. Незаданные поля могут отсутствовать
 	// или быть null. Сами по себе эти данные не разрешают удаление.
-	Draft          DeleteSearchDraft `json:"draft"`
-	RecentMessages RecentMessages    `json:"recent_messages"`
+	Draft DeleteSearchDraft `json:"draft"`
+
+	// RecentMessages AI использует и возвращает последние 20 сообщений; draft и candidates сохраняются отдельно. Более длинная входная история допускается, её начало не передаётся модели.
+	RecentMessages RecentMessages `json:"recent_messages"`
 }
 
 // DeleteConfirmedAction AI сопоставляет подтверждённые пользователем номера со стабильными
@@ -782,8 +886,11 @@ type EmptyContext = map[string]interface{}
 // JobRequest defines model for JobRequest.
 type JobRequest struct {
 	// Context Пустой объект при первом запросе либо контекст из Redis при
-	// продолжении. После поиска on_delete backend передаёт AI список
-	// показанных пользователю кандидатов со стабильными номерами.
+	// продолжении. После поиска on_delete/on_update backend передаёт AI
+	// список показанных пользователю кандидатов со стабильными номерами;
+	// для on_update draft также содержит предлагаемые changes.
+	// Формы контекста кандидатов могут совпасть, если частичный draft
+	// ещё не содержит changes, поэтому используется anyOf.
 	Context JobRequestContext `json:"context"`
 
 	// RequestTime Время запроса в RFC 3339.
@@ -803,14 +910,19 @@ type JobRequest struct {
 }
 
 // JobRequestContext Пустой объект при первом запросе либо контекст из Redis при
-// продолжении. После поиска on_delete backend передаёт AI список
-// показанных пользователю кандидатов со стабильными номерами.
+// продолжении. После поиска on_delete/on_update backend передаёт AI
+// список показанных пользователю кандидатов со стабильными номерами;
+// для on_update draft также содержит предлагаемые changes.
+// Формы контекста кандидатов могут совпасть, если частичный draft
+// ещё не содержит changes, поэтому используется anyOf.
 type JobRequestContext struct {
 	union json.RawMessage
 }
 
 // JobResponse Бизнес-результат обработки реплики. Старые варианты несут intent
-// в JSON; новые варианты on_delete определяются по X-Task-Intent.
+// в JSON; on_delete и on_update определяются по X-Task-Intent.
+// Схемы уточнения для on_delete и on_update могут совпадать по JSON,
+// поэтому здесь anyOf; заголовок различает их при HTTP-обмене.
 type JobResponse struct {
 	union json.RawMessage
 }
@@ -826,8 +938,10 @@ type ListEventsAction struct {
 
 // ListEventsContext defines model for ListEventsContext.
 type ListEventsContext struct {
-	Draft          ListEventsDraft `json:"draft"`
-	RecentMessages RecentMessages  `json:"recent_messages"`
+	Draft ListEventsDraft `json:"draft"`
+
+	// RecentMessages AI использует и возвращает последние 20 сообщений; draft и candidates сохраняются отдельно. Более длинная входная история допускается, её начало не передаётся модели.
+	RecentMessages RecentMessages `json:"recent_messages"`
 }
 
 // ListEventsDraft defines model for ListEventsDraft.
@@ -878,15 +992,19 @@ type ReadyBaseStatus string
 // ReadyContext defines model for ReadyContext.
 type ReadyContext struct {
 	// Draft При ready всегда null.
-	Draft          *map[string]interface{} `json:"draft"`
-	RecentMessages RecentMessages          `json:"recent_messages"`
+	Draft *map[string]interface{} `json:"draft"`
+
+	// RecentMessages AI использует и возвращает последние 20 сообщений; draft и candidates сохраняются отдельно. Более длинная входная история допускается, её начало не передаётся модели.
+	RecentMessages RecentMessages `json:"recent_messages"`
 }
 
 // ReadyCreateEvent defines model for ReadyCreateEvent.
 type ReadyCreateEvent struct {
-	// Action Для task, meeting и reminder обязательны record_type, title, date и time.
-	// draft при уточнении может быть неполным; при ready action всегда полный.
-	// Backend проверяет дату и время до сохранения.
+	// Action Для task обязательны record_type, title и date; time передаётся, только
+	// если указано или однозначно выведено время. Срок «до конца недели»
+	// означает воскресенье текущей недели без точного времени.
+	// Для meeting и reminder обязательны record_type, title, date и time.
+	// Backend проверяет переданные дату и время до сохранения.
 	Action  CreateEventAction      `json:"action"`
 	Context ReadyContext           `json:"context"`
 	Intent  ReadyCreateEventIntent `json:"intent"`
@@ -939,10 +1057,14 @@ type ReadyResponse struct {
 
 // ReadySearchEvents defines model for ReadySearchEvents.
 type ReadySearchEvents struct {
-	// Action Backend ищет по title без требования точного совпадения: как минимум
-	// подстроку без учёта регистра. Поиск близких по смыслу формулировок
-	// можно добавить отдельно. Если указаны обе границы периода, backend
-	// проверяет date_from < date_to_exclusive.
+	// Action Backend ищет подстроку title без учёта регистра и дополняет результат
+	// семантически близкими записями при наличии совместимых embeddings.
+	// Для семантических совпадений учитываются владелец, типы и границы
+	// периода. При недоступности embeddings подстрочный поиск продолжает
+	// работать. Если указаны обе границы периода, backend проверяет
+	// date_from < date_to_exclusive; записи без даты не попадают в выборку
+	// с фильтром по дате. AI сохраняет значимую часть запроса, например
+	// имя в «встрече с Иваном», чтобы не искать все встречи подряд.
 	Action  SearchEventsAction      `json:"action"`
 	Context ReadyContext            `json:"context"`
 	Intent  ReadySearchEventsIntent `json:"intent"`
@@ -964,7 +1086,7 @@ type ReadySearchEventsIntent string
 // ReadySearchEventsStatus defines model for ReadySearchEvents.Status.
 type ReadySearchEventsStatus string
 
-// RecentMessages defines model for RecentMessages.
+// RecentMessages AI использует и возвращает последние 20 сообщений; draft и candidates сохраняются отдельно. Более длинная входная история допускается, её начало не передаётся модели.
 type RecentMessages = []DialogueMessage
 
 // RecordType defines model for RecordType.
@@ -973,10 +1095,14 @@ type RecordType string
 // RecordTypes Если поле отсутствует, backend учитывает все типы.
 type RecordTypes = []RecordType
 
-// SearchEventsAction Backend ищет по title без требования точного совпадения: как минимум
-// подстроку без учёта регистра. Поиск близких по смыслу формулировок
-// можно добавить отдельно. Если указаны обе границы периода, backend
-// проверяет date_from < date_to_exclusive.
+// SearchEventsAction Backend ищет подстроку title без учёта регистра и дополняет результат
+// семантически близкими записями при наличии совместимых embeddings.
+// Для семантических совпадений учитываются владелец, типы и границы
+// периода. При недоступности embeddings подстрочный поиск продолжает
+// работать. Если указаны обе границы периода, backend проверяет
+// date_from < date_to_exclusive; записи без даты не попадают в выборку
+// с фильтром по дате. AI сохраняет значимую часть запроса, например
+// имя в «встрече с Иваном», чтобы не искать все встречи подряд.
 type SearchEventsAction struct {
 	DateFrom        *openapi_types.Date `json:"date_from,omitempty"`
 	DateToExclusive *openapi_types.Date `json:"date_to_exclusive,omitempty"`
@@ -990,8 +1116,10 @@ type SearchEventsAction struct {
 
 // SearchEventsContext defines model for SearchEventsContext.
 type SearchEventsContext struct {
-	Draft          SearchEventsDraft `json:"draft"`
-	RecentMessages RecentMessages    `json:"recent_messages"`
+	Draft SearchEventsDraft `json:"draft"`
+
+	// RecentMessages AI использует и возвращает последние 20 сообщений; draft и candidates сохраняются отдельно. Более длинная входная история допускается, её начало не передаётся модели.
+	RecentMessages RecentMessages `json:"recent_messages"`
 }
 
 // SearchEventsDraft defines model for SearchEventsDraft.
@@ -1007,8 +1135,10 @@ type SearchEventsDraft struct {
 // StoredContext defines model for StoredContext.
 type StoredContext struct {
 	// Draft Частично собранные данные соответствующего intent.
-	Draft          StoredContext_Draft `json:"draft"`
-	RecentMessages RecentMessages      `json:"recent_messages"`
+	Draft StoredContext_Draft `json:"draft"`
+
+	// RecentMessages AI использует и возвращает последние 20 сообщений; draft и candidates сохраняются отдельно. Более длинная входная история допускается, её начало не передаётся модели.
+	RecentMessages RecentMessages `json:"recent_messages"`
 }
 
 // StoredContext_Draft Частично собранные данные соответствующего intent.
@@ -1021,13 +1151,16 @@ type TaskAction struct {
 	Date       openapi_types.Date   `json:"date"`
 	RecordType TaskActionRecordType `json:"record_type"`
 
-	// Time Example: 15:00
-	Time  LocalTime `json:"time"`
-	Title string    `json:"title"`
+	// Time Отсутствует или null, если задача не привязана к точному времени.
+	Time  *string `json:"time,omitempty"`
+	Title string  `json:"title"`
 }
 
 // TaskActionRecordType defines model for TaskAction.RecordType.
 type TaskActionRecordType string
+
+// TaskStatus defines model for TaskStatus.
+type TaskStatus string
 
 // TimedEventAction defines model for TimedEventAction.
 type TimedEventAction struct {
@@ -1041,6 +1174,194 @@ type TimedEventAction struct {
 
 // TimedEventActionRecordType defines model for TimedEventAction.RecordType.
 type TimedEventActionRecordType string
+
+// UUID defines model for UUID.
+type UUID = openapi_types.UUID
+
+// UpdateCandidate defines model for UpdateCandidate.
+type UpdateCandidate struct {
+	Date       *openapi_types.Date `json:"date"`
+	Id         UUID                `json:"id"`
+	Number     int                 `json:"number"`
+	RecordType RecordType          `json:"record_type"`
+	Status     TaskStatus          `json:"status"`
+	Time       *string             `json:"time"`
+	Title      string              `json:"title"`
+}
+
+// UpdateCandidateContext Backend записывает в Redis показанные номера, ID, полные снимки
+// записей и changes. AI получает только необходимые для выбора поля;
+// backend повторно сверяет ID и снимки перед записью в PostgreSQL.
+type UpdateCandidateContext struct {
+	Candidates []UpdateCandidate `json:"candidates"`
+
+	// Draft Частично собранные признаки поиска и новое состояние.
+	Draft          UpdateSearchDraft `json:"draft"`
+	RecentMessages []DialogueMessage `json:"recent_messages"`
+}
+
+// UpdateChanges Только переданные поля меняются. Отсутствие поля сохраняет прежнее
+// значение; null запрещён. record_type, user_id, id и created_at
+// неизменяемы. Если time задано для записи без date, changes обязано
+// задать date. Дату без времени и время без даты можно сохранять только
+// если итоговая строка удовлетворяет ограничению БД.
+type UpdateChanges struct {
+	Date   *Date       `json:"date,omitempty"`
+	Status *TaskStatus `json:"status,omitempty"`
+
+	// Time Example: 15:00
+	Time *LocalTime `json:"time,omitempty"`
+
+	// Title После trim строка должна быть непустой.
+	Title *string `json:"title,omitempty"`
+}
+
+// UpdateClarification defines model for UpdateClarification.
+type UpdateClarification struct {
+	Action  *map[string]interface{}    `json:"action"`
+	Context UpdateClarificationContext `json:"context"`
+	Message string                     `json:"message"`
+	Status  UpdateClarificationStatus  `json:"status"`
+	TaskId  UUID                       `json:"task_id"`
+	UserId  UUID                       `json:"user_id"`
+}
+
+// UpdateClarificationStatus defines model for UpdateClarification.Status.
+type UpdateClarificationStatus string
+
+// UpdateClarificationContext defines model for UpdateClarificationContext.
+type UpdateClarificationContext struct {
+	// Draft Частично собранные признаки поиска и новое состояние.
+	Draft          UpdateSearchDraft `json:"draft"`
+	RecentMessages []DialogueMessage `json:"recent_messages"`
+}
+
+// UpdateConfirmed defines model for UpdateConfirmed.
+type UpdateConfirmed struct {
+	// Action AI переводит selected_numbers в ID из context.candidates; никакие
+	// изменения из LLM повторно не принимаются. Backend использует
+	// сохранённые в Redis changes и сравнивает текущие строки с показанными.
+	Action  UpdateConfirmedAction `json:"action"`
+	Context UpdateReadyContext    `json:"context"`
+	Message string                `json:"message"`
+	Status  UpdateConfirmedStatus `json:"status"`
+	TaskId  UUID                  `json:"task_id"`
+	UserId  UUID                  `json:"user_id"`
+}
+
+// UpdateConfirmedStatus defines model for UpdateConfirmed.Status.
+type UpdateConfirmedStatus string
+
+// UpdateConfirmedAction AI переводит selected_numbers в ID из context.candidates; никакие
+// изменения из LLM повторно не принимаются. Backend использует
+// сохранённые в Redis changes и сравнивает текущие строки с показанными.
+type UpdateConfirmedAction struct {
+	Phase     UpdateConfirmedActionPhase `json:"phase"`
+	RecordIds []UUID                     `json:"record_ids"`
+}
+
+// UpdateConfirmedActionPhase defines model for UpdateConfirmedAction.Phase.
+type UpdateConfirmedActionPhase string
+
+// UpdateFindAction Все фильтры присутствуют, неизвестные равны null. Требуется хотя бы
+// один ненулевой фильтр. Заполненные фильтры объединяются через AND;
+// нижние границы включаются, верхние исключаются. При title_query
+// допустимо семантическое дополнение поиска по той же модели векторов.
+// При обеих границах date_from < date_to_exclusive и
+// time_from < time_to_exclusive. changes содержит хотя бы одно поле.
+type UpdateFindAction struct {
+	// Changes Только переданные поля меняются. Отсутствие поля сохраняет прежнее
+	// значение; null запрещён. record_type, user_id, id и created_at
+	// неизменяемы. Если time задано для записи без date, changes обязано
+	// задать date. Дату без времени и время без даты можно сохранять только
+	// если итоговая строка удовлетворяет ограничению БД.
+	Changes         UpdateChanges         `json:"changes"`
+	DateFrom        *openapi_types.Date   `json:"date_from"`
+	DateToExclusive *openapi_types.Date   `json:"date_to_exclusive"`
+	Phase           UpdateFindActionPhase `json:"phase"`
+	RecordTypes     *[]RecordType         `json:"record_types"`
+	TimeFrom        *string               `json:"time_from"`
+	TimeToExclusive *string               `json:"time_to_exclusive"`
+	TitleQuery      *string               `json:"title_query"`
+	union           json.RawMessage
+}
+
+// UpdateFindActionPhase defines model for UpdateFindAction.Phase.
+type UpdateFindActionPhase string
+
+// UpdateFindAction0 defines model for UpdateFindAction.0.
+type UpdateFindAction0 struct {
+	TitleQuery string `json:"title_query"`
+}
+
+// UpdateFindAction1 defines model for UpdateFindAction.1.
+type UpdateFindAction1 struct {
+	DateFrom string `json:"date_from"`
+}
+
+// UpdateFindAction2 defines model for UpdateFindAction.2.
+type UpdateFindAction2 struct {
+	DateToExclusive string `json:"date_to_exclusive"`
+}
+
+// UpdateFindAction3 defines model for UpdateFindAction.3.
+type UpdateFindAction3 struct {
+	TimeFrom string `json:"time_from"`
+}
+
+// UpdateFindAction4 defines model for UpdateFindAction.4.
+type UpdateFindAction4 struct {
+	TimeToExclusive string `json:"time_to_exclusive"`
+}
+
+// UpdateFindAction5 defines model for UpdateFindAction.5.
+type UpdateFindAction5 struct {
+	RecordTypes []interface{} `json:"record_types"`
+}
+
+// UpdateFindCandidates defines model for UpdateFindCandidates.
+type UpdateFindCandidates struct {
+	// Action Все фильтры присутствуют, неизвестные равны null. Требуется хотя бы
+	// один ненулевой фильтр. Заполненные фильтры объединяются через AND;
+	// нижние границы включаются, верхние исключаются. При title_query
+	// допустимо семантическое дополнение поиска по той же модели векторов.
+	// При обеих границах date_from < date_to_exclusive и
+	// time_from < time_to_exclusive. changes содержит хотя бы одно поле.
+	Action  UpdateFindAction           `json:"action"`
+	Context UpdateReadyContext         `json:"context"`
+	Message string                     `json:"message"`
+	Status  UpdateFindCandidatesStatus `json:"status"`
+	TaskId  UUID                       `json:"task_id"`
+	UserId  UUID                       `json:"user_id"`
+}
+
+// UpdateFindCandidatesStatus defines model for UpdateFindCandidates.Status.
+type UpdateFindCandidatesStatus string
+
+// UpdateReadyContext defines model for UpdateReadyContext.
+type UpdateReadyContext struct {
+	Draft          *map[string]interface{} `json:"draft"`
+	RecentMessages []DialogueMessage       `json:"recent_messages"`
+}
+
+// UpdateSearchDraft Частично собранные признаки поиска и новое состояние.
+type UpdateSearchDraft struct {
+	// Changes Частичные изменения для needs_clarification.
+	Changes *struct {
+		Date   *Date       `json:"date,omitempty"`
+		Status *TaskStatus `json:"status,omitempty"`
+
+		// Time Example: 15:00
+		Time  *LocalTime `json:"time,omitempty"`
+		Title *string    `json:"title,omitempty"`
+	} `json:"changes,omitempty"`
+	DateFrom        *openapi_types.Date `json:"date_from,omitempty"`
+	DateToExclusive *openapi_types.Date `json:"date_to_exclusive,omitempty"`
+	RecordTypes     *[]RecordType       `json:"record_types,omitempty"`
+	TimeFrom        *string             `json:"time_from,omitempty"`
+	TimeToExclusive *string             `json:"time_to_exclusive,omitempty"`
+	TitleQuery      *string             `json:"title_query,omitempty"`
+}
 
 // BadRequest Техническая ошибка в формате RFC 9457 с кодом приложения.
 type BadRequest = Problem
@@ -1482,6 +1803,32 @@ func (t *JobRequestContext) MergeDeleteCandidateContext(v DeleteCandidateContext
 	return err
 }
 
+// AsUpdateCandidateContext returns the union data inside the JobRequestContext as a UpdateCandidateContext
+func (t JobRequestContext) AsUpdateCandidateContext() (UpdateCandidateContext, error) {
+	var body UpdateCandidateContext
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateCandidateContext overwrites any union data inside the JobRequestContext as the provided UpdateCandidateContext
+func (t *JobRequestContext) FromUpdateCandidateContext(v UpdateCandidateContext) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateCandidateContext performs a merge with any union data inside the JobRequestContext, using the provided UpdateCandidateContext
+func (t *JobRequestContext) MergeUpdateCandidateContext(v UpdateCandidateContext) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t JobRequestContext) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
@@ -1612,6 +1959,84 @@ func (t *JobResponse) FromDeleteConfirmedResponse(v DeleteConfirmedResponse) err
 
 // MergeDeleteConfirmedResponse performs a merge with any union data inside the JobResponse, using the provided DeleteConfirmedResponse
 func (t *JobResponse) MergeDeleteConfirmedResponse(v DeleteConfirmedResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsUpdateClarification returns the union data inside the JobResponse as a UpdateClarification
+func (t JobResponse) AsUpdateClarification() (UpdateClarification, error) {
+	var body UpdateClarification
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateClarification overwrites any union data inside the JobResponse as the provided UpdateClarification
+func (t *JobResponse) FromUpdateClarification(v UpdateClarification) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateClarification performs a merge with any union data inside the JobResponse, using the provided UpdateClarification
+func (t *JobResponse) MergeUpdateClarification(v UpdateClarification) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsUpdateFindCandidates returns the union data inside the JobResponse as a UpdateFindCandidates
+func (t JobResponse) AsUpdateFindCandidates() (UpdateFindCandidates, error) {
+	var body UpdateFindCandidates
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateFindCandidates overwrites any union data inside the JobResponse as the provided UpdateFindCandidates
+func (t *JobResponse) FromUpdateFindCandidates(v UpdateFindCandidates) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateFindCandidates performs a merge with any union data inside the JobResponse, using the provided UpdateFindCandidates
+func (t *JobResponse) MergeUpdateFindCandidates(v UpdateFindCandidates) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsUpdateConfirmed returns the union data inside the JobResponse as a UpdateConfirmed
+func (t JobResponse) AsUpdateConfirmed() (UpdateConfirmed, error) {
+	var body UpdateConfirmed
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateConfirmed overwrites any union data inside the JobResponse as the provided UpdateConfirmed
+func (t *JobResponse) FromUpdateConfirmed(v UpdateConfirmed) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateConfirmed performs a merge with any union data inside the JobResponse, using the provided UpdateConfirmed
+func (t *JobResponse) MergeUpdateConfirmed(v UpdateConfirmed) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -1912,6 +2337,32 @@ func (t *StoredContext_Draft) MergeDeleteSearchDraft(v DeleteSearchDraft) error 
 	return err
 }
 
+// AsUpdateSearchDraft returns the union data inside the StoredContext_Draft as a UpdateSearchDraft
+func (t StoredContext_Draft) AsUpdateSearchDraft() (UpdateSearchDraft, error) {
+	var body UpdateSearchDraft
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateSearchDraft overwrites any union data inside the StoredContext_Draft as the provided UpdateSearchDraft
+func (t *StoredContext_Draft) FromUpdateSearchDraft(v UpdateSearchDraft) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateSearchDraft performs a merge with any union data inside the StoredContext_Draft, using the provided UpdateSearchDraft
+func (t *StoredContext_Draft) MergeUpdateSearchDraft(v UpdateSearchDraft) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t StoredContext_Draft) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
@@ -1919,6 +2370,291 @@ func (t StoredContext_Draft) MarshalJSON() ([]byte, error) {
 
 func (t *StoredContext_Draft) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsUpdateFindAction0 returns the union data inside the UpdateFindAction as a UpdateFindAction0
+func (t UpdateFindAction) AsUpdateFindAction0() (UpdateFindAction0, error) {
+	var body UpdateFindAction0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateFindAction0 overwrites any union data inside the UpdateFindAction as the provided UpdateFindAction0
+func (t *UpdateFindAction) FromUpdateFindAction0(v UpdateFindAction0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateFindAction0 performs a merge with any union data inside the UpdateFindAction, using the provided UpdateFindAction0
+func (t *UpdateFindAction) MergeUpdateFindAction0(v UpdateFindAction0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsUpdateFindAction1 returns the union data inside the UpdateFindAction as a UpdateFindAction1
+func (t UpdateFindAction) AsUpdateFindAction1() (UpdateFindAction1, error) {
+	var body UpdateFindAction1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateFindAction1 overwrites any union data inside the UpdateFindAction as the provided UpdateFindAction1
+func (t *UpdateFindAction) FromUpdateFindAction1(v UpdateFindAction1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateFindAction1 performs a merge with any union data inside the UpdateFindAction, using the provided UpdateFindAction1
+func (t *UpdateFindAction) MergeUpdateFindAction1(v UpdateFindAction1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsUpdateFindAction2 returns the union data inside the UpdateFindAction as a UpdateFindAction2
+func (t UpdateFindAction) AsUpdateFindAction2() (UpdateFindAction2, error) {
+	var body UpdateFindAction2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateFindAction2 overwrites any union data inside the UpdateFindAction as the provided UpdateFindAction2
+func (t *UpdateFindAction) FromUpdateFindAction2(v UpdateFindAction2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateFindAction2 performs a merge with any union data inside the UpdateFindAction, using the provided UpdateFindAction2
+func (t *UpdateFindAction) MergeUpdateFindAction2(v UpdateFindAction2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsUpdateFindAction3 returns the union data inside the UpdateFindAction as a UpdateFindAction3
+func (t UpdateFindAction) AsUpdateFindAction3() (UpdateFindAction3, error) {
+	var body UpdateFindAction3
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateFindAction3 overwrites any union data inside the UpdateFindAction as the provided UpdateFindAction3
+func (t *UpdateFindAction) FromUpdateFindAction3(v UpdateFindAction3) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateFindAction3 performs a merge with any union data inside the UpdateFindAction, using the provided UpdateFindAction3
+func (t *UpdateFindAction) MergeUpdateFindAction3(v UpdateFindAction3) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsUpdateFindAction4 returns the union data inside the UpdateFindAction as a UpdateFindAction4
+func (t UpdateFindAction) AsUpdateFindAction4() (UpdateFindAction4, error) {
+	var body UpdateFindAction4
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateFindAction4 overwrites any union data inside the UpdateFindAction as the provided UpdateFindAction4
+func (t *UpdateFindAction) FromUpdateFindAction4(v UpdateFindAction4) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateFindAction4 performs a merge with any union data inside the UpdateFindAction, using the provided UpdateFindAction4
+func (t *UpdateFindAction) MergeUpdateFindAction4(v UpdateFindAction4) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsUpdateFindAction5 returns the union data inside the UpdateFindAction as a UpdateFindAction5
+func (t UpdateFindAction) AsUpdateFindAction5() (UpdateFindAction5, error) {
+	var body UpdateFindAction5
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromUpdateFindAction5 overwrites any union data inside the UpdateFindAction as the provided UpdateFindAction5
+func (t *UpdateFindAction) FromUpdateFindAction5(v UpdateFindAction5) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeUpdateFindAction5 performs a merge with any union data inside the UpdateFindAction, using the provided UpdateFindAction5
+func (t *UpdateFindAction) MergeUpdateFindAction5(v UpdateFindAction5) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t UpdateFindAction) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	object := make(map[string]json.RawMessage)
+	if t.union != nil {
+		err = json.Unmarshal(b, &object)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	object["changes"], err = json.Marshal(t.Changes)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'changes': %w", err)
+	}
+
+	object["date_from"], err = json.Marshal(t.DateFrom)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'date_from': %w", err)
+	}
+
+	object["date_to_exclusive"], err = json.Marshal(t.DateToExclusive)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'date_to_exclusive': %w", err)
+	}
+
+	object["phase"], err = json.Marshal(t.Phase)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'phase': %w", err)
+	}
+
+	if t.RecordTypes != nil {
+		object["record_types"], err = json.Marshal(t.RecordTypes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'record_types': %w", err)
+		}
+	}
+
+	object["time_from"], err = json.Marshal(t.TimeFrom)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'time_from': %w", err)
+	}
+
+	object["time_to_exclusive"], err = json.Marshal(t.TimeToExclusive)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'time_to_exclusive': %w", err)
+	}
+
+	object["title_query"], err = json.Marshal(t.TitleQuery)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title_query': %w", err)
+	}
+
+	b, err = json.Marshal(object)
+	return b, err
+}
+
+func (t *UpdateFindAction) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	if err != nil {
+		return err
+	}
+	object := make(map[string]json.RawMessage)
+	err = json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["changes"]; found {
+		err = json.Unmarshal(raw, &t.Changes)
+		if err != nil {
+			return fmt.Errorf("error reading 'changes': %w", err)
+		}
+	}
+
+	if raw, found := object["date_from"]; found {
+		err = json.Unmarshal(raw, &t.DateFrom)
+		if err != nil {
+			return fmt.Errorf("error reading 'date_from': %w", err)
+		}
+	}
+
+	if raw, found := object["date_to_exclusive"]; found {
+		err = json.Unmarshal(raw, &t.DateToExclusive)
+		if err != nil {
+			return fmt.Errorf("error reading 'date_to_exclusive': %w", err)
+		}
+	}
+
+	if raw, found := object["phase"]; found {
+		err = json.Unmarshal(raw, &t.Phase)
+		if err != nil {
+			return fmt.Errorf("error reading 'phase': %w", err)
+		}
+	}
+
+	if raw, found := object["record_types"]; found {
+		err = json.Unmarshal(raw, &t.RecordTypes)
+		if err != nil {
+			return fmt.Errorf("error reading 'record_types': %w", err)
+		}
+	}
+
+	if raw, found := object["time_from"]; found {
+		err = json.Unmarshal(raw, &t.TimeFrom)
+		if err != nil {
+			return fmt.Errorf("error reading 'time_from': %w", err)
+		}
+	}
+
+	if raw, found := object["time_to_exclusive"]; found {
+		err = json.Unmarshal(raw, &t.TimeToExclusive)
+		if err != nil {
+			return fmt.Errorf("error reading 'time_to_exclusive': %w", err)
+		}
+	}
+
+	if raw, found := object["title_query"]; found {
+		err = json.Unmarshal(raw, &t.TitleQuery)
+		if err != nil {
+			return fmt.Errorf("error reading 'title_query': %w", err)
+		}
+	}
+
 	return err
 }
 
@@ -2033,14 +2769,23 @@ type ClientInterface interface {
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action, выполняет его и после успешного выполнения
-	// передаёт пользователю message без изменений.
+	// backend валидирует action и выполняет его. Для create_event,
+	// list_events, search_events и подтверждённого on_update backend
+	// передаёт message пользователю после успешного выполнения без
+	// изменений. При поиске кандидатов on_delete/on_update и после
+	// удаления backend формирует сообщение по фактическому результату БД:
+	// AI на момент ответа ещё не знает число найденных или удалённых строк.
+	// При задаче со сроком без точного времени action.time отсутствует или
+	// равен null; backend сохраняет такую задачу без времени.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
-	// Для нового on_delete AI возвращает intent только в заголовке
-	// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+	// Для on_delete и on_update AI возвращает intent только в заголовке
+	// X-Task-Intent; в JSON этих ответов поля intent нет.
+	// Подтверждение относится только к текущему показанному списку и его
+	// операции. Вопрос с номером записи, время, отрицание или команда
+	// другого действия не являются подтверждением удаления/изменения.
 	// Существующие create_event, list_events и search_events продолжают
 	// возвращать intent в JSON без обязательного X-Task-Intent.
 	// ready/on_delete с phase=find_candidates разрешает только поиск:
@@ -2049,6 +2794,8 @@ type ClientInterface interface {
 	// номера с ID строк tasks и возвращает их в action.task_ids. Backend
 	// проверяет все ID по сохранённому списку кандидатов и владельцу
 	// сессии; удаление выбранных строк выполняется одной транзакцией.
+	// on_update использует такие же две фазы; changes сохраняются до показа
+	// кандидатов, а update_confirmed содержит ID выбранных строк.
 	// Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 	//
 	// Takes any type of body and a specified content type.
@@ -2061,14 +2808,23 @@ type ClientInterface interface {
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action, выполняет его и после успешного выполнения
-	// передаёт пользователю message без изменений.
+	// backend валидирует action и выполняет его. Для create_event,
+	// list_events, search_events и подтверждённого on_update backend
+	// передаёт message пользователю после успешного выполнения без
+	// изменений. При поиске кандидатов on_delete/on_update и после
+	// удаления backend формирует сообщение по фактическому результату БД:
+	// AI на момент ответа ещё не знает число найденных или удалённых строк.
+	// При задаче со сроком без точного времени action.time отсутствует или
+	// равен null; backend сохраняет такую задачу без времени.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
-	// Для нового on_delete AI возвращает intent только в заголовке
-	// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+	// Для on_delete и on_update AI возвращает intent только в заголовке
+	// X-Task-Intent; в JSON этих ответов поля intent нет.
+	// Подтверждение относится только к текущему показанному списку и его
+	// операции. Вопрос с номером записи, время, отрицание или команда
+	// другого действия не являются подтверждением удаления/изменения.
 	// Существующие create_event, list_events и search_events продолжают
 	// возвращать intent в JSON без обязательного X-Task-Intent.
 	// ready/on_delete с phase=find_candidates разрешает только поиск:
@@ -2077,6 +2833,8 @@ type ClientInterface interface {
 	// номера с ID строк tasks и возвращает их в action.task_ids. Backend
 	// проверяет все ID по сохранённому списку кандидатов и владельцу
 	// сессии; удаление выбранных строк выполняется одной транзакцией.
+	// on_update использует такие же две фазы; changes сохраняются до показа
+	// кандидатов, а update_confirmed содержит ID выбранных строк.
 	// Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 	//
 	// Takes a body of the `application/json` content type.
@@ -2147,14 +2905,23 @@ func (c *Client) EmbedText(ctx context.Context, body EmbedTextJSONRequestBody, r
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action, выполняет его и после успешного выполнения
-// передаёт пользователю message без изменений.
+// backend валидирует action и выполняет его. Для create_event,
+// list_events, search_events и подтверждённого on_update backend
+// передаёт message пользователю после успешного выполнения без
+// изменений. При поиске кандидатов on_delete/on_update и после
+// удаления backend формирует сообщение по фактическому результату БД:
+// AI на момент ответа ещё не знает число найденных или удалённых строк.
+// При задаче со сроком без точного времени action.time отсутствует или
+// равен null; backend сохраняет такую задачу без времени.
 // Если пользователь сменил тему во время уточнения, AI не переносит
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
-// Для нового on_delete AI возвращает intent только в заголовке
-// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+// Для on_delete и on_update AI возвращает intent только в заголовке
+// X-Task-Intent; в JSON этих ответов поля intent нет.
+// Подтверждение относится только к текущему показанному списку и его
+// операции. Вопрос с номером записи, время, отрицание или команда
+// другого действия не являются подтверждением удаления/изменения.
 // Существующие create_event, list_events и search_events продолжают
 // возвращать intent в JSON без обязательного X-Task-Intent.
 // ready/on_delete с phase=find_candidates разрешает только поиск:
@@ -2163,6 +2930,8 @@ func (c *Client) EmbedText(ctx context.Context, body EmbedTextJSONRequestBody, r
 // номера с ID строк tasks и возвращает их в action.task_ids. Backend
 // проверяет все ID по сохранённому списку кандидатов и владельцу
 // сессии; удаление выбранных строк выполняется одной транзакцией.
+// on_update использует такие же две фазы; changes сохраняются до показа
+// кандидатов, а update_confirmed содержит ID выбранных строк.
 // Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 //
 // Takes any type of body and a specified content type.
@@ -2185,14 +2954,23 @@ func (c *Client) ProcessJobWithBody(ctx context.Context, contentType string, bod
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action, выполняет его и после успешного выполнения
-// передаёт пользователю message без изменений.
+// backend валидирует action и выполняет его. Для create_event,
+// list_events, search_events и подтверждённого on_update backend
+// передаёт message пользователю после успешного выполнения без
+// изменений. При поиске кандидатов on_delete/on_update и после
+// удаления backend формирует сообщение по фактическому результату БД:
+// AI на момент ответа ещё не знает число найденных или удалённых строк.
+// При задаче со сроком без точного времени action.time отсутствует или
+// равен null; backend сохраняет такую задачу без времени.
 // Если пользователь сменил тему во время уточнения, AI не переносит
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
-// Для нового on_delete AI возвращает intent только в заголовке
-// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+// Для on_delete и on_update AI возвращает intent только в заголовке
+// X-Task-Intent; в JSON этих ответов поля intent нет.
+// Подтверждение относится только к текущему показанному списку и его
+// операции. Вопрос с номером записи, время, отрицание или команда
+// другого действия не являются подтверждением удаления/изменения.
 // Существующие create_event, list_events и search_events продолжают
 // возвращать intent в JSON без обязательного X-Task-Intent.
 // ready/on_delete с phase=find_candidates разрешает только поиск:
@@ -2201,6 +2979,8 @@ func (c *Client) ProcessJobWithBody(ctx context.Context, contentType string, bod
 // номера с ID строк tasks и возвращает их в action.task_ids. Backend
 // проверяет все ID по сохранённому списку кандидатов и владельцу
 // сессии; удаление выбранных строк выполняется одной транзакцией.
+// on_update использует такие же две фазы; changes сохраняются до показа
+// кандидатов, а update_confirmed содержит ID выбранных строк.
 // Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 //
 // Takes a body of the `application/json` content type.
@@ -2421,14 +3201,23 @@ type ClientWithResponsesInterface interface {
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action, выполняет его и после успешного выполнения
-	// передаёт пользователю message без изменений.
+	// backend валидирует action и выполняет его. Для create_event,
+	// list_events, search_events и подтверждённого on_update backend
+	// передаёт message пользователю после успешного выполнения без
+	// изменений. При поиске кандидатов on_delete/on_update и после
+	// удаления backend формирует сообщение по фактическому результату БД:
+	// AI на момент ответа ещё не знает число найденных или удалённых строк.
+	// При задаче со сроком без точного времени action.time отсутствует или
+	// равен null; backend сохраняет такую задачу без времени.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
-	// Для нового on_delete AI возвращает intent только в заголовке
-	// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+	// Для on_delete и on_update AI возвращает intent только в заголовке
+	// X-Task-Intent; в JSON этих ответов поля intent нет.
+	// Подтверждение относится только к текущему показанному списку и его
+	// операции. Вопрос с номером записи, время, отрицание или команда
+	// другого действия не являются подтверждением удаления/изменения.
 	// Существующие create_event, list_events и search_events продолжают
 	// возвращать intent в JSON без обязательного X-Task-Intent.
 	// ready/on_delete с phase=find_candidates разрешает только поиск:
@@ -2437,6 +3226,8 @@ type ClientWithResponsesInterface interface {
 	// номера с ID строк tasks и возвращает их в action.task_ids. Backend
 	// проверяет все ID по сохранённому списку кандидатов и владельцу
 	// сессии; удаление выбранных строк выполняется одной транзакцией.
+	// on_update использует такие же две фазы; changes сохраняются до показа
+	// кандидатов, а update_confirmed содержит ID выбранных строк.
 	// Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -2449,14 +3240,23 @@ type ClientWithResponsesInterface interface {
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action, выполняет его и после успешного выполнения
-	// передаёт пользователю message без изменений.
+	// backend валидирует action и выполняет его. Для create_event,
+	// list_events, search_events и подтверждённого on_update backend
+	// передаёт message пользователю после успешного выполнения без
+	// изменений. При поиске кандидатов on_delete/on_update и после
+	// удаления backend формирует сообщение по фактическому результату БД:
+	// AI на момент ответа ещё не знает число найденных или удалённых строк.
+	// При задаче со сроком без точного времени action.time отсутствует или
+	// равен null; backend сохраняет такую задачу без времени.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
-	// Для нового on_delete AI возвращает intent только в заголовке
-	// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+	// Для on_delete и on_update AI возвращает intent только в заголовке
+	// X-Task-Intent; в JSON этих ответов поля intent нет.
+	// Подтверждение относится только к текущему показанному списку и его
+	// операции. Вопрос с номером записи, время, отрицание или команда
+	// другого действия не являются подтверждением удаления/изменения.
 	// Существующие create_event, list_events и search_events продолжают
 	// возвращать intent в JSON без обязательного X-Task-Intent.
 	// ready/on_delete с phase=find_candidates разрешает только поиск:
@@ -2465,6 +3265,8 @@ type ClientWithResponsesInterface interface {
 	// номера с ID строк tasks и возвращает их в action.task_ids. Backend
 	// проверяет все ID по сохранённому списку кандидатов и владельцу
 	// сессии; удаление выбранных строк выполняется одной транзакцией.
+	// on_update использует такие же две фазы; changes сохраняются до показа
+	// кандидатов, а update_confirmed содержит ID выбранных строк.
 	// Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
@@ -2750,14 +3552,23 @@ func (c *ClientWithResponses) EmbedTextWithResponse(ctx context.Context, body Em
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action, выполняет его и после успешного выполнения
-// передаёт пользователю message без изменений.
+// backend валидирует action и выполняет его. Для create_event,
+// list_events, search_events и подтверждённого on_update backend
+// передаёт message пользователю после успешного выполнения без
+// изменений. При поиске кандидатов on_delete/on_update и после
+// удаления backend формирует сообщение по фактическому результату БД:
+// AI на момент ответа ещё не знает число найденных или удалённых строк.
+// При задаче со сроком без точного времени action.time отсутствует или
+// равен null; backend сохраняет такую задачу без времени.
 // Если пользователь сменил тему во время уточнения, AI не переносит
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
-// Для нового on_delete AI возвращает intent только в заголовке
-// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+// Для on_delete и on_update AI возвращает intent только в заголовке
+// X-Task-Intent; в JSON этих ответов поля intent нет.
+// Подтверждение относится только к текущему показанному списку и его
+// операции. Вопрос с номером записи, время, отрицание или команда
+// другого действия не являются подтверждением удаления/изменения.
 // Существующие create_event, list_events и search_events продолжают
 // возвращать intent в JSON без обязательного X-Task-Intent.
 // ready/on_delete с phase=find_candidates разрешает только поиск:
@@ -2766,6 +3577,8 @@ func (c *ClientWithResponses) EmbedTextWithResponse(ctx context.Context, body Em
 // номера с ID строк tasks и возвращает их в action.task_ids. Backend
 // проверяет все ID по сохранённому списку кандидатов и владельцу
 // сессии; удаление выбранных строк выполняется одной транзакцией.
+// on_update использует такие же две фазы; changes сохраняются до показа
+// кандидатов, а update_confirmed содержит ID выбранных строк.
 // Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -2784,14 +3597,23 @@ func (c *ClientWithResponses) ProcessJobWithBodyWithResponse(ctx context.Context
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action, выполняет его и после успешного выполнения
-// передаёт пользователю message без изменений.
+// backend валидирует action и выполняет его. Для create_event,
+// list_events, search_events и подтверждённого on_update backend
+// передаёт message пользователю после успешного выполнения без
+// изменений. При поиске кандидатов on_delete/on_update и после
+// удаления backend формирует сообщение по фактическому результату БД:
+// AI на момент ответа ещё не знает число найденных или удалённых строк.
+// При задаче со сроком без точного времени action.time отсутствует или
+// равен null; backend сохраняет такую задачу без времени.
 // Если пользователь сменил тему во время уточнения, AI не переносит
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
-// Для нового on_delete AI возвращает intent только в заголовке
-// X-Task-Intent: on_delete; в JSON этого ответа поля intent нет.
+// Для on_delete и on_update AI возвращает intent только в заголовке
+// X-Task-Intent; в JSON этих ответов поля intent нет.
+// Подтверждение относится только к текущему показанному списку и его
+// операции. Вопрос с номером записи, время, отрицание или команда
+// другого действия не являются подтверждением удаления/изменения.
 // Существующие create_event, list_events и search_events продолжают
 // возвращать intent в JSON без обязательного X-Task-Intent.
 // ready/on_delete с phase=find_candidates разрешает только поиск:
@@ -2800,6 +3622,8 @@ func (c *ClientWithResponses) ProcessJobWithBodyWithResponse(ctx context.Context
 // номера с ID строк tasks и возвращает их в action.task_ids. Backend
 // проверяет все ID по сохранённому списку кандидатов и владельцу
 // сессии; удаление выбранных строк выполняется одной транзакцией.
+// on_update использует такие же две фазы; changes сохраняются до показа
+// кандидатов, а update_confirmed содержит ID выбранных строк.
 // Технические ошибки передаются HTTP 4xx/5xx, а не бизнес-статусом.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).

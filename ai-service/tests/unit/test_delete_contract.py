@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -17,10 +18,11 @@ from app.schemas.job import (
     DeleteConfirmedResponse,
     DeleteFindCandidatesResponse,
     DeleteNeedsClarificationResponse,
+    UpdateConfirmedResponse,
     JOB_RESPONSE_ADAPTER,
     JobRequest,
 )
-from app.services.context import build_job_response
+from app.services.context import build_job_response, explicit_selection_numbers
 from app.services.jobs import JobService
 
 
@@ -86,6 +88,30 @@ CANDIDATE_CONTEXT = {
 
 
 class DeleteContractTest(unittest.TestCase):
+    def test_numbers_inside_questions_or_times_are_not_confirmation(self):
+        selection = decision(action={"phase": "delete_confirmed", "selected_numbers": [1]})
+        for text in ("Что в записи №1?", "Покажи №1", "Удали №1?", "В 1:00", "1.5", "Не надо, №1"):
+            with self.subTest(text=text):
+                result = build_job_response(request(text, CANDIDATE_CONTEXT), selection)
+                self.assertNotIsInstance(result, DeleteConfirmedResponse)
+
+    def test_update_must_not_confirm_a_delete_command(self):
+        context = CANDIDATE_CONTEXT | {
+            "draft": {"title_query": "Иван", "changes": {"time": "16:00"}}
+        }
+        selected = decision(intent="on_update", action={"phase": "update_confirmed", "selected_numbers": [1]})
+        result = build_job_response(request("Удали №1", context), selected)
+        self.assertNotIsInstance(result, UpdateConfirmedResponse)
+
+    def test_spoken_candidate_numbers_are_explicit_and_negation_is_not(self):
+        shown = {1, 5}
+        self.assertEqual(explicit_selection_numbers("первую", shown), [1])
+        self.assertEqual(explicit_selection_numbers("Удали первую и пятую", shown), [1, 5])
+        self.assertEqual(explicit_selection_numbers("Удали №5 и №1", shown), [5, 1])
+        self.assertEqual(explicit_selection_numbers("удали все показанные", shown), [1, 5])
+        self.assertIsNone(explicit_selection_numbers("не удаляй первую", shown))
+        self.assertIsNone(explicit_selection_numbers("удали задачу 1 ноября", shown))
+
     def test_http_header_only_for_delete(self):
         class FakeService:
             def __init__(self, result):
@@ -222,7 +248,56 @@ class DeleteContractTest(unittest.TestCase):
 
 
 class DeleteJobServiceTest(unittest.IsolatedAsyncioTestCase):
-    async def test_invalid_selected_number_is_retried_once(self):
+    async def test_fast_path_does_not_change_when_user_asks_to_delete(self):
+        class Gateway:
+            calls = 0
+
+            async def complete(self, _messages):
+                self.calls += 1
+                return json.dumps({
+                    "intent": "on_update", "status": "needs_clarification",
+                    "message": "Изменить или удалить?", "action": None,
+                    "draft": {}, "topic_changed": False,
+                })
+
+        context = CANDIDATE_CONTEXT | {
+            "draft": {"title_query": "Иван", "changes": {"time": "16:00"}}
+        }
+        gateway = Gateway()
+        result = await JobService(Settings(job_timeout_seconds=5), gateway).process(
+            request("Удали №1", context)
+        )
+        self.assertEqual(gateway.calls, 1)
+        self.assertNotIsInstance(result, UpdateConfirmedResponse)
+
+    async def test_spoken_selection_uses_saved_candidates_without_model(self):
+        class UnusedGateway:
+            async def complete(self, _messages):
+                raise AssertionError("Explicit selection should not call the model")
+
+        gateway = UnusedGateway()
+        result = await JobService(Settings(job_timeout_seconds=5), gateway).process(
+            request("первую", CANDIDATE_CONTEXT)
+        )
+        self.assertIsInstance(result, DeleteConfirmedResponse)
+        self.assertEqual(result.action.task_ids, [FIRST_ID])
+
+    async def test_spoken_update_selection_uses_saved_candidates_without_model(self):
+        class UnusedGateway:
+            async def complete(self, _messages):
+                raise AssertionError("Explicit selection should not call the model")
+
+        context = CANDIDATE_CONTEXT | {
+            "draft": {"title_query": "Иван", "changes": {"time": "16:00"}}
+        }
+        result = await JobService(Settings(job_timeout_seconds=5), UnusedGateway()).process(
+            request("первую", context)
+        )
+        self.assertIsInstance(result, UpdateConfirmedResponse)
+        self.assertEqual(result.action.record_ids, [FIRST_ID])
+
+    @patch("app.services.jobs.explicit_selection_numbers", return_value=None)
+    async def test_invalid_selected_number_is_retried_once(self, _fast_path):
         class Gateway:
             def __init__(self, completions):
                 self.completions = list(completions)
@@ -242,7 +317,7 @@ class DeleteJobServiceTest(unittest.IsolatedAsyncioTestCase):
         ).model_dump(mode="json")
         gateway = Gateway([invalid, valid])
         service = JobService(Settings(job_timeout_seconds=5), gateway)
-        result = await service.process(request("Удали №1", CANDIDATE_CONTEXT))
+        result = await service.process(request("Удали запись №1 из найденных кандидатов", CANDIDATE_CONTEXT))
         self.assertIsInstance(result, DeleteConfirmedResponse)
         self.assertEqual(result.action.task_ids, [FIRST_ID])
         self.assertEqual(gateway.calls, 2)
@@ -250,7 +325,7 @@ class DeleteJobServiceTest(unittest.IsolatedAsyncioTestCase):
         rejected = Gateway([invalid, invalid])
         with self.assertRaises(ServiceError) as raised:
             await JobService(Settings(job_timeout_seconds=5), rejected).process(
-                request("Удали №1", CANDIDATE_CONTEXT)
+                request("Удали запись №1 из найденных кандидатов", CANDIDATE_CONTEXT)
             )
         self.assertEqual(raised.exception.code, "model_invalid_output")
         self.assertEqual(rejected.calls, 2)

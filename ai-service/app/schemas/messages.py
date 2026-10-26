@@ -7,6 +7,8 @@ from pydantic import Field
 from app.schemas.base import ContractModel
 from app.schemas.common import NonEmptyString
 
+MAX_RECENT_MESSAGES = 20
+
 
 class DialogueMessage(ContractModel):
     role: Literal["user", "assistant"]

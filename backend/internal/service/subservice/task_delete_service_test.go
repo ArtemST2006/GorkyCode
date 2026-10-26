@@ -65,7 +65,7 @@ func (f *fakeTaskDeleter) FindSemantic(
 	return f.semanticTasks, nil
 }
 
-func (f *fakeTaskDeleter) DeleteTasks(_ context.Context, userID uuid.UUID, ids []uuid.UUID) ([]model.Task, error) {
+func (f *fakeTaskDeleter) DeleteTasks(_ context.Context, userID uuid.UUID, ids []uuid.UUID, _ []model.Task) ([]model.Task, error) {
 	f.called = true
 	f.userID, f.deletedIDs = userID, ids
 	if f.err != nil {

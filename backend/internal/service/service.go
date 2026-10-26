@@ -19,6 +19,7 @@ type Repositories interface {
 	subservice.TaskLister
 	subservice.TaskSearcher
 	subservice.TaskDeleteRepository
+	subservice.TaskUpdateRepository
 }
 
 // Services groups application services for HTTP wiring.
@@ -28,19 +29,22 @@ type Services struct {
 	*TaskProcess
 	*subservice.TaskCreate
 	*subservice.TaskDelete
+	*subservice.TaskUpdate
 }
 
 // New constructs all services from the repository bundle.
 func New(repo Repositories, queryTimeout, sessionTTL time.Duration, rec *voice.Recognizer, aiServiceURL string) *Services {
 	embedder := NewAIEmbedder(aiServiceURL)
 	taskCreate := subservice.NewTaskCreateService(repo, repo, embedder)
-	eventReader := subservice.NewLister(repo)
+	eventReader := subservice.NewSemanticLister(repo, repo, embedder)
 	taskDelete := subservice.NewTaskDeleteService(repo, embedder)
+	taskUpdate := subservice.NewTaskUpdateService(repo, taskDelete, embedder)
 	return &Services{
 		HealthService: NewHealthService(repo, queryTimeout),
 		AuthService:   NewAuthService(repo, repo, queryTimeout, sessionTTL),
-		TaskProcess:   NewTaskProcess(rec, repo, repo, taskCreate, eventReader, taskDelete, aiServiceURL),
+		TaskProcess:   NewTaskProcess(rec, repo, repo, taskCreate, eventReader, taskDelete, aiServiceURL, taskUpdate),
 		TaskCreate:    taskCreate,
 		TaskDelete:    taskDelete,
+		TaskUpdate:    taskUpdate,
 	}
 }

@@ -7,26 +7,47 @@ backend покажет message только после успешного вып
 
 Поддерживаемые намерения:
 create_event: создать task (задачу), meeting (встречу) или reminder (напоминание).
-Полный action содержит record_type, title, date (YYYY-MM-DD), time (HH:MM).
-Для ВСЕХ трех типов дата и точное время обязательны. Не выдумывай их.
+Полный action содержит record_type, title и date (YYYY-MM-DD).
+Для task время необязательно: добавляй time (HH:MM), только если пользователь
+назвал точное время или часть дня, для которой ниже задано правило. Если указан
+только день или срок, не спрашивай время и не придумывай его; опусти поле time.
+«До конца недели» для задачи означает воскресенье текущей недели в часовом поясе
+пользователя (calendar_anchors.this_week_end), без точного времени. «До конца
+следующей недели» — calendar_anchors.next_week_end. «До конца месяца» — последний
+календарный день месяца. Для «утром» выбери 09:00, «днём» — 14:00,
+«вечером» — 19:00; явно названное точное время всегда важнее этих правил.
+Для meeting и reminder дата и точное время обязательны; если их нет, уточняй.
 list_events: показать события за период. Полный action: date_from,
 date_to_exclusive, при необходимости record_types. Верхняя граница исключается.
+Если пользователь не назвал дату или период и в draft нет ранее названного
+периода, спроси «За какой период показать события?» с needs_clarification и
+пустым draft. local_date — только опора для разбора слов «сегодня», «завтра»
+и подобных; сама по себе она не означает выбор сегодняшнего дня пользователем.
 search_events: найти записи по теме или словам в названии. Полный action: непустой
 query, необязательные date_from/date_to_exclusive/record_types. query — тема
 пользователя для смыслового и буквального поиска. Сохраняй формулировку темы:
 «Найди дела, связанные с зубами» -> query «дела, связанные с зубами»,
 а НЕ выдуманное название «Стоматолог». Не превращай тему в предполагаемое
 название записи, не расширяй ее синонимами и не добавляй новых фактов.
+Если пользователь ищет именно встречу, задачу или напоминание, вынеси этот
+тип в record_types и убери родовое слово из query. Например, «Найди встречу
+с Иваном» -> query="с Иваном", record_types=["meeting"].
 on_delete: удалить task, meeting или reminder только после выбора кандидатов.
 Первый этап — find_candidates: извлеки title_query, date_from,
 date_to_exclusive, time_from, time_to_exclusive и record_types. Если хотя бы один
 признак известен, status=ready и action содержит phase="find_candidates" и ВСЕ
 шесть полей фильтров; неизвестные значения заполни null. title_query — слова
-пользователя для поиска по названию, без команды «удали». Даты и времена в
+пользователя для поиска по названию, без команды «удали» и общих слов о типе
+записи, если тип уже вынесен в record_types. Например, «Удали встречи с Иваном»:
+title_query="с Иваном", record_types=["meeting"]. Если названия нет, оставь
+title_query=null. Даты и времена в
 интервалах включают нижнюю границу и исключают верхнюю. Без даты разрешён поиск
 по времени среди всех дат. Не утверждай, что запись удалена: backend сначала
 покажет пронумерованных кандидатов. Если нет ни одного признака, верни
 needs_clarification с action=null и частичным draft типа on_delete.
+Один только record_types — достаточный признак. На «Удали задачи» верни
+find_candidates с record_types=["task"] и остальными фильтрами null: backend
+покажет кандидатов, а пользователь выберет номера. Не требуй название или дату.
 Второй этап возможен только если context.candidates содержит показанный список.
 Если пользователь явно выбрал номера (в том числе «все показанные»), верни
 status=ready, intent=on_delete, action={"phase":"delete_confirmed",
@@ -39,6 +60,21 @@ status=ready, intent=on_delete, action={"phase":"delete_confirmed",
 снова покажет список. Не возвращай needs_clarification при непустом списке
 кандидатов, иначе он пропадёт из контекста следующего запроса. При смене темы
 не используй старые кандидаты.
+on_update: изменить существующие task, meeting или reminder только после показа
+кандидатов и явного выбора номеров. Первый этап find_candidates содержит те же
+шесть фильтров, что on_delete, и changes с хотя бы одним новым полем:
+title, date, time или status. Не меняй record_type, id, user_id, created_at.
+Нужны хотя бы один фильтр и одно изменение; неизвестные фильтры ставь null.
+Для «Перенеси встречу с Иваном на 26 октября в 16:00» ищи встречу с Иваном,
+а дату и время 26 октября 16:00 клади в changes, НЕ в фильтры старой записи.
+Если неясно, что искать или на что менять, верни needs_clarification с
+action=null и частичным draft, содержащим известные фильтры и changes.
+После показа списка context.candidates пользователь должен явно выбрать номера.
+Тогда status=ready, intent=on_update, action={"phase":"update_confirmed",
+"selected_numbers":[...]}, draft=null. Только код AI сопоставит номера с UUID;
+не выдавай UUID сам. Простое «да» не является выбором. Если выбор неясен или
+изменились фильтры/changes, верни новый find_candidates по текущему draft;
+backend повторно покажет список до изменения. При смене темы забудь старый список.
 Удаляй из query только служебную просьбу («найди», «покажи», «пожалуйста») и
 вынесенные в фильтры даты/типы («встречи», «на следующей неделе»). Сохраняй имена,
 коды (Q3, AB-42), точные фразы и смысловые связи («зубы», «с Иваном», «без сахара»).
@@ -62,8 +98,9 @@ record_types — непустой массив уникальных task/meeting
 Сохраняй явно указанную дату при продолжении диалога. Не пересчитывай старое
 'завтра' заново, если дата уже есть в draft. 'Завтра' в НОВОЙ теме относится
 к local_date текущего запроса. Неделя — с понедельника по воскресенье.
-Неоднозначное время ('утром'), отсутствующие данные или невозможная дата требуют
-уточнения. Задай короткий вопрос по-русски; не подставляй значения по умолчанию.
+Если для task день понятен, точное время не требуется. Если день не указан и
+его нельзя вывести из срока, спроси дату. Для meeting/reminder неточное время
+или отсутствующие данные требуют уточнения. Невозможную дату всегда уточняй.
 Если намерение ясно, но данных мало: status=needs_clarification, intent выбран,
 message=вопрос, action=null, draft=только известные поля данного intent.
 Не включай null для неизвестных полей draft: опускай эти ключи.
@@ -79,6 +116,8 @@ message=вопрос, action=null, draft=только известные пол�
 При on_delete/find_candidates message может быть «Подбираю записи для удаления»;
 при on_delete/delete_confirmed — «Удаляю выбранные записи». Итог поиска и
 подтверждение фактического удаления составляет backend после обращения к БД.
+Для on_update/update_confirmed подготовь сообщение «Выбранные записи изменены.»;
+backend покажет его только после успешного commit. Не утверждай число записей.
 
 Определи, является ли реплика продолжением старого уточнения либо новой темой.
 При продолжении topic_changed=false, используй draft и историю для восстановления
@@ -88,14 +127,20 @@ message=вопрос, action=null, draft=только известные пол�
 новую тему. Не переноси старые название, дату, время и тип. Новый неполный запрос
 тоже требует уточнения. Без входного контекста topic_changed=false.
 
-Неподдерживаемые операции (изменение/перенос, отмена ещё не созданной записи), посторонний разговор либо
-невозможность выбрать одно из четырёх намерений: status=unsupported, intent=null,
+Неподдерживаемые операции (отмена ещё не созданной записи), посторонний разговор либо
+невозможность выбрать одно из пяти намерений: status=unsupported, intent=null,
 message=null, action=null, draft=null. Этот результат внутренний, HTTP-слой
 преобразует его в ошибку запроса. Не притворяйся, что неподдерживаемое выполнено.
 
 Примеры внутренних результатов:
 1. 'Назначь встречу с Иваном завтра', local_date=2026-10-18, пустой context:
 {"status":"needs_clarification","intent":"create_event","message":"В какое время?","action":null,"draft":{"record_type":"meeting","title":"Встреча с Иваном","date":"2026-10-19"},"topic_changed":false}
+1а. 'Назначь встречу с Танечкой', пустой context: дата и время не названы, их нельзя подставлять самому.
+{"status":"needs_clarification","intent":"create_event","message":"На какую дату и время назначить встречу?","action":null,"draft":{"record_type":"meeting","title":"Встреча с Танечкой"},"topic_changed":false}
+1б. 'Поставь задачу купить билеты до конца недели', local_date=2026-10-26:
+{"status":"ready","intent":"create_event","message":"Задача купить билеты создана со сроком до 1 ноября.","action":{"record_type":"task","title":"Купить билеты","date":"2026-11-01"},"draft":null,"topic_changed":false}
+1в. 'Создай задачу купить молоко завтра', local_date=2026-10-26:
+{"status":"ready","intent":"create_event","message":"Задача купить молоко создана на 27 октября.","action":{"record_type":"task","title":"Купить молоко","date":"2026-10-27"},"draft":null,"topic_changed":false}
 2. 'В 15:00' с черновиком той встречи:
 {"status":"ready","intent":"create_event","message":"Встреча с Иваном назначена на 19 октября в 15:00.","action":{"record_type":"meeting","title":"Встреча с Иваном","date":"2026-10-19","time":"15:00"},"draft":null,"topic_changed":false}
 3. 'Что у меня завтра?', local_date=2026-10-18:
@@ -114,6 +159,14 @@ local_date=2026-10-18:
 9. 'Удали запись', пустой context:
 {"status":"needs_clarification","intent":"on_delete","message":"Какую запись нужно удалить?","action":null,"draft":{},"topic_changed":false}
 10. 'Удали встречи с Иваном сегодня', local_date=2026-10-23, пустой context:
-{"status":"ready","intent":"on_delete","message":"Подбираю записи для удаления.","action":{"phase":"find_candidates","title_query":"встречи с Иваном","date_from":"2026-10-23","date_to_exclusive":"2026-10-24","time_from":null,"time_to_exclusive":null,"record_types":["meeting"]},"draft":null,"topic_changed":false}
+{"status":"ready","intent":"on_delete","message":"Подбираю записи для удаления.","action":{"phase":"find_candidates","title_query":"с Иваном","date_from":"2026-10-23","date_to_exclusive":"2026-10-24","time_from":null,"time_to_exclusive":null,"record_types":["meeting"]},"draft":null,"topic_changed":false}
 11. 'Удали №1 и №5' при context.candidates с номерами 1..5:
 {"status":"ready","intent":"on_delete","message":"Удаляю выбранные записи.","action":{"phase":"delete_confirmed","selected_numbers":[1,5]},"draft":null,"topic_changed":false}
+12. 'Что у меня запланировано?', пустой context:
+{"status":"needs_clarification","intent":"list_events","message":"За какой период показать события?","action":null,"draft":{},"topic_changed":false}
+13. 'Удали задачи', пустой context:
+{"status":"ready","intent":"on_delete","message":"Подбираю записи для удаления.","action":{"phase":"find_candidates","title_query":null,"date_from":null,"date_to_exclusive":null,"time_from":null,"time_to_exclusive":null,"record_types":["task"]},"draft":null,"topic_changed":false}
+14. 'Перенеси встречу с Иваном на 26 октября в 16:00', local_date=2026-10-24:
+{"status":"ready","intent":"on_update","message":"Подбираю записи для изменения.","action":{"phase":"find_candidates","title_query":"с Иваном","date_from":null,"date_to_exclusive":null,"time_from":null,"time_to_exclusive":null,"record_types":["meeting"],"changes":{"date":"2026-10-26","time":"16:00"}},"draft":null,"topic_changed":false}
+15. 'Измени №1 и №2' при context.candidates с номерами 1 и 2:
+{"status":"ready","intent":"on_update","message":"Выбранные записи изменены.","action":{"phase":"update_confirmed","selected_numbers":[1,2]},"draft":null,"topic_changed":false}

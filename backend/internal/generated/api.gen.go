@@ -30,6 +30,36 @@ func (e AuthResponseTokenType) Valid() bool {
 	}
 }
 
+// Defines values for FrontendUpdateCandidatesStatus.
+const (
+	UpdateCandidates FrontendUpdateCandidatesStatus = "update_candidates"
+)
+
+// Valid indicates whether the value is a known member of the FrontendUpdateCandidatesStatus enum.
+func (e FrontendUpdateCandidatesStatus) Valid() bool {
+	switch e {
+	case UpdateCandidates:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FrontendUpdatedStatus.
+const (
+	Updated FrontendUpdatedStatus = "updated"
+)
+
+// Valid indicates whether the value is a known member of the FrontendUpdatedStatus enum.
+func (e FrontendUpdatedStatus) Valid() bool {
+	switch e {
+	case Updated:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthResponseStatus.
 const (
 	HealthResponseStatusOk          HealthResponseStatus = "ok"
@@ -42,6 +72,27 @@ func (e HealthResponseStatus) Valid() bool {
 	case HealthResponseStatusOk:
 		return true
 	case HealthResponseStatusUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RecordType.
+const (
+	RecordTypeMeeting  RecordType = "meeting"
+	RecordTypeReminder RecordType = "reminder"
+	RecordTypeTask     RecordType = "task"
+)
+
+// Valid indicates whether the value is a known member of the RecordType enum.
+func (e RecordType) Valid() bool {
+	switch e {
+	case RecordTypeMeeting:
+		return true
+	case RecordTypeReminder:
+		return true
+	case RecordTypeTask:
 		return true
 	default:
 		return false
@@ -183,6 +234,24 @@ func (e TaskItemStatus) Valid() bool {
 	}
 }
 
+// Defines values for TaskStatus.
+const (
+	TaskStatusActive    TaskStatus = "active"
+	TaskStatusCompleted TaskStatus = "completed"
+)
+
+// Valid indicates whether the value is a known member of the TaskStatus enum.
+func (e TaskStatus) Valid() bool {
+	switch e {
+	case TaskStatusActive:
+		return true
+	case TaskStatusCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TasksDeletedResponseStatus.
 const (
 	Deleted TasksDeletedResponseStatus = "deleted"
@@ -212,6 +281,58 @@ type AuthResponse struct {
 // AuthResponseTokenType defines model for AuthResponse.TokenType.
 type AuthResponseTokenType string
 
+// Date defines model for Date.
+type Date = openapi_types.Date
+
+// FrontendUpdateCandidates Результат on_update/find_candidates. Backend сохраняет показанные
+// номера, снимки записей и changes в Redis. Даже при нуле или одном
+// совпадении возвращаются candidates и changes; изменений в БД пока нет.
+// Для подтверждения клиент передаёт выбранные номера текстом с тем же
+// task_id. message о количестве кандидатов формирует backend.
+type FrontendUpdateCandidates struct {
+	Data struct {
+		Candidates []struct {
+			// Event Представление записи tasks для клиента. Значения record_type на API
+			// совпадают с AI-контрактом и со значениями колонки tasks.type
+			// в PostgreSQL (meeting, task, reminder).
+			Event  TaskItem `json:"event"`
+			Number int      `json:"number"`
+		} `json:"candidates"`
+
+		// Changes Только переданные поля меняются. Отсутствие поля сохраняет прежнее
+		// значение; null запрещён. record_type, user_id, id и created_at
+		// неизменяемы. Если time задано для записи без date, changes обязано
+		// задать date. Дату без времени и время без даты можно сохранять только
+		// если итоговая строка удовлетворяет ограничению БД.
+		Changes UpdateChanges `json:"changes"`
+	} `json:"data"`
+	Message string                         `json:"message"`
+	Status  FrontendUpdateCandidatesStatus `json:"status"`
+	TaskId  UUID                           `json:"task_id"`
+	UserId  UUID                           `json:"user_id"`
+}
+
+// FrontendUpdateCandidatesStatus defines model for FrontendUpdateCandidates.Status.
+type FrontendUpdateCandidatesStatus string
+
+// FrontendUpdated Результат on_update/update_confirmed после проверки выбранных ID и
+// снимков, затем атомарной записи в PostgreSQL. Устаревший выбор даёт
+// HTTP 409 без частичного изменения. message от AI-service передаётся
+// после успешной записи.
+type FrontendUpdated struct {
+	Data struct {
+		// UpdatedEvents Полные записи после commit, в порядке выбранных ID.
+		UpdatedEvents []TaskItem `json:"updated_events"`
+	} `json:"data"`
+	Message string                `json:"message"`
+	Status  FrontendUpdatedStatus `json:"status"`
+	TaskId  UUID                  `json:"task_id"`
+	UserId  UUID                  `json:"user_id"`
+}
+
+// FrontendUpdatedStatus defines model for FrontendUpdated.Status.
+type FrontendUpdatedStatus string
+
 // HealthResponse defines model for HealthResponse.
 type HealthResponse struct {
 	Service string               `json:"service"`
@@ -220,6 +341,9 @@ type HealthResponse struct {
 
 // HealthResponseStatus defines model for HealthResponse.Status.
 type HealthResponseStatus string
+
+// LocalTime defines model for LocalTime.
+type LocalTime = string
 
 // Problem Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type Problem struct {
@@ -230,6 +354,9 @@ type Problem struct {
 	Title    string  `json:"title"`
 	Type     string  `json:"type"`
 }
+
+// RecordType defines model for RecordType.
+type RecordType string
 
 // SignInRequest defines model for SignInRequest.
 type SignInRequest struct {
@@ -265,7 +392,7 @@ type TaskAudioRequest struct {
 	// конфигурацией backend; другие аудиоформаты отклоняются.
 	File openapi_types.File `json:"file"`
 
-	// TaskId Необязательное текстовое поле для продолжения диалога, включая on_delete.
+	// TaskId Необязательное текстовое поле для продолжения диалога, включая on_delete/on_update.
 	TaskId *openapi_types.UUID `json:"task_id,omitempty"`
 
 	// UserId Текстовое поле multipart/form-data; должен совпадать с владельцем Bearer-сессии.
@@ -292,7 +419,9 @@ type TaskClarificationResponseStatus string
 // агрегатор формирует обёртку ответа фронтенду и передаёт message от
 // AI-service без изменений.
 // Если записей нет, items — пустой массив. Оба сервиса учитывают
-// записи со статусами active и completed.
+// записи со статусами active и completed. Задача без точного времени
+// участвует в выборке по дате; отсутствие времени не заменяется
+// фиктивным часом.
 //
 // Example: {"items":[{"created_at":"2026-10-18T12:00:20+03:00","date":"2026-10-19","id":"0e083fa1-c33e-4c44-85e6-5b977ae17808","record_type":"meeting","status":"active","time":"15:00","title":"Встреча с Иваном","user_id":"b80e93e1-9945-48e0-8460-3ee68bcfb402"}]}
 type TaskCollection struct {
@@ -309,7 +438,9 @@ type TaskCollectionResponse struct {
 	// агрегатор формирует обёртку ответа фронтенду и передаёт message от
 	// AI-service без изменений.
 	// Если записей нет, items — пустой массив. Оба сервиса учитывают
-	// записи со статусами active и completed.
+	// записи со статусами active и completed. Задача без точного времени
+	// участвует в выборке по дате; отсутствие времени не заменяется
+	// фиктивным часом.
 	//
 	//
 	// Example: {"items":[{"created_at":"2026-10-18T12:00:20+03:00","date":"2026-10-19","id":"0e083fa1-c33e-4c44-85e6-5b977ae17808","record_type":"meeting","status":"active","time":"15:00","title":"Встреча с Иваном","user_id":"b80e93e1-9945-48e0-8460-3ee68bcfb402"}]}
@@ -332,23 +463,25 @@ type TaskCollectionResponseStatus string
 // TaskCreatedData defines model for TaskCreatedData.
 type TaskCreatedData struct {
 	// Event Полная созданная запись. record_type совпадает со значением колонки
-	// tasks.type в PostgreSQL. Для новых записей date и time обязательны,
-	// хотя колонки таблицы допускают NULL для ранее сохранённых записей.
+	// tasks.type в PostgreSQL. Для новых записей date обязательна. time
+	// обязательно для meeting/reminder и может отсутствовать у task.
 	Event TaskCreatedEvent `json:"event"`
 }
 
 // TaskCreatedEvent Полная созданная запись. record_type совпадает со значением колонки
-// tasks.type в PostgreSQL. Для новых записей date и time обязательны,
-// хотя колонки таблицы допускают NULL для ранее сохранённых записей.
+// tasks.type в PostgreSQL. Для новых записей date обязательна. time
+// обязательно для meeting/reminder и может отсутствовать у task.
 type TaskCreatedEvent struct {
 	CreatedAt  time.Time                  `json:"created_at"`
 	Date       openapi_types.Date         `json:"date"`
 	Id         openapi_types.UUID         `json:"id"`
 	RecordType TaskCreatedEventRecordType `json:"record_type"`
 	Status     TaskCreatedEventStatus     `json:"status"`
-	Time       string                     `json:"time"`
-	Title      string                     `json:"title"`
-	UserId     openapi_types.UUID         `json:"user_id"`
+
+	// Time Отсутствует или null, если задача не привязана к точному времени.
+	Time   *string            `json:"time,omitempty"`
+	Title  string             `json:"title"`
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // TaskCreatedEventRecordType defines model for TaskCreatedEvent.RecordType.
@@ -435,9 +568,13 @@ type TaskItemRecordType string
 // TaskItemStatus defines model for TaskItem.Status.
 type TaskItemStatus string
 
+// TaskStatus defines model for TaskStatus.
+type TaskStatus string
+
 // TaskTextRequest defines model for TaskTextRequest.
 type TaskTextRequest struct {
-	// TaskId Передаётся при ответе на уточнение или выборе кандидата on_delete.
+	// TaskId Передаётся при ответе на уточнение или выборе кандидата
+	// on_delete/on_update.
 	// Backend ищет context в Redis по паре user_id и task_id.
 	TaskId *openapi_types.UUID `json:"task_id,omitempty"`
 
@@ -472,6 +609,23 @@ type TasksDeletedResponse struct {
 
 // TasksDeletedResponseStatus defines model for TasksDeletedResponse.Status.
 type TasksDeletedResponseStatus string
+
+// UUID defines model for UUID.
+type UUID = openapi_types.UUID
+
+// UpdateChanges Только переданные поля меняются. Отсутствие поля сохраняет прежнее
+// значение; null запрещён. record_type, user_id, id и created_at
+// неизменяемы. Если time задано для записи без date, changes обязано
+// задать date. Дату без времени и время без даты можно сохранять только
+// если итоговая строка удовлетворяет ограничению БД.
+type UpdateChanges struct {
+	Date   *Date       `json:"date,omitempty"`
+	Status *TaskStatus `json:"status,omitempty"`
+	Time   *LocalTime  `json:"time,omitempty"`
+
+	// Title После trim строка должна быть непустой.
+	Title *string `json:"title,omitempty"`
+}
 
 // User defines model for User.
 type User struct {
@@ -676,6 +830,74 @@ func (t *ProcessTask200JSONResponseBody) MergeTasksDeletedResponse(v TasksDelete
 	return err
 }
 
+// AsFrontendUpdateCandidates returns the union data inside the ProcessTask200JSONResponseBody as a FrontendUpdateCandidates
+func (t ProcessTask200JSONResponseBody) AsFrontendUpdateCandidates() (FrontendUpdateCandidates, error) {
+	var body FrontendUpdateCandidates
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFrontendUpdateCandidates overwrites any union data inside the ProcessTask200JSONResponseBody as the provided FrontendUpdateCandidates
+func (t *ProcessTask200JSONResponseBody) FromFrontendUpdateCandidates(v FrontendUpdateCandidates) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"update_candidates"}`))
+	t.union = b
+	return err
+}
+
+// MergeFrontendUpdateCandidates performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided FrontendUpdateCandidates
+func (t *ProcessTask200JSONResponseBody) MergeFrontendUpdateCandidates(v FrontendUpdateCandidates) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"update_candidates"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFrontendUpdated returns the union data inside the ProcessTask200JSONResponseBody as a FrontendUpdated
+func (t ProcessTask200JSONResponseBody) AsFrontendUpdated() (FrontendUpdated, error) {
+	var body FrontendUpdated
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFrontendUpdated overwrites any union data inside the ProcessTask200JSONResponseBody as the provided FrontendUpdated
+func (t *ProcessTask200JSONResponseBody) FromFrontendUpdated(v FrontendUpdated) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"updated"}`))
+	t.union = b
+	return err
+}
+
+// MergeFrontendUpdated performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided FrontendUpdated
+func (t *ProcessTask200JSONResponseBody) MergeFrontendUpdated(v FrontendUpdated) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"status":"updated"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t ProcessTask200JSONResponseBody) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"status"`
@@ -698,6 +920,10 @@ func (t ProcessTask200JSONResponseBody) ValueByDiscriminator() (interface{}, err
 		return t.AsTaskClarificationResponse()
 	case "ok":
 		return t.AsTaskCollectionResponse()
+	case "update_candidates":
+		return t.AsFrontendUpdateCandidates()
+	case "updated":
+		return t.AsFrontendUpdated()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}

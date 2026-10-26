@@ -1,61 +1,51 @@
 # GorkyCode
 
-Прототип голосового ассистента для задач, напоминаний и встреч. Проект пока
-содержит каркасы backend и AI-сервиса и локальное окружение Docker Compose.
+Голосовой помощник для задач, напоминаний и встреч. Backend на Go принимает
+текст или WAV, запрашивает действие у AI-сервиса и работает с PostgreSQL.
+Контекст уточнений и сессии хранятся в Redis.
 
-## Локальный запуск
+## Запуск через Docker Compose
 
-Нужны Docker и Docker Compose. Из корня репозитория:
+1. Скопируйте `ai-service/.env.example` в `ai-service/.env` и укажите
+   `CLOUDRU_API_KEY` (Key Secret). Docker Compose читает этот файл для AI-сервиса.
+   Без ключа AI-сервис отвечает `model_not_configured` на `POST /api/job`.
+   Секрет не добавляйте в Git. При необходимости скопируйте корневой
+   `.env.example` в `.env`, чтобы изменить порты или параметры PostgreSQL.
+2. Запустите PostgreSQL и Redis: `docker-compose up -d postgres redis`.
+3. В `backend` скопируйте `.env.example` в `.env` и выполните `make migrate`.
+   Для этого нужны `goose` и доступ к PostgreSQL на порту из корневого
+   `.env`. Если меняли `POSTGRES_PORT`, поправьте `DATABASE_URL` в
+   `backend/.env`. Миграции создают таблицы, расширение pgvector и хранилище
+   эмбеддингов.
+4. Из корня запустите `docker-compose up --build -d`. Первая сборка
+   AI-сервиса загружает модель E5, а первый запуск backend загружает модель
+   распознавания речи; это может занять время.
+5. Проверьте `http://localhost:8088/health` и `/ready`. AI-сервис
+   доступен через `http://localhost:8091/health`. При запуске backend на хосте
+   он обращается к AI по `http://localhost:8090`.
 
-1. При необходимости скопировать `.env.example` в `.env` и изменить порты или пароль БД.
-2. Выполнить `docker-compose up --build -d`.
-3. Проверить API через публичный вход Nginx: `http://localhost:8088/health` и
-   `http://localhost:8088/ready`. Локальный вход к AI-сервису:
-   `http://localhost:8091/health`.
-4. Остановить окружение командой `docker-compose down` (данные PostgreSQL сохраняются).
+Если локальный порт 5432 занят, задайте `POSTGRES_PORT=15432` в корневом
+`.env` и используйте тот же порт в `backend/.env`. Остановить окружение:
+`docker-compose down`; том PostgreSQL при этом сохраняется.
 
-Для запуска Go backend вне контейнера сначала поднять зависимости командой
-`docker-compose up -d postgres redis`, затем перейти в каталог `backend`,
-выполнить `cp .env.example .env`, скачать модель командой `make download-model`
-и запустить сервис через `make run`. Оба файла `.env` исключены из Git.
+## Поиск
 
-Compose поднимает Nginx, backend, AI-сервис, PostgreSQL и Redis. Nginx
-проксирует запросы фронтенда на backend без изменения путей. Публичный вход
-доступен на всех сетевых интерфейсах через `NGINX_PUBLIC_PORT` (по умолчанию
-8088). Второй вход Nginx, `NGINX_AI_PORT` (по умолчанию 8091), доступен с хоста
-только через 127.0.0.1 и проксирует запросы к AI-сервису. Внутри Compose
-backend получает `AI_SERVICE_URL=http://nginx:8091`; AI-сервис не публикует
-порт на хосте. `upstream ai_backend` в `nginx/default.conf` отслеживает адреса
-экземпляров AI-сервиса через DNS Compose для будущего масштабирования. Backend
-вызывает `POST /api/job` через клиент из AI OpenAPI-контракта.
+При создании записи backend сохраняет её название и пытается получить
+document-вектор через AI `POST /api/embed`. Для `search_events` он
+отправляет тему поиска с `purpose=query`, ищет буквальные совпадения и
+близкие векторы той же версии модели в pgvector, объединяет результаты без
+дубликатов и применяет фильтры пользователя, дат и типов. Если E5 или
+векторный запрос недоступны, поиск возвращает ошибку, чтобы пустой ответ не
+выглядел как полный результат.
 
-PostgreSQL 16 запускается из образа pgvector. После запуска базы примените
-миграции командой `make migrate` в каталоге `backend`: миграция включает
-расширение `vector` и создаёт `task_embeddings` для 384-мерных векторов.
-Переход с прежнего образа `postgres:16-alpine` использует тот же том
-`postgres_data`; перед обновлением существующей базы сделайте резервную копию.
+## API и конфигурация
 
-Для WAV-запросов установлен лимит тела 20 МБ в `nginx/default.conf`; его нужно
-согласовывать с лимитом backend. Данные PostgreSQL сохраняются в именованном
-томе postgres_data; Redis используется как временный
-компонент. Порты backend, PostgreSQL и Redis доступны с хоста только через
-127.0.0.1; их можно изменить в корневом .env. Для публикации API в интернете
-потребуется добавить HTTPS перед передачей токенов авторизации.
+Публичный вход Nginx: `NGINX_PUBLIC_PORT` (по умолчанию 8088).
+`POST /api/task` требует Bearer-сессию и совпадение `user_id` с её
+владельцем. Внутренний вход к AI через Nginx доступен только с хоста на
+`NGINX_AI_PORT` (по умолчанию 8091). Для внешней публикации API добавьте
+HTTPS перед передачей токенов.
 
-Backend загружает конфиг, создаёт логгер и пул PostgreSQL, связывает repository с сервисным слоем и запускает HTTP-сервер на chi.
-GET /health проверяет процесс, GET /ready — доступность PostgreSQL. Ручки
-авторизации используют PostgreSQL и Redis-сессии. `POST /api/task` обрабатывает
-текст и WAV: вызывает AI, сохраняет контекст уточнений в Redis и создаёт,
-выводит или ищет записи в PostgreSQL. AI-заглушка по-прежнему возвращает 501
-на POST-запросы, поэтому для полноценной обработки команд нужна реализация
-AI-сервиса по `contracts/ai.openapi.yaml`. Настройки Compose
-лежат в корневом .env.example; переменные для запуска backend через make run —
-в backend/.env.example.
-
-Контракты HTTP API лежат в `contracts/backend.openapi.yaml` и
-`contracts/ai.openapi.yaml`. Команда `make generate` из каталога `backend`
-генерирует Go-типы и маршруты backend из первого файла, Go-типы и клиент
-AI-сервиса — из второго. Для отдельной генерации доступны
-`make generate-backend` и `make generate-ai`.
-
-См. backend/README.md и ai-service/README.md.
+OpenAPI-контракты лежат в `contracts/backend.openapi.yaml` и
+`contracts/ai.openapi.yaml`. Подробности запуска и тестирования есть в
+`backend/README.md` и `ai-service/README.md`.

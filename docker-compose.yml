@@ -3,18 +3,22 @@ name: gorkycode
 services:
   nginx:
     image: nginx:stable-alpine
+    restart: unless-stopped
     ports:
       - "0.0.0.0:${NGINX_PUBLIC_PORT:-8088}:80"
       - "127.0.0.1:${NGINX_AI_PORT:-8091}:8091"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - backend
-      - ai-service
+      backend:
+        condition: service_started
+      ai-service:
+        condition: service_healthy
 
   backend:
     build:
       context: ./backend
+    restart: unless-stopped
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
     environment:
@@ -35,9 +39,17 @@ services:
   ai-service:
     build:
       context: ./ai-service
+    restart: unless-stopped
+    stop_grace_period: 180s
+    ports:
+      - "127.0.0.1:8090:8090"
+    env_file:
+      - path: ./ai-service/.env
+        required: false
     environment:
       PORT: "8090"
       REDIS_URL: "redis://redis:6379/0"
+      EMBEDDING_MODEL_PATH: "/opt/embedding-model"
     depends_on:
       redis:
         condition: service_healthy
@@ -49,6 +61,7 @@ services:
 
   postgres:
     image: pgvector/pgvector:0.8.7-pg16-bookworm
+    restart: unless-stopped
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
@@ -65,6 +78,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "127.0.0.1:${REDIS_PORT:-6380}:6379"
     healthcheck:

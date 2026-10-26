@@ -145,6 +145,54 @@ func TestProcessTaskTextSuccess(t *testing.T) {
 	}
 }
 
+func TestProcessTaskReportsBusyDialogue(t *testing.T) {
+	owner := uuid.New()
+	response := doTaskJSON(t, &fakeTaskProcess{err: model.ErrDialogueBusy}, &fakeAuthService{userID: owner}, fmt.Sprintf(`{"user_id":%q,"text":"первую"}`, owner))
+	if response.Code != http.StatusConflict {
+		t.Fatalf("busy status=%d, body=%s", response.Code, response.Body)
+	}
+}
+
+func TestMultipartRejectsAmbiguousInputs(t *testing.T) {
+	for _, variant := range []string{"text and file", "two files", "two user IDs", "query user ID"} {
+		t.Run(variant, func(t *testing.T) {
+			owner := uuid.New()
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			if variant != "query user ID" {
+				_ = writer.WriteField("user_id", owner.String())
+			}
+			if variant == "two user IDs" {
+				_ = writer.WriteField("user_id", uuid.NewString())
+			}
+			if variant == "text and file" {
+				_ = writer.WriteField("text", "Другая команда")
+			}
+			count := 1
+			if variant == "two files" {
+				count = 2
+			}
+			for range count {
+				part, err := writer.CreateFormFile("file", "voice.wav")
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, _ = part.Write([]byte("audio"))
+			}
+			_ = writer.Close()
+			request := httptest.NewRequest(http.MethodPost, "/api/task?user_id="+owner.String(), &body)
+			request.Header.Set("Content-Type", writer.FormDataContentType())
+			request.Header.Set("Authorization", "Bearer test-token")
+			process := &fakeTaskProcess{}
+			response := httptest.NewRecorder()
+			newTaskServer(process, &fakeAuthService{userID: owner}).ProcessTask(response, request)
+			if response.Code != http.StatusBadRequest || process.called {
+				t.Fatalf("ambiguous request: status=%d called=%v", response.Code, process.called)
+			}
+		})
+	}
+}
+
 func TestProcessTaskRequiresSession(t *testing.T) {
 	userID := uuid.New()
 	for _, tc := range []struct {
@@ -318,6 +366,7 @@ func TestProcessTaskMapsServiceError(t *testing.T) {
 		{"timeout", model.ErrGatewayTimeout, http.StatusGatewayTimeout, "gateway_timeout"},
 		{"unavailable", model.ErrServiceUnavailable, http.StatusServiceUnavailable, "service_unavailable"},
 		{"missing draft", model.ErrDraftNotFound, http.StatusNotFound, "not_found"},
+		{"unsupported command", model.ErrUnsupportedIntent, http.StatusBadRequest, "invalid_request"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			process := &fakeTaskProcess{err: tc.err}

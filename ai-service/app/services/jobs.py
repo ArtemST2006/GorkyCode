@@ -10,8 +10,11 @@ from app.core.errors import InvalidModelOutput, ServiceError
 from app.llm.messages import build_messages
 from app.llm.protocols import ModelGateway
 from app.llm.schemas import ModelDecision
+from app.schemas.delete_event import DeleteCandidateContext
 from app.schemas.job import JobRequest, JobResponse
-from app.services.context import build_job_response
+from app.schemas.update_event import UpdateCandidateContext
+from app.services.context import build_job_response, explicit_selection_numbers
+from app.services.task_deadline import normalize_task_deadline
 
 
 class JobService:
@@ -32,17 +35,36 @@ class JobService:
             ) from None
 
     async def _process(self, request: JobRequest) -> JobResponse:
+        # The candidate numbers are already trusted dialogue state. Handle an
+        # explicit choice before the model can reinterpret it as a new search.
+        if isinstance(request.context, (DeleteCandidateContext, UpdateCandidateContext)):
+            is_delete = isinstance(request.context, DeleteCandidateContext)
+            selected = explicit_selection_numbers(
+                request.text, {candidate.number for candidate in request.context.candidates},
+                "on_delete" if is_delete else "on_update",
+            )
+            if selected is not None:
+                return build_job_response(request, ModelDecision.model_validate({
+                    "status": "ready", "intent": "on_delete" if is_delete else "on_update",
+                    "message": "Удаляю выбранные записи." if is_delete else "Выбранные записи изменены.",
+                    "action": {
+                        "phase": "delete_confirmed" if is_delete else "update_confirmed",
+                        "selected_numbers": selected,
+                    },
+                    "draft": None, "topic_changed": False,
+                }))
         messages = build_messages(request, ModelDecision.model_json_schema())
         for attempt in range(2):
             try:
                 content = await self.gateway.complete(messages)
                 decision = ModelDecision.model_validate_json(content)
+                decision = normalize_task_deadline(request, decision)
                 if decision.status == "unsupported":
                     raise ServiceError(
                         400,
                         "unsupported_intent",
                         "Unsupported request",
-                        "Supported requests create, list, search, or delete calendar entries.",
+                        "Supported requests create, list, search, update, or delete calendar entries.",
                     )
                 return build_job_response(request, decision)
             except (ValidationError, InvalidModelOutput) as exc:

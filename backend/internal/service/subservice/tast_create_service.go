@@ -25,7 +25,7 @@ type CreateTaskCommand struct {
 	RecordType string
 	Title      string
 	Date       time.Time
-	Time       time.Time
+	Time       *time.Time
 }
 
 // TaskCreate creates tasks from validated commands and keeps their
@@ -43,13 +43,17 @@ func NewTaskCreateService(rep TaskCreateRepository, embeddings EmbeddingStore, e
 
 // Create saves a task and returns the stored record.
 func (s *TaskCreate) Create(ctx context.Context, cmd CreateTaskCommand) (*model.Task, error) {
-	clock := cmd.Time.Format("15:04")
+	var clock *string
+	if cmd.Time != nil {
+		value := cmd.Time.Format("15:04")
+		clock = &value
+	}
 	task := &model.Task{
 		UserID: cmd.UserID,
 		Type:   cmd.RecordType,
 		Title:  cmd.Title,
 		Date:   &cmd.Date,
-		Time:   &clock,
+		Time:   clock,
 	}
 
 	if err := s.rep.CreateTask(ctx, task); err != nil {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"gorkycode/backend/internal/http-server/apierr"
+	"gorkycode/backend/internal/lib/logger"
 	"gorkycode/backend/internal/model"
 	"log/slog"
 	"mime"
@@ -28,11 +29,26 @@ type TaskProcess interface {
 
 func parseTaskAudioRequest(r *http.Request) (*api.TaskAudioRequest, error) {
 	var req api.TaskAudioRequest
-	rawUser := r.FormValue("user_id")
-	if rawUser == "" {
+	if r.MultipartForm == nil {
+		return nil, errors.New("missing multipart body")
+	}
+	for name, values := range r.MultipartForm.Value {
+		if (name != "user_id" && name != "task_id") || len(values) != 1 {
+			return nil, errors.New("expected unique user_id/task_id fields and exactly one file")
+		}
+	}
+	if len(r.MultipartForm.File) != 1 || len(r.MultipartForm.File["file"]) != 1 {
+		return nil, errors.New("expected exactly one file")
+	}
+	rawUser := r.MultipartForm.Value["user_id"]
+	if len(rawUser) != 1 {
 		return nil, errors.New("missing 'user_id'")
 	}
-	userID, err := uuid.Parse(rawUser)
+	userValue := rawUser[0]
+	if userValue == "" {
+		return nil, errors.New("missing 'user_id'")
+	}
+	userID, err := uuid.Parse(userValue)
 	if err != nil {
 		return nil, fmt.Errorf("invalid 'user_id': %w", err)
 	}
@@ -41,7 +57,8 @@ func parseTaskAudioRequest(r *http.Request) (*api.TaskAudioRequest, error) {
 	}
 	req.UserId = userID
 
-	if rawTask := r.FormValue("task_id"); rawTask != "" {
+	if values := r.MultipartForm.Value["task_id"]; len(values) == 1 {
+		rawTask := values[0]
 		taskID, err := uuid.Parse(rawTask)
 		if err != nil {
 			return nil, fmt.Errorf("invalid 'task_id': %w", err)
@@ -111,13 +128,20 @@ func writeTaskResult(w http.ResponseWriter, r *http.Request, log *slog.Logger, r
 			return
 		}
 		status = http.StatusOK
+	case *api.FrontendUpdateCandidates, *api.FrontendUpdated:
+		if result.Intent != "on_update" {
+			log.ErrorContext(r.Context(), "Invalid intent for update response", slog.String("intent", result.Intent))
+			apierr.Write(w, r, apierr.TaskInternal())
+			return
+		}
+		status = http.StatusOK
 	default:
 		log.ErrorContext(r.Context(), "Unexpected task result type", slog.Any("type", result.Body))
 		apierr.Write(w, r, apierr.TaskInternal())
 		return
 	}
 	if result.Intent != "create_event" && result.Intent != "list_events" &&
-		result.Intent != "search_events" && result.Intent != "on_delete" {
+		result.Intent != "search_events" && result.Intent != "on_delete" && result.Intent != "on_update" {
 		log.ErrorContext(r.Context(), "Unexpected task intent", slog.String("intent", result.Intent))
 		apierr.Write(w, r, apierr.TaskInternal())
 		return
@@ -125,7 +149,7 @@ func writeTaskResult(w http.ResponseWriter, r *http.Request, log *slog.Logger, r
 
 	w.Header().Set("X-Task-Intent", result.Intent)
 	if err := writeJSON(w, status, result.Body); err != nil {
-		log.ErrorContext(r.Context(), "Error encoding task response", slog.Any("err", err))
+		log.ErrorContext(r.Context(), "Error encoding task response", logger.Err(err))
 	}
 }
 
@@ -146,6 +170,10 @@ func writeTaskError(w http.ResponseWriter, r *http.Request, err error) {
 		apierr.Write(w, r, apierr.NotFound("Запрос или пользователь не найден."))
 	case errors.Is(err, model.ErrStaleSelection):
 		apierr.Write(w, r, apierr.Conflict("Выбранные записи устарели или больше недоступны."))
+	case errors.Is(err, model.ErrDialogueBusy):
+		apierr.Write(w, r, apierr.Conflict("Предыдущий запрос этого диалога ещё обрабатывается. Дождитесь ответа."))
+	case errors.Is(err, model.ErrUnsupportedIntent):
+		apierr.Write(w, r, apierr.InvalidRequest("Пока можно создавать, искать, показывать, изменять и удалять записи."))
 	case errors.Is(err, model.ErrGatewayTimeout):
 		apierr.Write(w, r, apierr.GatewayTimeout())
 	case errors.Is(err, model.ErrBadGateway), errors.Is(err, model.ErrInvalidAction):
@@ -178,7 +206,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 
 	mediaType, _, err := mime.ParseMediaType(ct)
 	if err != nil {
-		log.ErrorContext(ctx, "Invalid 'Content-Type'", slog.Any("err", err))
+		log.ErrorContext(ctx, "Invalid 'Content-Type'", logger.Err(err))
 		apierr.Write(w, r, apierr.InvalidRequest("Invalid 'Content-Type'"))
 		return
 	}
@@ -201,7 +229,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 
 		result, err := s.services.Process(ctx, &req)
 		if err != nil {
-			log.ErrorContext(ctx, "Error processing task", slog.Any("err", err))
+			log.ErrorContext(ctx, "Error processing task", logger.Err(err))
 			writeTaskError(w, r, err)
 			return
 		}
@@ -214,7 +242,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 				apierr.Write(w, r, apierr.PayloadTooLarge())
 				return
 			}
-			log.ErrorContext(ctx, "Failed to parse multipart form", slog.Any("err", err))
+			log.ErrorContext(ctx, "Failed to parse multipart form", logger.Err(err))
 			apierr.Write(w, r, apierr.InvalidRequest("Invalid multipart body"))
 			return
 		}
@@ -224,7 +252,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 
 		req, err := parseTaskAudioRequest(r)
 		if err != nil {
-			log.ErrorContext(ctx, "Invalid task audio request", slog.Any("err", err))
+			log.ErrorContext(ctx, "Invalid task audio request", logger.Err(err))
 			apierr.Write(w, r, apierr.InvalidRequest(err.Error()))
 			return
 		}
@@ -235,7 +263,7 @@ func (s *Server) ProcessTask(w http.ResponseWriter, r *http.Request) {
 
 		result, err := s.services.Process(ctx, req)
 		if err != nil {
-			log.ErrorContext(ctx, "Error processing task audio request", slog.Any("err", err))
+			log.ErrorContext(ctx, "Error processing task audio request", logger.Err(err))
 			writeTaskError(w, r, err)
 			return
 		}

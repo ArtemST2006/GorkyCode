@@ -70,7 +70,21 @@ func createCommand() CreateTaskCommand {
 		RecordType: "meeting",
 		Title:      "Встреча с Иваном",
 		Date:       date,
-		Time:       clock,
+		Time:       &clock,
+	}
+}
+
+func TestCreateDateOnlyTask(t *testing.T) {
+	rep := &fakeTaskRepository{}
+	cmd := createCommand()
+	cmd.RecordType = "task"
+	cmd.Time = nil
+	task, err := NewTaskCreateService(rep, nil, nil).Create(t.Context(), cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Time != nil || task.Date == nil {
+		t.Fatalf("created task = %+v, want a date and no time", task)
 	}
 }
 

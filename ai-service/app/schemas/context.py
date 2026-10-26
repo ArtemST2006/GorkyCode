@@ -8,6 +8,7 @@ from app.schemas.delete_event import DeleteCandidateContext, DeleteSearchDraft
 from app.schemas.list_events import ListEventsDraft
 from app.schemas.messages import RecentMessages
 from app.schemas.search_events import SearchEventsDraft
+from app.schemas.update_event import UpdateCandidateContext, UpdateSearchDraft
 
 
 class EmptyContext(ContractModel):
@@ -16,10 +17,10 @@ class EmptyContext(ContractModel):
 
 class StoredContext(ContractModel):
     recent_messages: RecentMessages
-    draft: Union[CreateEventDraft, ListEventsDraft, SearchEventsDraft, DeleteSearchDraft]
+    draft: Union[CreateEventDraft, ListEventsDraft, SearchEventsDraft, DeleteSearchDraft, UpdateSearchDraft]
 
 
-JobRequestContext = Union[EmptyContext, DeleteCandidateContext, StoredContext]
+JobRequestContext = Union[EmptyContext, DeleteCandidateContext, UpdateCandidateContext, StoredContext]
 
 
 class CreateEventContext(ContractModel):

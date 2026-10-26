@@ -20,7 +20,7 @@ func ValidateAIResult(result model.AiRes, request *ai.JobRequest) error {
 		return fmt.Errorf("invalid AI status %s", result.Status)
 	}
 	if result.Intent != "create_event" && result.Intent != "list_events" &&
-		result.Intent != "search_events" && result.Intent != "on_delete" {
+		result.Intent != "search_events" && result.Intent != "on_delete" && result.Intent != "on_update" {
 		return fmt.Errorf("invalid intent %s", result.Intent)
 	}
 	if result.UserID != request.UserId || result.TaskID != request.TaskId {
@@ -69,12 +69,65 @@ func ValidateAIResult(result model.AiRes, request *ai.JobRequest) error {
 	if err := validateReadyAction(result.Intent, action); err != nil {
 		return fmt.Errorf("invalid AI action: %w", err)
 	}
+	if err := validateConfirmationContext(result.Intent, action, request); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Confirmation IDs must belong to the candidates sent in this exact turn,
+// not an older list still present under another Redis key.
+func validateConfirmationContext(intent string, action map[string]json.RawMessage, request *ai.JobRequest) error {
+	phase, _ := actionString(action, "phase")
+	if phase != "delete_confirmed" && phase != "update_confirmed" {
+		return nil
+	}
+	raw, err := json.Marshal(request.Context)
+	if err != nil {
+		return err
+	}
+	var saved struct {
+		Draft struct {
+			Changes json.RawMessage `json:"changes"`
+		} `json:"draft"`
+		Candidates []struct {
+			ID uuid.UUID `json:"id"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal(raw, &saved); err != nil || len(saved.Candidates) == 0 {
+		return errors.New("confirmation requires candidates in the current dialogue")
+	}
+	changes := bytes.TrimSpace(saved.Draft.Changes)
+	isUpdate := len(changes) > 0 && string(changes) != "null"
+	if (intent == "on_update") != isUpdate {
+		return errors.New("confirmation intent does not match saved candidates")
+	}
+	field := "task_ids"
+	if isUpdate {
+		field = "record_ids"
+	}
+	var ids []uuid.UUID
+	if err := json.Unmarshal(action[field], &ids); err != nil {
+		return err
+	}
+	shown := make(map[uuid.UUID]bool, len(saved.Candidates))
+	for _, candidate := range saved.Candidates {
+		shown[candidate.ID] = true
+	}
+	for _, id := range ids {
+		if !shown[id] {
+			return errors.New("confirmation selects a record not shown in this turn")
+		}
+	}
 	return nil
 }
 
 func validateReadyAction(intent string, action map[string]json.RawMessage) error {
 	if intent == "on_delete" {
 		return validateDeleteAction(action)
+	}
+	if intent == "on_update" {
+		return validateUpdateAction(action)
 	}
 	allowed := map[string]bool{}
 	switch intent {
@@ -139,13 +192,17 @@ func validateReadyAction(intent string, action map[string]json.RawMessage) error
 		if _, err = checkDate("date"); err != nil {
 			return err
 		}
-		value, err := getString("time")
-		if err != nil {
-			return err
-		}
-		parsed, err := time.Parse("15:04", value)
-		if err != nil || parsed.Format("15:04") != value {
-			return errors.New("invalid time")
+		if raw, present := action["time"]; present && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			value, err := getString("time")
+			if err != nil {
+				return err
+			}
+			parsed, err := time.Parse("15:04", value)
+			if err != nil || parsed.Format("15:04") != value {
+				return errors.New("invalid time")
+			}
+		} else if recordType != "task" {
+			return errors.New("missing or invalid time")
 		}
 	case "list_events":
 		from, err := checkDate("date_from")
@@ -180,6 +237,73 @@ func validateReadyAction(intent string, action map[string]json.RawMessage) error
 			return errors.New("invalid date interval")
 		}
 		return checkTypes()
+	}
+	return nil
+}
+
+func validateUpdateAction(action map[string]json.RawMessage) error {
+	phase, err := actionString(action, "phase")
+	if err != nil {
+		return err
+	}
+	switch phase {
+	case "find_candidates":
+		if len(action) != len(deleteFindFields)+1 {
+			return errors.New("update find_candidates contains unsupported fields")
+		}
+		if err := validateUpdateChanges(action["changes"]); err != nil {
+			return err
+		}
+		search := make(map[string]json.RawMessage, len(action)-1)
+		for key, value := range action {
+			if key != "changes" {
+				search[key] = value
+			}
+		}
+		return validateDeleteAction(search)
+	case "update_confirmed":
+		if len(action) != 2 {
+			return errors.New("update_confirmed contains unsupported fields")
+		}
+		return validateDeleteAction(map[string]json.RawMessage{
+			"phase":    []byte(`"delete_confirmed"`),
+			"task_ids": action["record_ids"],
+		})
+	default:
+		return fmt.Errorf("unknown update phase %s", phase)
+	}
+}
+
+func validateUpdateChanges(raw json.RawMessage) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || len(fields) == 0 {
+		return errors.New("update changes must contain a field")
+	}
+	for name, value := range fields {
+		if string(bytes.TrimSpace(value)) == "null" {
+			return fmt.Errorf("update change %s cannot be null", name)
+		}
+		switch name {
+		case "title":
+			if _, err := actionString(fields, name); err != nil {
+				return err
+			}
+		case "date":
+			if _, err := actionTime(fields, name, "2006-01-02"); err != nil {
+				return err
+			}
+		case "time":
+			if _, err := actionTime(fields, name, "15:04"); err != nil {
+				return err
+			}
+		case "status":
+			status, err := actionString(fields, name)
+			if err != nil || (status != "active" && status != "completed") {
+				return errors.New("invalid update status")
+			}
+		default:
+			return fmt.Errorf("unsupported update change %s", name)
+		}
 	}
 	return nil
 }

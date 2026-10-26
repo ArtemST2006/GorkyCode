@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from app.core.errors import ServiceError
 from app.llm.protocols import ChatMessage
 from app.schemas.job import JobRequest
+from app.schemas.messages import MAX_RECENT_MESSAGES
 
 
 @lru_cache(maxsize=1)
@@ -44,11 +45,15 @@ def build_messages(request: JobRequest, result_schema: dict) -> list[ChatMessage
             "tomorrow": shifted(1),
             "day_after_tomorrow": shifted(2),
             "this_week_start": shifted(-today.weekday()),
+            "this_week_end": shifted(6 - today.weekday()),
             "next_week_start": shifted(7 - today.weekday()),
+            "next_week_end": shifted(13 - today.weekday()),
             "next_week_end_exclusive": shifted(14 - today.weekday()),
         },
         "context": request.context.model_dump(mode="json", exclude_unset=True),
     }
+    if "recent_messages" in payload["context"]:
+        payload["context"]["recent_messages"] = payload["context"]["recent_messages"][-MAX_RECENT_MESSAGES:]
     return [
         {
             "role": "system",

@@ -8,8 +8,10 @@ import (
 	"gorkycode/backend/internal/generated/ai"
 	"gorkycode/backend/internal/model"
 	"io"
+	"math"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // embeddingPurposeDocument и embeddingPurposeQuery — роли /api/embed.
@@ -35,7 +37,7 @@ func (e *AIEmbedder) Embed(ctx context.Context, purpose, text string) (model.Emb
 		return model.EmbeddingResult{}, fmt.Errorf("unknown embedding purpose %q", purpose)
 	}
 
-	client, err := aiClient(e.aiURL)
+	client, err := aiClient(e.aiURL, 20*time.Second)
 	if err != nil {
 		return model.EmbeddingResult{}, err
 	}
@@ -54,7 +56,7 @@ func (e *AIEmbedder) Embed(ctx context.Context, purpose, text string) (model.Emb
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode != http.StatusOK {
-		return model.EmbeddingResult{}, mapAIStatus(resp.StatusCode)
+		return model.EmbeddingResult{}, mapAIStatus(resp.StatusCode, resp.Body)
 	}
 
 	var embed ai.EmbeddingResponse
@@ -76,11 +78,14 @@ func validateEmbedding(embed ai.EmbeddingResponse) (model.EmbeddingResult, error
 	if len(embed.Embedding) != model.EmbeddingDimension {
 		return model.EmbeddingResult{}, fmt.Errorf("%w: embedding has %d values, want %d", model.ErrBadGateway, len(embed.Embedding), model.EmbeddingDimension)
 	}
-	sum := float32(0)
+	sum := float64(0)
 	for _, value := range embed.Embedding {
-		sum += value * value
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return model.EmbeddingResult{}, fmt.Errorf("%w: invalid embedding values", model.ErrBadGateway)
+		}
+		sum += float64(value) * float64(value)
 	}
-	if sum == 0 || sum != sum { // нулевой вектор и NaN отклоняются
+	if sum == 0 || math.IsInf(sum, 0) {
 		return model.EmbeddingResult{}, fmt.Errorf("%w: invalid embedding values", model.ErrBadGateway)
 	}
 	if strings.TrimSpace(embed.Model) == "" || strings.TrimSpace(embed.ModelVersion) == "" {

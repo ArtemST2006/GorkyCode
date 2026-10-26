@@ -28,11 +28,14 @@ type TaskDeleteRepository interface {
 	FindSemantic(ctx context.Context, userID uuid.UUID, query []float32, modelName, version string, dateFrom, dateTo *time.Time, timeFrom, timeTo *string, types []string) ([]model.Task, error)
 	// DeleteTasks removes the tasks in one transaction only if every ID
 	// belongs to the user; it returns model.ErrStaleSelection otherwise.
-	DeleteTasks(ctx context.Context, userID uuid.UUID, ids []uuid.UUID) ([]model.Task, error)
+	DeleteTasks(ctx context.Context, userID uuid.UUID, ids []uuid.UUID, expected []model.Task) ([]model.Task, error)
 }
 
 // DeleteCandidates collects the find_candidates result.
 type DeleteCandidates struct {
+	// Tasks are the exact database rows shown to the user; on_update saves
+	// them as snapshots for optimistic verification at confirmation.
+	Tasks []model.Task
 	// Stored carries the shown numbers with task IDs for the AI context and
 	// the Redis check before delete_confirmed.
 	Stored []ai.DeleteCandidate
@@ -69,7 +72,7 @@ func (s *TaskDelete) FindCandidates(
 	if err := json.Unmarshal(action, &act); err != nil {
 		return DeleteCandidates{}, fmt.Errorf("%w: decode: %w", model.ErrInvalidAction, err)
 	}
-	if act.Phase != ai.FindCandidates {
+	if act.Phase != ai.DeleteFindCandidatesActionPhaseFindCandidates {
 		return DeleteCandidates{}, fmt.Errorf("%w: unknown phase %q", model.ErrInvalidAction, act.Phase)
 	}
 
@@ -108,12 +111,9 @@ func (s *TaskDelete) FindCandidates(
 		return DeleteCandidates{}, fmt.Errorf("find candidates: %w", err)
 	}
 	if draft.TitleQuery != nil && s.embedder != nil {
-		extra, enabled, err := s.semanticCandidates(ctx, userID, derefText(draft.TitleQuery), dateFrom, dateTo, draft.TimeFrom, draft.TimeToExclusive, types)
-		if err != nil {
-			return DeleteCandidates{}, fmt.Errorf("semantic candidates: %w", err)
-		}
+		extra, enabled := s.semanticCandidates(ctx, userID, derefText(draft.TitleQuery), dateFrom, dateTo, draft.TimeFrom, draft.TimeToExclusive, types)
 		if enabled {
-			tasks = mergeCandidates(tasks, extra)
+			tasks = mergeCandidates(tasks, filterNamedMatches(derefText(draft.TitleQuery), extra))
 		}
 	}
 
@@ -129,7 +129,7 @@ func (s *TaskDelete) FindCandidates(
 		items = append(items, api.TaskDeleteCandidate{Number: number, Event: item})
 	}
 
-	return DeleteCandidates{Stored: stored, Items: items, Draft: draft}, nil
+	return DeleteCandidates{Tasks: tasks, Stored: stored, Items: items, Draft: draft}, nil
 }
 
 // DeleteConfirmed parses a delete_confirmed action and removes every selected
@@ -157,16 +157,28 @@ func (s *TaskDelete) DeleteConfirmed(
 	}
 
 	shown := make(map[uuid.UUID]bool, len(saved))
+	expected := make([]model.Task, 0, len(saved))
 	for _, candidate := range saved {
 		shown[candidate.Id] = true
+		var date *time.Time
+		if candidate.Date != nil {
+			value := candidate.Date.Time
+			date = &value
+		}
+		expected = append(expected, model.Task{
+			ID: candidate.Id, UserID: userID, Type: string(candidate.RecordType),
+			Title: candidate.Title, Date: date, Time: candidate.Time, Status: string(candidate.Status),
+		})
 	}
+	seen := make(map[uuid.UUID]bool, len(act.TaskIds))
 	for _, id := range act.TaskIds {
-		if !shown[id] {
+		if !shown[id] || seen[id] {
 			return nil, model.ErrStaleSelection
 		}
+		seen[id] = true
 	}
 
-	tasks, err := s.rep.DeleteTasks(ctx, userID, act.TaskIds)
+	tasks, err := s.rep.DeleteTasks(ctx, userID, act.TaskIds, expected)
 	if err != nil {
 		return nil, fmt.Errorf("delete tasks: %w", err)
 	}
@@ -189,7 +201,7 @@ func (s *TaskDelete) DeleteConfirmed(
 // semanticCandidates supplements the substring search with the nearest
 // stored embeddings. enabled=false means the embedder step failed or gave an
 // unusable vector: the substring search is the contract minimum and must
-// keep working. The storage error is still returned to the caller.
+// keep working even when the optional semantic query fails.
 func (s *TaskDelete) semanticCandidates(
 	ctx context.Context,
 	userID uuid.UUID,
@@ -197,16 +209,18 @@ func (s *TaskDelete) semanticCandidates(
 	dateFrom, dateTo *time.Time,
 	timeFrom, timeTo *string,
 	types []string,
-) ([]model.Task, bool, error) {
+) ([]model.Task, bool) {
 	result, err := s.embedder.Embed(ctx, "query", title)
 	if err == nil && len(result.Vector) == model.EmbeddingDimension {
 		tasks, findErr := s.rep.FindSemantic(ctx, userID, result.Vector, result.Model, result.Version, dateFrom, dateTo, timeFrom, timeTo, types)
-		return tasks, true, findErr
+		if findErr == nil {
+			return tasks, true
+		}
 	}
 	// Эмбеддер недоступен или вернул непригодный вектор: семантическое
 	// дополнение отключается, подстрочный поиск продолжает работать —
 	// это минимум контракта.
-	return nil, false, nil
+	return nil, false
 }
 
 // mergeCandidates appends the semantic results the substring search missed.

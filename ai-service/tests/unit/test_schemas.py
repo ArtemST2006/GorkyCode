@@ -150,10 +150,12 @@ class ContractSchemasTest(unittest.TestCase):
         ]:
             with self.subTest(changes=changes), self.assertRaises(ValidationError):
                 TaskAction.model_validate({**good, **changes})
-        for field in ["title", "date", "time", "record_type"]:
+        for field in ["title", "date", "record_type"]:
             incomplete = {key: value for key, value in good.items() if key != field}
             with self.subTest(missing=field), self.assertRaises(ValidationError):
                 TaskAction.model_validate(incomplete)
+        without_time = {key: value for key, value in good.items() if key != "time"}
+        self.assertIsNone(TaskAction.model_validate(without_time).time)
 
     def test_record_types_are_nonempty_and_unique(self):
         for types in [[], ["meeting", "meeting"], ["other"]]:

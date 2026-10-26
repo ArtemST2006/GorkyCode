@@ -4,8 +4,8 @@ shutdown_timeout: 10s
 
 http-server:
   read_header_timeout: 5s
-  read_timeout: 10s
-  write_timeout: 10s
+  read_timeout: 60s
+  write_timeout: 210s
   idle_timeout: 60s
 
 database:
@@ -21,4 +21,3 @@ ars_model:
   provider: "cpu"
 
 ai_service_url: "http://localhost:8090"
-

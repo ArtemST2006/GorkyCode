@@ -31,6 +31,20 @@ type fakeSTT struct {
 	got    string
 }
 
+func TestSearchDateBoundDoesNotBecomeTitleFilter(t *testing.T) {
+	result := model.AiRes{Status: "ready", Intent: "search_events", Action: json.RawMessage(`{"query":"билеты","date_from":"2026-10-26"}`)}
+	if err := preserveSearchSubject(&result, "Найди билеты с понедельника"); err != nil {
+		t.Fatal(err)
+	}
+	var action ai.SearchEventsAction
+	if err := json.Unmarshal(result.Action, &action); err != nil {
+		t.Fatal(err)
+	}
+	if action.Query != "билеты" {
+		t.Fatalf("date leaked into title filter: %q", action.Query)
+	}
+}
+
 func (f *fakeSTT) Transcribe(_ context.Context, file io.Reader) (string, error) {
 	f.called = true
 	content, err := io.ReadAll(file)
@@ -79,6 +93,24 @@ func (f *fakeDraftStore) PutDraft(_ context.Context, key, value string) error {
 	return f.err
 }
 
+func (f *fakeDraftStore) DeleteDraft(_ context.Context, key string) error {
+	delete(f.saved, key)
+	return f.err
+}
+
+func (f *fakeDraftStore) LockDialogue(context.Context, string, time.Duration) (func(), error) {
+	return func() {}, nil
+}
+
+func (f *fakeDraftStore) PutDrafts(ctx context.Context, values map[string]string) error {
+	for key, value := range values {
+		if err := f.PutDraft(ctx, key, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type fakeTaskCreator struct {
 	err error
 
@@ -92,14 +124,18 @@ func (f *fakeTaskCreator) Create(_ context.Context, cmd services.CreateTaskComma
 	if f.err != nil {
 		return nil, f.err
 	}
-	clock := cmd.Time.Format("15:04")
+	var clock *string
+	if cmd.Time != nil {
+		value := cmd.Time.Format("15:04")
+		clock = &value
+	}
 	return &model.Task{
 		ID:        uuid.New(),
 		UserID:    cmd.UserID,
 		Type:      cmd.RecordType,
 		Title:     cmd.Title,
 		Date:      &cmd.Date,
-		Time:      &clock,
+		Time:      clock,
 		CreatedAt: time.Now(),
 		Status:    "active",
 	}, nil
@@ -291,8 +327,8 @@ func TestTaskProcessCreatesEvent(t *testing.T) {
 	if _, offset := creator.cmd.Date.Zone(); offset != 9*60*60 {
 		t.Fatalf("Create() date offset = %d, want +09:00", offset)
 	}
-	if got := creator.cmd.Time.Format("15:04"); got != "15:00" {
-		t.Fatalf("Create() time = %s, want 15:00", got)
+	if creator.cmd.Time == nil || creator.cmd.Time.Format("15:04") != "15:00" {
+		t.Fatalf("Create() time = %v, want 15:00", creator.cmd.Time)
 	}
 
 	if result.Intent != "create_event" {
@@ -313,6 +349,36 @@ func TestTaskProcessCreatesEvent(t *testing.T) {
 	}
 	if response.Message != "Встреча с Иваном назначена на завтра в 15:00." {
 		t.Fatalf("response message = %q", response.Message)
+	}
+}
+
+func TestTaskProcessCreatesDateOnlyTask(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	creator := &fakeTaskCreator{}
+	server := httptest.NewServer(&aiStub{
+		t: t, status: http.StatusOK,
+		body: `{"user_id":"` + userID.String() + `","task_id":"` + taskID.String() + `",` +
+			`"status":"ready","intent":"create_event","message":"Задача купить билеты создана.",` +
+			`"action":{"record_type":"task","title":"Купить билеты","date":"2026-11-01"},` +
+			`"context":{"recent_messages":[{"role":"user","text":"Купить билеты до конца недели"}],"draft":null}}`,
+	})
+	t.Cleanup(server.Close)
+	process := NewTaskProcess(
+		&fakeSTT{}, &fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`},
+		&fakeTimezoneStore{timezone: "Europe/Moscow"}, creator, nil, nil, server.URL,
+	)
+	result, err := process.Process(t.Context(), &api.TaskTextRequest{
+		UserId: userID, TaskId: &taskID, Text: "Купить билеты до конца недели",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !creator.called || creator.cmd.Time != nil {
+		t.Fatalf("creator called = %v, time = %v", creator.called, creator.cmd.Time)
+	}
+	response, ok := result.Body.(*api.TaskCreatedResponse)
+	if !ok || response.Data.Event.Time != nil || response.Data.Event.Date.Format(time.DateOnly) != "2026-11-01" {
+		t.Fatalf("response = %#v", result.Body)
 	}
 }
 
@@ -639,6 +705,38 @@ func TestProcessAIResultSearchEvents(t *testing.T) {
 	}
 }
 
+func TestPreserveSearchSubject(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		text  string
+		query string
+		want  string
+	}{
+		{name: "AI omitted the person", text: "Найди мне встречу с Таней", query: "встреча", want: "встреча с Таней"},
+		{name: "AI lowercased the person", text: "Найди мне встречу с Таней", query: "с таней", want: "с Таней"},
+		{name: "AI kept the person", text: "Найди мне встречу с Таней", query: "встреча с Таней", want: "встреча с Таней"},
+		{name: "lowercase speech transcript", text: "найди мне встречу с таней", query: "встреча", want: "встреча с таней"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			action, err := json.Marshal(ai.SearchEventsAction{Query: tc.query})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := model.AiRes{Status: "ready", Intent: "search_events", Action: action}
+			if err := preserveSearchSubject(&result, tc.text); err != nil {
+				t.Fatal(err)
+			}
+			var got ai.SearchEventsAction
+			if err := json.Unmarshal(result.Action, &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Query != tc.want {
+				t.Fatalf("search query = %q, want %q", got.Query, tc.want)
+			}
+		})
+	}
+}
+
 // fakeDeleteService implements the on_delete subservice for process tests.
 type fakeDeleteService struct {
 	findSet services.DeleteCandidates
@@ -937,5 +1035,35 @@ func TestCreateReqRequiresIntentInContractLocation(t *testing.T) {
 				t.Fatal("intent was not extracted")
 			}
 		})
+	}
+}
+
+func TestCreateReqMapsUnsupportedCommandWithoutMaskingOtherAI400(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want error
+	}{
+		{name: "unsupported", body: `{"code":"unsupported_intent"}`, want: model.ErrUnsupportedIntent},
+		{name: "invalid upstream request", body: `{"code":"invalid_request"}`, want: model.ErrBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			_, err := createReq(t.Context(), server.URL, &ai.JobRequest{})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("createReq() error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestAIProxyBadGatewayIsRetryableUnavailable(t *testing.T) {
+	err := mapAIStatus(http.StatusBadGateway, strings.NewReader("upstream disconnected"))
+	if !errors.Is(err, model.ErrServiceUnavailable) {
+		t.Fatalf("mapAIStatus() error = %v, want ErrServiceUnavailable", err)
 	}
 }

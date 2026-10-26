@@ -21,6 +21,11 @@ from app.schemas.delete_event import (
 )
 from app.schemas.list_events import ListEventsAction
 from app.schemas.search_events import SearchEventsAction
+from app.schemas.update_event import (
+    UpdateClarificationContext,
+    UpdateConfirmedAction,
+    UpdateFindCandidatesAction,
+)
 
 
 class JobRequest(ContractModel):
@@ -131,5 +136,37 @@ class DeleteConfirmedResponse(ContractModel):
 DeleteResponse = Union[
     DeleteNeedsClarificationResponse, DeleteFindCandidatesResponse, DeleteConfirmedResponse
 ]
-JobResponse = Union[NeedsClarificationResponse, ReadyResponse, DeleteResponse]
+
+
+class UpdateNeedsClarificationResponse(ContractModel):
+    user_id: UUIDString
+    task_id: UUIDString
+    status: Literal["needs_clarification"]
+    message: ReadyMessage
+    action: None
+    context: UpdateClarificationContext
+
+
+class UpdateFindCandidatesResponse(ContractModel):
+    user_id: UUIDString
+    task_id: UUIDString
+    status: Literal["ready"]
+    message: ReadyMessage
+    action: UpdateFindCandidatesAction
+    context: ReadyContext
+
+
+class UpdateConfirmedResponse(ContractModel):
+    user_id: UUIDString
+    task_id: UUIDString
+    status: Literal["ready"]
+    message: ReadyMessage
+    action: UpdateConfirmedAction
+    context: ReadyContext
+
+
+UpdateResponse = Union[
+    UpdateNeedsClarificationResponse, UpdateFindCandidatesResponse, UpdateConfirmedResponse
+]
+JobResponse = Union[NeedsClarificationResponse, ReadyResponse, DeleteResponse, UpdateResponse]
 JOB_RESPONSE_ADAPTER = TypeAdapter(JobResponse)

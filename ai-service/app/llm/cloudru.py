@@ -67,9 +67,10 @@ class CloudRuGateway:
                     model=self.settings.cloudru_model,
                     messages=messages,
                     max_tokens=self.settings.cloudru_max_tokens,
-                    temperature=0.5,
+                    temperature=0,
                     presence_penalty=0,
                     top_p=0.95,
+                    response_format={"type": "json_object"},
                     timeout=self.settings.cloudru_timeout_seconds,
                 )
             except (APIResponseValidationError, json.JSONDecodeError):

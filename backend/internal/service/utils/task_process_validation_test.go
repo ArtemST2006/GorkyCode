@@ -10,6 +10,35 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestConfirmationIsBoundToCurrentCandidatesAndOperation(t *testing.T) {
+	id := uuid.New()
+	for _, tc := range []struct {
+		name, intent, context, action string
+		valid                         bool
+	}{
+		{"delete current", "on_delete", `{"draft":{},"candidates":[{"id":"` + id.String() + `"}]}`, `{"phase":"delete_confirmed","task_ids":["` + id.String() + `"]}`, true},
+		{"update current", "on_update", `{"draft":{"changes":{"time":"16:00"}},"candidates":[{"id":"` + id.String() + `"}]}`, `{"phase":"update_confirmed","record_ids":["` + id.String() + `"]}`, true},
+		{"old context", "on_delete", `{}`, `{"phase":"delete_confirmed","task_ids":["` + id.String() + `"]}`, false},
+		{"wrong operation", "on_delete", `{"draft":{"changes":{"time":"16:00"}},"candidates":[{"id":"` + id.String() + `"}]}`, `{"phase":"delete_confirmed","task_ids":["` + id.String() + `"]}`, false},
+		{"unknown ID", "on_delete", `{"draft":{},"candidates":[{"id":"` + uuid.NewString() + `"}]}`, `{"phase":"delete_confirmed","task_ids":["` + id.String() + `"]}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var request ai.JobRequest
+			var action map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(tc.context), &request.Context); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(tc.action), &action); err != nil {
+				t.Fatal(err)
+			}
+			err := validateConfirmationContext(tc.intent, action, &request)
+			if (err == nil) != tc.valid {
+				t.Fatalf("validation=%v, valid=%v", err, tc.valid)
+			}
+		})
+	}
+}
+
 func TestValidateAIResult(t *testing.T) {
 	userID, taskID := uuid.New(), uuid.New()
 	request := &ai.JobRequest{UserId: userID, TaskId: taskID}
@@ -26,6 +55,15 @@ func TestValidateAIResult(t *testing.T) {
 		{
 			name: "valid create action",
 			body: base + `"status":"ready","intent":"create_event","message":"Встреча назначена.","action":{"record_type":"meeting","title":"Встреча","date":"2026-10-21","time":"15:00"},"context":{"recent_messages":[{"role":"user","text":"Встреча"}],"draft":null}}`,
+		},
+		{
+			name: "date-only task",
+			body: base + `"status":"ready","intent":"create_event","message":"Задача создана.","action":{"record_type":"task","title":"Купить билеты","date":"2026-11-01"},"context":{"recent_messages":[{"role":"user","text":"Купить билеты"}],"draft":null}}`,
+		},
+		{
+			name: "meeting still requires time",
+			body: base + `"status":"ready","intent":"create_event","message":"Встреча назначена.","action":{"record_type":"meeting","title":"Встреча","date":"2026-10-21"},"context":{"recent_messages":[{"role":"user","text":"Встреча"}],"draft":null}}`,
+			want: "invalid AI action",
 		},
 		{
 			name: "valid list action",
