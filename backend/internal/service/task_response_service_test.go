@@ -2,13 +2,14 @@ package service
 
 import (
 	"encoding/json"
-	"github.com/google/uuid"
 	api "gorkycode/backend/internal/generated"
 	"gorkycode/backend/internal/model"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestNarrationKeepsCandidateQuestionInRedisContext(t *testing.T) {

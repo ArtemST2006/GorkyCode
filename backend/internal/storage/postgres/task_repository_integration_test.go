@@ -368,7 +368,8 @@ func TestUpdateTasksChecksSnapshotsAndCommitsAtomically(t *testing.T) {
 		user  uuid.UUID
 		title string
 	}{
-		{owner, "Встреча с Иваном"}, {owner, "Встреча с Петром"},
+		{owner, "Встреча с Иваном"},
+		{owner, "Встреча с Петром"},
 		{other, "Чужая встреча"},
 	} {
 		var id uuid.UUID

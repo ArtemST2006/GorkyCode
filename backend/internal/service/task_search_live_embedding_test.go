@@ -3,13 +3,14 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"gorkycode/backend/internal/model"
 	"gorkycode/backend/internal/service/subservice"
 	"gorkycode/backend/internal/storage/postgres"
 	"os"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Opt-in integration test against the local embedding encoder; no LLM calls.
@@ -53,9 +54,12 @@ func TestSearchWithLocalEmbeddingsAndPostgres(t *testing.T) {
 	}
 	lister := subservice.NewSemanticLister(repo, repo, embedder)
 	for _, tc := range []struct{ query, title string }{
-		{"с Иваном", "Встреча с Иваном"}, {"с иваном", "Встреча с Иваном"},
-		{"с Таней", "Встреча с Таней"}, {"с таней", "Встреча с Таней"},
-		{"зубной врач", "Приём у стоматолога"}, {"про зубы", "Приём у стоматолога"},
+		{"с Иваном", "Встреча с Иваном"},
+		{"с иваном", "Встреча с Иваном"},
+		{"с Таней", "Встреча с Таней"},
+		{"с таней", "Встреча с Таней"},
+		{"зубной врач", "Приём у стоматолога"},
+		{"про зубы", "Приём у стоматолога"},
 		{"приобрести проездные документы", "Купить билеты"},
 	} {
 		t.Run(tc.query, func(t *testing.T) {

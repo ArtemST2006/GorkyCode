@@ -3,12 +3,13 @@ package postgres
 import (
 	"context"
 	"errors"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"gorkycode/backend/internal/model"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestConcurrentTaskChangesAreAtomic(t *testing.T) {

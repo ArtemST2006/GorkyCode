@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
-	goredis "github.com/redis/go-redis/v9"
 	api "gorkycode/backend/internal/generated"
 	"gorkycode/backend/internal/model"
 	redisstore "gorkycode/backend/internal/storage/redis"
@@ -15,6 +13,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 func TestParallelDialogueCallsDoNotReachAITwice(t *testing.T) {

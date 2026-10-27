@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	api "gorkycode/backend/internal/generated"
 	"gorkycode/backend/internal/model"
 	"io"
@@ -13,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func (t *TaskProcess) WithResultNarration() *TaskProcess { t.narrate = true; return t }

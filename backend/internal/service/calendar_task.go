@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
-	openapitypes "github.com/oapi-codegen/runtime/types"
 	api "gorkycode/backend/internal/generated"
 	"gorkycode/backend/internal/model"
 	services "gorkycode/backend/internal/service/subservice"
 	"gorkycode/backend/internal/service/utils"
 	"time"
+
+	"github.com/google/uuid"
+	openapitypes "github.com/oapi-codegen/runtime/types"
 )
 
 type ConflictFinder interface {
@@ -33,11 +34,13 @@ type pendingTask struct {
 func pendingTaskKey(userID, taskID uuid.UUID) string {
 	return fmt.Sprintf("task_confirm:%s:%s", userID, taskID)
 }
+
 func (t *TaskProcess) WithMeetingConflicts(c ConflictFinder, p PendingTaskStore) *TaskProcess {
 	t.conflicts = c
 	t.pending = p
 	return t
 }
+
 func (t *TaskProcess) savePending(ctx context.Context, userID, taskID uuid.UUID, p pendingTask) error {
 	raw, err := json.Marshal(p)
 	if err != nil {
@@ -45,6 +48,7 @@ func (t *TaskProcess) savePending(ctx context.Context, userID, taskID uuid.UUID,
 	}
 	return t.pending.SavePendingTask(ctx, pendingTaskKey(userID, taskID), string(raw), pendingTaskTTL)
 }
+
 func (t *TaskProcess) checkMeetingConflict(ctx context.Context, result model.AiRes, cmd services.CreateTaskCommand, message string) (*model.TaskResult, error) {
 	if t.conflicts == nil || t.pending == nil || cmd.RecordType != "meeting" {
 		return nil, nil
@@ -67,6 +71,7 @@ func (t *TaskProcess) checkMeetingConflict(ctx context.Context, result model.AiR
 	}
 	return &model.TaskResult{Intent: "create_event", Body: &api.TaskClarificationResponse{UserId: result.UserID, TaskId: result.TaskID, Status: api.NeedsClarification, Message: pending.Question}}, nil
 }
+
 func (t *TaskProcess) confirmPending(ctx context.Context, userID, taskID uuid.UUID, text string, location *time.Location) (*model.TaskResult, error) {
 	if t.pending == nil {
 		return nil, nil

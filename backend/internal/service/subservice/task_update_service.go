@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"gorkycode/backend/internal/generated/ai"
+	"gorkycode/backend/internal/model"
 	"strings"
 	"time"
 
 	api "gorkycode/backend/internal/generated"
-	"gorkycode/backend/internal/generated/ai"
-	"gorkycode/backend/internal/model"
 
 	"github.com/google/uuid"
 )
