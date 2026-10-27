@@ -516,3 +516,55 @@ func TestTaskRepositoryFindOverlappingMeetingsWithPostgres(t *testing.T) {
 		t.Fatalf("FindOverlappingMeetings() in a free slot = %v, %v; want none", taskTitles(got), err)
 	}
 }
+
+func TestUpdateMeetingTimeOnlyPreservesOtherFields(t *testing.T) {
+	url := os.Getenv("POSTGRES_TEST_URL")
+	if url == "" {
+		t.Skip("set POSTGRES_TEST_URL for a migrated test database")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	owner := createTaskTestUser(t, NewAuthRepository(pool), pool)
+	for _, date := range []string{"2026-10-28", "2026-10-29"} {
+		_, err := pool.Exec(ctx, `INSERT INTO tasks (user_id, type, title, date, time)
+            VALUES ($1, 'meeting', 'Встреча с Таней', $2::date, '15:00')`, owner, date)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo := NewTaskRepository(pool)
+	updater := subservice.NewTaskUpdateService(repo, subservice.NewTaskDeleteService(repo, nil), nil)
+	candidates, err := updater.FindCandidates(ctx, owner, json.RawMessage(`{
+        "phase":"find_candidates", "title_query":"с Таней", "record_types":["meeting"],
+        "date_from":null, "date_to_exclusive":null, "time_from":null, "time_to_exclusive":null,
+        "changes":{"time":"19:00"}
+    }`))
+	if err != nil || len(candidates.Items) != 2 {
+		t.Fatalf("candidates=%+v, err=%v", candidates, err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE user_id=$1 AND time='15:00'`, owner).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("search modified rows: count=%d, err=%v", count, err)
+	}
+	selected := candidates.Snapshots[0]
+	updated, err := updater.UpdateConfirmed(ctx, owner,
+		json.RawMessage(`{"phase":"update_confirmed","record_ids":["`+selected.ID.String()+`"]}`),
+		candidates.Snapshots, candidates.Changes)
+	if err != nil || len(updated) != 1 {
+		t.Fatalf("updated=%+v, err=%v", updated, err)
+	}
+	item := updated[0]
+	if item.Time == nil || string(*item.Time) != "19:00" || item.Date == nil ||
+		item.Date.Format(time.DateOnly) != selected.Date.Format(time.DateOnly) ||
+		item.Title != selected.Title || string(item.Status) != selected.Status ||
+		item.Id != selected.ID || item.UserId != selected.UserID || string(item.RecordType) != selected.Type {
+		t.Fatalf("time-only update changed other fields: before=%+v after=%+v", selected, item)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE user_id=$1 AND time='15:00'`, owner).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("unselected row changed: count=%d, err=%v", count, err)
+	}
+}

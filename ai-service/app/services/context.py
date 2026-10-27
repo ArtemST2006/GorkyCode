@@ -136,16 +136,28 @@ def build_job_response(request: JobRequest, decision: ModelDecision) -> JobRespo
         values["draft"] = None
         status = "ready"
         message = "Подбираю записи для удаления."
-    if (
-        decision.intent == "on_update"
-        and status == "needs_clarification"
-        and isinstance(request.context, UpdateCandidateContext)
-        and not decision.topic_changed
-    ):
-        values["action"] = _repeat_update_search(request, decision)
-        values["draft"] = None
-        status = "ready"
-        message = "Подбираю записи для изменения."
+    if decision.intent == "on_update" and status == "needs_clarification":
+        action = None
+        if isinstance(request.context, UpdateCandidateContext) and not decision.topic_changed:
+            action = _repeat_update_search(request, decision)
+        else:
+            # Updates are patches, not new events. A valid filter and one change
+            # are enough to FIND candidates, even if the model asks for fields
+            # that should stay unchanged. Never infer values or confirm a write.
+            draft = values["draft"] or {}
+            try:
+                action = UpdateFindCandidatesAction.model_validate({
+                    "phase": "find_candidates",
+                    **{name: draft.get(name) for name in _DELETE_FILTERS},
+                    "changes": draft.get("changes"),
+                }).model_dump(mode="json", exclude_unset=True)
+            except ValueError:
+                pass  # Missing/invalid search or changes still need clarification.
+        if action is not None:
+            values["action"] = action
+            values["draft"] = None
+            status = "ready"
+            message = "Подбираю записи для изменения."
     history = []
     if isinstance(request.context, (StoredContext, DeleteCandidateContext, UpdateCandidateContext)) and not decision.topic_changed:
         history = [message.model_dump() for message in request.context.recent_messages]
