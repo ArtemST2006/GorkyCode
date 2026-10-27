@@ -67,7 +67,7 @@ func New(
 	return &Services{
 		HealthService:   NewHealthService(repo, queryTimeout),
 		AuthService:     NewAuthService(repo, repo, queryTimeout, sessionTTL),
-		TaskProcess:     NewTaskProcess(rec, repo, repo, creator, eventReader, taskDelete, aiServiceURL, taskUpdate).WithMeetingConflicts(conflicts, repo),
+		TaskProcess:     NewTaskProcess(rec, repo, repo, creator, eventReader, taskDelete, aiServiceURL, taskUpdate).WithMeetingConflicts(conflicts, repo).WithResultNarration(),
 		TaskCreate:      taskCreate,
 		TaskDelete:      taskDelete,
 		TaskUpdate:      taskUpdate,

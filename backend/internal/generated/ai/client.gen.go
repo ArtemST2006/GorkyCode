@@ -35,13 +35,13 @@ func (e AIHealthResponseService) Valid() bool {
 
 // Defines values for AIHealthResponseStatus.
 const (
-	Ok AIHealthResponseStatus = "ok"
+	AIHealthResponseStatusOk AIHealthResponseStatus = "ok"
 )
 
 // Valid indicates whether the value is a known member of the AIHealthResponseStatus enum.
 func (e AIHealthResponseStatus) Valid() bool {
 	switch e {
-	case Ok:
+	case AIHealthResponseStatusOk:
 		return true
 	default:
 		return false
@@ -402,6 +402,60 @@ func (e RecordType) Valid() bool {
 	case RecordTypeReminder:
 		return true
 	case RecordTypeTask:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RespondRequestIntent.
+const (
+	RespondRequestIntentCreateEvent  RespondRequestIntent = "create_event"
+	RespondRequestIntentListEvents   RespondRequestIntent = "list_events"
+	RespondRequestIntentOnDelete     RespondRequestIntent = "on_delete"
+	RespondRequestIntentOnUpdate     RespondRequestIntent = "on_update"
+	RespondRequestIntentSearchEvents RespondRequestIntent = "search_events"
+)
+
+// Valid indicates whether the value is a known member of the RespondRequestIntent enum.
+func (e RespondRequestIntent) Valid() bool {
+	switch e {
+	case RespondRequestIntentCreateEvent:
+		return true
+	case RespondRequestIntentListEvents:
+		return true
+	case RespondRequestIntentOnDelete:
+		return true
+	case RespondRequestIntentOnUpdate:
+		return true
+	case RespondRequestIntentSearchEvents:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RespondRequestStatus.
+const (
+	RespondRequestStatusCandidates       RespondRequestStatus = "candidates"
+	RespondRequestStatusDeleted          RespondRequestStatus = "deleted"
+	RespondRequestStatusOk               RespondRequestStatus = "ok"
+	RespondRequestStatusUpdateCandidates RespondRequestStatus = "update_candidates"
+	RespondRequestStatusUpdated          RespondRequestStatus = "updated"
+)
+
+// Valid indicates whether the value is a known member of the RespondRequestStatus enum.
+func (e RespondRequestStatus) Valid() bool {
+	switch e {
+	case RespondRequestStatusCandidates:
+		return true
+	case RespondRequestStatusDeleted:
+		return true
+	case RespondRequestStatusOk:
+		return true
+	case RespondRequestStatusUpdateCandidates:
+		return true
+	case RespondRequestStatusUpdated:
 		return true
 	default:
 		return false
@@ -789,7 +843,8 @@ type DeleteFindCandidatesAction5 struct {
 
 // DeleteFindCandidatesResponse Ответ on_delete с X-Task-Intent: on_delete. ready означает только
 // готовность признаков для поиска. AI не видит PostgreSQL и не знает
-// число кандидатов; backend составляет сообщение о результатах поиска.
+// число кандидатов. После поиска backend передаёт результат в /api/respond;
+// при сбое генерации использует резервное сообщение по числу кандидатов.
 type DeleteFindCandidatesResponse struct {
 	// Action Поиск кандидатов на удаление без изменения БД. Все признаки
 	// присутствуют, незаданные равны null. Хотя бы один признак должен
@@ -975,10 +1030,10 @@ type Problem struct {
 type ReadyBase struct {
 	Context ReadyContext `json:"context"`
 
-	// Message Сообщение для пользователя от AI-service. Backend передаёт его
-	// без изменений только после успешного выполнения action. Для
-	// list_events и search_events сообщение не утверждает, сколько
-	// записей найдено: AI-service не видит результат запроса к БД.
+	// Message Резервное сообщение для пользователя от AI-service. После action
+	// backend запрашивает финальное сообщение через /api/respond.
+	// Для list_events и search_events резервное сообщение не утверждает,
+	// сколько записей найдено: /api/job ещё не видит результат БД.
 	// После удаления пробелов по краям строка должна быть непустой.
 	Message string             `json:"message"`
 	Status  ReadyBaseStatus    `json:"status"`
@@ -1009,10 +1064,10 @@ type ReadyCreateEvent struct {
 	Context ReadyContext           `json:"context"`
 	Intent  ReadyCreateEventIntent `json:"intent"`
 
-	// Message Сообщение для пользователя от AI-service. Backend передаёт его
-	// без изменений только после успешного выполнения action. Для
-	// list_events и search_events сообщение не утверждает, сколько
-	// записей найдено: AI-service не видит результат запроса к БД.
+	// Message Резервное сообщение для пользователя от AI-service. После action
+	// backend запрашивает финальное сообщение через /api/respond.
+	// Для list_events и search_events резервное сообщение не утверждает,
+	// сколько записей найдено: /api/job ещё не видит результат БД.
 	// После удаления пробелов по краям строка должна быть непустой.
 	Message string                 `json:"message"`
 	Status  ReadyCreateEventStatus `json:"status"`
@@ -1033,10 +1088,10 @@ type ReadyListEvents struct {
 	Context ReadyContext          `json:"context"`
 	Intent  ReadyListEventsIntent `json:"intent"`
 
-	// Message Сообщение для пользователя от AI-service. Backend передаёт его
-	// без изменений только после успешного выполнения action. Для
-	// list_events и search_events сообщение не утверждает, сколько
-	// записей найдено: AI-service не видит результат запроса к БД.
+	// Message Резервное сообщение для пользователя от AI-service. После action
+	// backend запрашивает финальное сообщение через /api/respond.
+	// Для list_events и search_events резервное сообщение не утверждает,
+	// сколько записей найдено: /api/job ещё не видит результат БД.
 	// После удаления пробелов по краям строка должна быть непустой.
 	Message string                `json:"message"`
 	Status  ReadyListEventsStatus `json:"status"`
@@ -1069,10 +1124,10 @@ type ReadySearchEvents struct {
 	Context ReadyContext            `json:"context"`
 	Intent  ReadySearchEventsIntent `json:"intent"`
 
-	// Message Сообщение для пользователя от AI-service. Backend передаёт его
-	// без изменений только после успешного выполнения action. Для
-	// list_events и search_events сообщение не утверждает, сколько
-	// записей найдено: AI-service не видит результат запроса к БД.
+	// Message Резервное сообщение для пользователя от AI-service. После action
+	// backend запрашивает финальное сообщение через /api/respond.
+	// Для list_events и search_events резервное сообщение не утверждает,
+	// сколько записей найдено: /api/job ещё не видит результат БД.
 	// После удаления пробелов по краям строка должна быть непустой.
 	Message string                  `json:"message"`
 	Status  ReadySearchEventsStatus `json:"status"`
@@ -1094,6 +1149,38 @@ type RecordType string
 
 // RecordTypes Если поле отсутствует, backend учитывает все типы.
 type RecordTypes = []RecordType
+
+// RespondRequest defines model for RespondRequest.
+type RespondRequest struct {
+	// Data Фактический data из ответа backend: event для создания; items для
+	// списка/поиска; candidates с number/event для выбора; candidates и
+	// changes для изменения; deleted_events или updated_events после
+	// успешного выполнения. Совпадает с соответствующим data в backend.openapi.yaml.
+	Data   map[string]interface{} `json:"data"`
+	Intent RespondRequestIntent   `json:"intent"`
+	Status RespondRequestStatus   `json:"status"`
+	TaskId openapi_types.UUID     `json:"task_id"`
+
+	// Text Текущая реплика пользователя.
+	Text string `json:"text"`
+
+	// Timezone Example: Europe/Moscow
+	Timezone string             `json:"timezone"`
+	UserId   openapi_types.UUID `json:"user_id"`
+}
+
+// RespondRequestIntent defines model for RespondRequest.Intent.
+type RespondRequestIntent string
+
+// RespondRequestStatus defines model for RespondRequest.Status.
+type RespondRequestStatus string
+
+// RespondResponse defines model for RespondResponse.
+type RespondResponse struct {
+	Message string             `json:"message"`
+	TaskId  openapi_types.UUID `json:"task_id"`
+	UserId  openapi_types.UUID `json:"user_id"`
+}
 
 // SearchEventsAction Backend ищет подстроку title без учёта регистра и дополняет результат
 // семантически близкими записями при наличии совместимых embeddings.
@@ -1389,6 +1476,9 @@ type EmbedTextJSONRequestBody = EmbeddingRequest
 
 // ProcessJobJSONRequestBody defines body for ProcessJob for application/json ContentType.
 type ProcessJobJSONRequestBody = JobRequest
+
+// RespondToResultJSONRequestBody defines body for RespondToResult for application/json ContentType.
+type RespondToResultJSONRequestBody = RespondRequest
 
 // AsTaskAction returns the union data inside the CreateEventAction as a TaskAction
 func (t CreateEventAction) AsTaskAction() (TaskAction, error) {
@@ -2769,12 +2859,10 @@ type ClientInterface interface {
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action и выполняет его. Для create_event,
-	// list_events, search_events и подтверждённого on_update backend
-	// передаёт message пользователю после успешного выполнения без
-	// изменений. При поиске кандидатов on_delete/on_update и после
-	// удаления backend формирует сообщение по фактическому результату БД:
-	// AI на момент ответа ещё не знает число найденных или удалённых строк.
+	// backend валидирует action и выполняет его. Затем запрашивает message
+	// через POST /api/respond по фактическому результату БД. Текст /api/job
+	// остаётся резервным для создания, списка, поиска и изменения. Для
+	// кандидатов и удаления backend имеет резервный текст по количеству строк.
 	// При задаче со сроком без точного времени action.time отсутствует или
 	// равен null; backend сохраняет такую задачу без времени.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
@@ -2808,12 +2896,10 @@ type ClientInterface interface {
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action и выполняет его. Для create_event,
-	// list_events, search_events и подтверждённого on_update backend
-	// передаёт message пользователю после успешного выполнения без
-	// изменений. При поиске кандидатов on_delete/on_update и после
-	// удаления backend формирует сообщение по фактическому результату БД:
-	// AI на момент ответа ещё не знает число найденных или удалённых строк.
+	// backend валидирует action и выполняет его. Затем запрашивает message
+	// через POST /api/respond по фактическому результату БД. Текст /api/job
+	// остаётся резервным для создания, списка, поиска и изменения. Для
+	// кандидатов и удаления backend имеет резервный текст по количеству строк.
 	// При задаче со сроком без точного времени action.time отсутствует или
 	// равен null; backend сохраняет такую задачу без времени.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
@@ -2841,6 +2927,40 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/job (the `ProcessJob` operationId).
 	ProcessJob(ctx context.Context, body ProcessJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RespondToResultWithBody Сформулировать ответ по фактическому результату backend
+	//
+	// Вызывается после выполнения операции или поиска кандидатов в БД.
+	// AI формирует только message, не выполняет action и не меняет данные.
+	// При candidates/update_candidates требуется выбор номеров пользователем;
+	// удаление/изменение ещё не выполнено. При ошибке или таймауте генерации
+	// backend сохраняет успешный результат и возвращает резервное сообщение.
+	// Генерация ограничена 25 секундами. Провайдер получает только text,
+	// timezone, intent, status и отображаемые поля; UUID и технические поля
+	// не передаются. Списки для модели сокращаются до 50 элементов с полным
+	// количеством в total_counts; данные фронтенду передаются полностью.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/respond (the `RespondToResult` operationId).
+	RespondToResultWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RespondToResult Сформулировать ответ по фактическому результату backend
+	//
+	// Вызывается после выполнения операции или поиска кандидатов в БД.
+	// AI формирует только message, не выполняет action и не меняет данные.
+	// При candidates/update_candidates требуется выбор номеров пользователем;
+	// удаление/изменение ещё не выполнено. При ошибке или таймауте генерации
+	// backend сохраняет успешный результат и возвращает резервное сообщение.
+	// Генерация ограничена 25 секундами. Провайдер получает только text,
+	// timezone, intent, status и отображаемые поля; UUID и технические поля
+	// не передаются. Списки для модели сокращаются до 50 элементов с полным
+	// количеством в total_counts; данные фронтенду передаются полностью.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/respond (the `RespondToResult` operationId).
+	RespondToResult(ctx context.Context, body RespondToResultJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AiHealth Проверить, что процесс AI-service работает
 	//
@@ -2905,12 +3025,10 @@ func (c *Client) EmbedText(ctx context.Context, body EmbedTextJSONRequestBody, r
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action и выполняет его. Для create_event,
-// list_events, search_events и подтверждённого on_update backend
-// передаёт message пользователю после успешного выполнения без
-// изменений. При поиске кандидатов on_delete/on_update и после
-// удаления backend формирует сообщение по фактическому результату БД:
-// AI на момент ответа ещё не знает число найденных или удалённых строк.
+// backend валидирует action и выполняет его. Затем запрашивает message
+// через POST /api/respond по фактическому результату БД. Текст /api/job
+// остаётся резервным для создания, списка, поиска и изменения. Для
+// кандидатов и удаления backend имеет резервный текст по количеству строк.
 // При задаче со сроком без точного времени action.time отсутствует или
 // равен null; backend сохраняет такую задачу без времени.
 // Если пользователь сменил тему во время уточнения, AI не переносит
@@ -2954,12 +3072,10 @@ func (c *Client) ProcessJobWithBody(ctx context.Context, contentType string, bod
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action и выполняет его. Для create_event,
-// list_events, search_events и подтверждённого on_update backend
-// передаёт message пользователю после успешного выполнения без
-// изменений. При поиске кандидатов on_delete/on_update и после
-// удаления backend формирует сообщение по фактическому результату БД:
-// AI на момент ответа ещё не знает число найденных или удалённых строк.
+// backend валидирует action и выполняет его. Затем запрашивает message
+// через POST /api/respond по фактическому результату БД. Текст /api/job
+// остаётся резервным для создания, списка, поиска и изменения. Для
+// кандидатов и удаления backend имеет резервный текст по количеству строк.
 // При задаче со сроком без точного времени action.time отсутствует или
 // равен null; backend сохраняет такую задачу без времени.
 // Если пользователь сменил тему во время уточнения, AI не переносит
@@ -2988,6 +3104,60 @@ func (c *Client) ProcessJobWithBody(ctx context.Context, contentType string, bod
 // Corresponds with POST /api/job (the `ProcessJob` operationId).
 func (c *Client) ProcessJob(ctx context.Context, body ProcessJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewProcessJobRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RespondToResultWithBody Сформулировать ответ по фактическому результату backend
+//
+// Вызывается после выполнения операции или поиска кандидатов в БД.
+// AI формирует только message, не выполняет action и не меняет данные.
+// При candidates/update_candidates требуется выбор номеров пользователем;
+// удаление/изменение ещё не выполнено. При ошибке или таймауте генерации
+// backend сохраняет успешный результат и возвращает резервное сообщение.
+// Генерация ограничена 25 секундами. Провайдер получает только text,
+// timezone, intent, status и отображаемые поля; UUID и технические поля
+// не передаются. Списки для модели сокращаются до 50 элементов с полным
+// количеством в total_counts; данные фронтенду передаются полностью.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/respond (the `RespondToResult` operationId).
+func (c *Client) RespondToResultWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRespondToResultRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RespondToResult Сформулировать ответ по фактическому результату backend
+//
+// Вызывается после выполнения операции или поиска кандидатов в БД.
+// AI формирует только message, не выполняет action и не меняет данные.
+// При candidates/update_candidates требуется выбор номеров пользователем;
+// удаление/изменение ещё не выполнено. При ошибке или таймауте генерации
+// backend сохраняет успешный результат и возвращает резервное сообщение.
+// Генерация ограничена 25 секундами. Провайдер получает только text,
+// timezone, intent, status и отображаемые поля; UUID и технические поля
+// не передаются. Списки для модели сокращаются до 50 элементов с полным
+// количеством в total_counts; данные фронтенду передаются полностью.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/respond (the `RespondToResult` operationId).
+func (c *Client) RespondToResult(ctx context.Context, body RespondToResultJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRespondToResultRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3074,6 +3244,46 @@ func NewProcessJobRequestWithBody(server string, contentType string, body io.Rea
 	}
 
 	operationPath := fmt.Sprintf("/api/job")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRespondToResultRequest calls the generic RespondToResult builder with application/json body
+func NewRespondToResultRequest(server string, body RespondToResultJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRespondToResultRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewRespondToResultRequestWithBody constructs an http.Request for the RespondToResult method, with any body, and a specified content type
+func NewRespondToResultRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/respond")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -3201,12 +3411,10 @@ type ClientWithResponsesInterface interface {
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action и выполняет его. Для create_event,
-	// list_events, search_events и подтверждённого on_update backend
-	// передаёт message пользователю после успешного выполнения без
-	// изменений. При поиске кандидатов on_delete/on_update и после
-	// удаления backend формирует сообщение по фактическому результату БД:
-	// AI на момент ответа ещё не знает число найденных или удалённых строк.
+	// backend валидирует action и выполняет его. Затем запрашивает message
+	// через POST /api/respond по фактическому результату БД. Текст /api/job
+	// остаётся резервным для создания, списка, поиска и изменения. Для
+	// кандидатов и удаления backend имеет резервный текст по количеству строк.
 	// При задаче со сроком без точного времени action.time отсутствует или
 	// равен null; backend сохраняет такую задачу без времени.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
@@ -3240,12 +3448,10 @@ type ClientWithResponsesInterface interface {
 	// user_id и task_id возвращаются без изменений. Относительные даты
 	// вычисляются по request_time и timezone. При needs_clarification
 	// backend сохраняет context и задаёт пользователю message. При ready
-	// backend валидирует action и выполняет его. Для create_event,
-	// list_events, search_events и подтверждённого on_update backend
-	// передаёт message пользователю после успешного выполнения без
-	// изменений. При поиске кандидатов on_delete/on_update и после
-	// удаления backend формирует сообщение по фактическому результату БД:
-	// AI на момент ответа ещё не знает число найденных или удалённых строк.
+	// backend валидирует action и выполняет его. Затем запрашивает message
+	// через POST /api/respond по фактическому результату БД. Текст /api/job
+	// остаётся резервным для создания, списка, поиска и изменения. Для
+	// кандидатов и удаления backend имеет резервный текст по количеству строк.
 	// При задаче со сроком без точного времени action.time отсутствует или
 	// равен null; backend сохраняет такую задачу без времени.
 	// Если пользователь сменил тему во время уточнения, AI не переносит
@@ -3273,6 +3479,40 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/job (the `ProcessJob` operationId).
 	ProcessJobWithResponse(ctx context.Context, body ProcessJobJSONRequestBody, reqEditors ...RequestEditorFn) (*ProcessJobResponse, error)
+
+	// RespondToResultWithBodyWithResponse Сформулировать ответ по фактическому результату backend
+	//
+	// Вызывается после выполнения операции или поиска кандидатов в БД.
+	// AI формирует только message, не выполняет action и не меняет данные.
+	// При candidates/update_candidates требуется выбор номеров пользователем;
+	// удаление/изменение ещё не выполнено. При ошибке или таймауте генерации
+	// backend сохраняет успешный результат и возвращает резервное сообщение.
+	// Генерация ограничена 25 секундами. Провайдер получает только text,
+	// timezone, intent, status и отображаемые поля; UUID и технические поля
+	// не передаются. Списки для модели сокращаются до 50 элементов с полным
+	// количеством в total_counts; данные фронтенду передаются полностью.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/respond (the `RespondToResult` operationId).
+	RespondToResultWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RespondToResultResponse, error)
+
+	// RespondToResultWithResponse Сформулировать ответ по фактическому результату backend
+	//
+	// Вызывается после выполнения операции или поиска кандидатов в БД.
+	// AI формирует только message, не выполняет action и не меняет данные.
+	// При candidates/update_candidates требуется выбор номеров пользователем;
+	// удаление/изменение ещё не выполнено. При ошибке или таймауте генерации
+	// backend сохраняет успешный результат и возвращает резервное сообщение.
+	// Генерация ограничена 25 секундами. Провайдер получает только text,
+	// timezone, intent, status и отображаемые поля; UUID и технические поля
+	// не передаются. Списки для модели сокращаются до 50 элементов с полным
+	// количеством в total_counts; данные фронтенду передаются полностью.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/respond (the `RespondToResult` operationId).
+	RespondToResultWithResponse(ctx context.Context, body RespondToResultJSONRequestBody, reqEditors ...RequestEditorFn) (*RespondToResultResponse, error)
 
 	// AiHealthWithResponse Проверить, что процесс AI-service работает
 	//
@@ -3462,6 +3702,75 @@ func (r ProcessJobResponse) ContentType() string {
 	return ""
 }
 
+type RespondToResultResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RespondResponse
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *Problem
+	// ApplicationproblemJSON502 the response for an HTTP 502 `application/problem+json` response
+	ApplicationproblemJSON502 *Problem
+	// ApplicationproblemJSON503 the response for an HTTP 503 `application/problem+json` response
+	ApplicationproblemJSON503 *Problem
+	// ApplicationproblemJSON504 the response for an HTTP 504 `application/problem+json` response
+	ApplicationproblemJSON504 *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RespondToResultResponse) GetJSON200() *RespondResponse {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r RespondToResultResponse) GetApplicationproblemJSON400() *Problem {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON502 returns the response for an HTTP 502 `application/problem+json` response
+func (r RespondToResultResponse) GetApplicationproblemJSON502() *Problem {
+	return r.ApplicationproblemJSON502
+}
+
+// GetApplicationproblemJSON503 returns the response for an HTTP 503 `application/problem+json` response
+func (r RespondToResultResponse) GetApplicationproblemJSON503() *Problem {
+	return r.ApplicationproblemJSON503
+}
+
+// GetApplicationproblemJSON504 returns the response for an HTTP 504 `application/problem+json` response
+func (r RespondToResultResponse) GetApplicationproblemJSON504() *Problem {
+	return r.ApplicationproblemJSON504
+}
+
+// GetBody returns the raw response body bytes
+func (r RespondToResultResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RespondToResultResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RespondToResultResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RespondToResultResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type AiHealthResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3552,12 +3861,10 @@ func (c *ClientWithResponses) EmbedTextWithResponse(ctx context.Context, body Em
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action и выполняет его. Для create_event,
-// list_events, search_events и подтверждённого on_update backend
-// передаёт message пользователю после успешного выполнения без
-// изменений. При поиске кандидатов on_delete/on_update и после
-// удаления backend формирует сообщение по фактическому результату БД:
-// AI на момент ответа ещё не знает число найденных или удалённых строк.
+// backend валидирует action и выполняет его. Затем запрашивает message
+// через POST /api/respond по фактическому результату БД. Текст /api/job
+// остаётся резервным для создания, списка, поиска и изменения. Для
+// кандидатов и удаления backend имеет резервный текст по количеству строк.
 // При задаче со сроком без точного времени action.time отсутствует или
 // равен null; backend сохраняет такую задачу без времени.
 // Если пользователь сменил тему во время уточнения, AI не переносит
@@ -3597,12 +3904,10 @@ func (c *ClientWithResponses) ProcessJobWithBodyWithResponse(ctx context.Context
 // user_id и task_id возвращаются без изменений. Относительные даты
 // вычисляются по request_time и timezone. При needs_clarification
 // backend сохраняет context и задаёт пользователю message. При ready
-// backend валидирует action и выполняет его. Для create_event,
-// list_events, search_events и подтверждённого on_update backend
-// передаёт message пользователю после успешного выполнения без
-// изменений. При поиске кандидатов on_delete/on_update и после
-// удаления backend формирует сообщение по фактическому результату БД:
-// AI на момент ответа ещё не знает число найденных или удалённых строк.
+// backend валидирует action и выполняет его. Затем запрашивает message
+// через POST /api/respond по фактическому результату БД. Текст /api/job
+// остаётся резервным для создания, списка, поиска и изменения. Для
+// кандидатов и удаления backend имеет резервный текст по количеству строк.
 // При задаче со сроком без точного времени action.time отсутствует или
 // равен null; backend сохраняет такую задачу без времени.
 // Если пользователь сменил тему во время уточнения, AI не переносит
@@ -3635,6 +3940,52 @@ func (c *ClientWithResponses) ProcessJobWithResponse(ctx context.Context, body P
 		return nil, err
 	}
 	return ParseProcessJobResponse(rsp)
+}
+
+// RespondToResultWithBodyWithResponse Сформулировать ответ по фактическому результату backend
+//
+// Вызывается после выполнения операции или поиска кандидатов в БД.
+// AI формирует только message, не выполняет action и не меняет данные.
+// При candidates/update_candidates требуется выбор номеров пользователем;
+// удаление/изменение ещё не выполнено. При ошибке или таймауте генерации
+// backend сохраняет успешный результат и возвращает резервное сообщение.
+// Генерация ограничена 25 секундами. Провайдер получает только text,
+// timezone, intent, status и отображаемые поля; UUID и технические поля
+// не передаются. Списки для модели сокращаются до 50 элементов с полным
+// количеством в total_counts; данные фронтенду передаются полностью.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/respond (the `RespondToResult` operationId).
+func (c *ClientWithResponses) RespondToResultWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RespondToResultResponse, error) {
+	rsp, err := c.RespondToResultWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRespondToResultResponse(rsp)
+}
+
+// RespondToResultWithResponse Сформулировать ответ по фактическому результату backend
+//
+// Вызывается после выполнения операции или поиска кандидатов в БД.
+// AI формирует только message, не выполняет action и не меняет данные.
+// При candidates/update_candidates требуется выбор номеров пользователем;
+// удаление/изменение ещё не выполнено. При ошибке или таймауте генерации
+// backend сохраняет успешный результат и возвращает резервное сообщение.
+// Генерация ограничена 25 секундами. Провайдер получает только text,
+// timezone, intent, status и отображаемые поля; UUID и технические поля
+// не передаются. Списки для модели сокращаются до 50 элементов с полным
+// количеством в total_counts; данные фронтенду передаются полностью.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/respond (the `RespondToResult` operationId).
+func (c *ClientWithResponses) RespondToResultWithResponse(ctx context.Context, body RespondToResultJSONRequestBody, reqEditors ...RequestEditorFn) (*RespondToResultResponse, error) {
+	rsp, err := c.RespondToResult(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRespondToResultResponse(rsp)
 }
 
 // AiHealthWithResponse Проверить, что процесс AI-service работает
@@ -3807,6 +4158,60 @@ func ParseProcessJobResponse(rsp *http.Response) (*ProcessJobResponse, error) {
 			headers.XTaskIntent = &value
 		}
 		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseRespondToResultResponse parses an HTTP response from a RespondToResultWithResponse call
+func ParseRespondToResultResponse(rsp *http.Response) (*RespondToResultResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RespondToResultResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RespondResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 504:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON504 = &dest
+
 	}
 
 	return response, nil

@@ -303,7 +303,7 @@ type Date = openapi_types.Date
 // номера, снимки записей и changes в Redis. Даже при нуле или одном
 // совпадении возвращаются candidates и changes; изменений в БД пока нет.
 // Для подтверждения клиент передаёт выбранные номера текстом с тем же
-// task_id. message о количестве кандидатов формирует backend.
+// task_id. message запрашивается через POST /api/respond; при сбое используется резервный текст.
 type FrontendUpdateCandidates struct {
 	Data struct {
 		Candidates []struct {
@@ -332,8 +332,8 @@ type FrontendUpdateCandidatesStatus string
 
 // FrontendUpdated Результат on_update/update_confirmed после проверки выбранных ID и
 // снимков, затем атомарной записи в PostgreSQL. Устаревший выбор даёт
-// HTTP 409 без частичного изменения. message от AI-service передаётся
-// после успешной записи.
+// HTTP 409 без частичного изменения. message запрашивается через
+// POST /api/respond после записи; при сбое используется резервный текст.
 type FrontendUpdated struct {
 	Data struct {
 		// UpdatedEvents Полные записи после commit, в порядке выбранных ID.
@@ -471,7 +471,7 @@ type TaskClarificationResponseStatus string
 // возвращают агрегатору. Записи берутся из PostgreSQL и ограничены
 // user_id текущего запроса. Сервисы возвращают только items;
 // агрегатор формирует обёртку ответа фронтенду и передаёт message от
-// AI-service без изменений.
+// POST /api/respond; при ошибке генерации используется резервное сообщение.
 // Если записей нет, items — пустой массив. Оба сервиса учитывают
 // записи со статусами active и completed. Задача без точного времени
 // участвует в выборке по дате; отсутствие времени не заменяется
@@ -484,13 +484,13 @@ type TaskCollection struct {
 
 // TaskCollectionResponse Ответ фронтенду после выполнения list_events или search_events.
 // Агрегатор добавляет user_id, task_id и status к результату внутреннего
-// сервиса в data и передаёт message от AI-service без изменений.
+// сервиса в data. message формирует POST /api/respond, при сбое — резервный текст.
 type TaskCollectionResponse struct {
 	// Data Результат, который внутренние Go-сервисы list_events и search_events
 	// возвращают агрегатору. Записи берутся из PostgreSQL и ограничены
 	// user_id текущего запроса. Сервисы возвращают только items;
 	// агрегатор формирует обёртку ответа фронтенду и передаёт message от
-	// AI-service без изменений.
+	// POST /api/respond; при ошибке генерации используется резервное сообщение.
 	// Если записей нет, items — пустой массив. Оба сервиса учитывают
 	// записи со статусами active и completed. Задача без точного времени
 	// участвует в выборке по дате; отсутствие времени не заменяется
@@ -500,9 +500,8 @@ type TaskCollectionResponse struct {
 	// Example: {"items":[{"created_at":"2026-10-18T12:00:20+03:00","date":"2026-10-19","id":"0e083fa1-c33e-4c44-85e6-5b977ae17808","record_type":"meeting","status":"active","time":"15:00","title":"Встреча с Иваном","user_id":"b80e93e1-9945-48e0-8460-3ee68bcfb402"}]}
 	Data TaskCollection `json:"data"`
 
-	// Message Сообщение AI-service, переданное backend без изменений после
-	// успешного выполнения поиска или получения списка. Количество
-	// записей и наличие совпадений определяются по data.items.
+	// Message Сообщение POST /api/respond по data.items, либо резервный текст
+	// при сбое генерации. Список записей определяется только по data.items.
 	Message string                       `json:"message"`
 	Status  TaskCollectionResponseStatus `json:"status"`
 
@@ -548,7 +547,7 @@ type TaskCreatedEventStatus string
 type TaskCreatedResponse struct {
 	Data TaskCreatedData `json:"data"`
 
-	// Message Сообщение AI-service, переданное backend без изменений после успешного сохранения.
+	// Message Сообщение POST /api/respond по сохранённой записи, либо резервный текст при сбое генерации.
 	Message string                    `json:"message"`
 	Status  TaskCreatedResponseStatus `json:"status"`
 

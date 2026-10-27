@@ -7,6 +7,71 @@ info:
     или введённый текст. AI определяет intent и возвращает данные для уточнения
     либо action. AI не читает Redis и не выполняет действия в PostgreSQL.
 paths:
+  /api/respond:
+    post:
+      tags: [AI]
+      operationId: respondToResult
+      summary: Сформулировать ответ по фактическому результату backend
+      description: |
+        Вызывается после выполнения операции или поиска кандидатов в БД.
+        AI формирует только message, не выполняет action и не меняет данные.
+        При candidates/update_candidates требуется выбор номеров пользователем;
+        удаление/изменение ещё не выполнено. При ошибке или таймауте генерации
+        backend сохраняет успешный результат и возвращает резервное сообщение.
+        Генерация ограничена 25 секундами. Провайдер получает только text,
+        timezone, intent, status и отображаемые поля; UUID и технические поля
+        не передаются. Списки для модели сокращаются до 50 элементов с полным
+        количеством в total_counts; данные фронтенду передаются полностью.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RespondRequest'
+            example:
+              user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+              task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+              text: Найди встречи с Иваном
+              timezone: Europe/Moscow
+              intent: search_events
+              status: ok
+              data:
+                items: []
+      responses:
+        '200':
+          description: Человеческий ответ с исходными ID пользователя и диалога
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RespondResponse'
+              example:
+                user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                message: Встреч с Иваном не нашлось. Попробуем другой запрос?
+        '400':
+          description: Невалидный запрос
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '502':
+          description: Модель вернула некорректный ответ
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Провайдер модели недоступен
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '504':
+          description: Истекло время генерации ответа
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /health:
     get:
       tags: [Service]
@@ -31,12 +96,10 @@ paths:
         user_id и task_id возвращаются без изменений. Относительные даты
         вычисляются по request_time и timezone. При needs_clarification
         backend сохраняет context и задаёт пользователю message. При ready
-        backend валидирует action и выполняет его. Для create_event,
-        list_events, search_events и подтверждённого on_update backend
-        передаёт message пользователю после успешного выполнения без
-        изменений. При поиске кандидатов on_delete/on_update и после
-        удаления backend формирует сообщение по фактическому результату БД:
-        AI на момент ответа ещё не знает число найденных или удалённых строк.
+        backend валидирует action и выполняет его. Затем запрашивает message
+        через POST /api/respond по фактическому результату БД. Текст /api/job
+        остаётся резервным для создания, списка, поиска и изменения. Для
+        кандидатов и удаления backend имеет резервный текст по количеству строк.
         При задаче со сроком без точного времени action.time отсутствует или
         равен null; backend сохраняет такую задачу без времени.
         Если пользователь сменил тему во время уточнения, AI не переносит
@@ -535,6 +598,54 @@ paths:
           $ref: '#/components/responses/TechnicalError'
 components:
   schemas:
+    RespondRequest:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, text, timezone, intent, status, data]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        text:
+          type: string
+          minLength: 1
+          description: Текущая реплика пользователя.
+        timezone:
+          type: string
+          minLength: 1
+          example: Europe/Moscow
+        intent:
+          type: string
+          enum: [create_event, list_events, search_events, on_delete, on_update]
+        status:
+          type: string
+          enum: [ok, candidates, deleted, update_candidates, updated]
+        data:
+          type: object
+          additionalProperties: true
+          description: |
+            Фактический data из ответа backend: event для создания; items для
+            списка/поиска; candidates с number/event для выбора; candidates и
+            changes для изменения; deleted_events или updated_events после
+            успешного выполнения. Совпадает с соответствующим data в backend.openapi.yaml.
+    RespondResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, message]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+          minLength: 1
+          maxLength: 6000
     AIHealthResponse:
       type: object
       additionalProperties: false
@@ -788,7 +899,8 @@ components:
       description: |
         Ответ on_delete с X-Task-Intent: on_delete. ready означает только
         готовность признаков для поиска. AI не видит PostgreSQL и не знает
-        число кандидатов; backend составляет сообщение о результатах поиска.
+        число кандидатов. После поиска backend передаёт результат в /api/respond;
+        при сбое генерации использует резервное сообщение по числу кандидатов.
       properties:
         user_id:
           type: string
@@ -1019,10 +1131,10 @@ components:
           type: string
           minLength: 1
           description: |
-            Сообщение для пользователя от AI-service. Backend передаёт его
-            без изменений только после успешного выполнения action. Для
-            list_events и search_events сообщение не утверждает, сколько
-            записей найдено: AI-service не видит результат запроса к БД.
+            Резервное сообщение для пользователя от AI-service. После action
+            backend запрашивает финальное сообщение через /api/respond.
+            Для list_events и search_events резервное сообщение не утверждает,
+            сколько записей найдено: /api/job ещё не видит результат БД.
             После удаления пробелов по краям строка должна быть непустой.
         context:
           $ref: '#/components/schemas/ReadyContext'

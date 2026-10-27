@@ -48,6 +48,11 @@ paths:
         передаёт AI-service текст, время запроса, часовой пояс пользователя и
         пустой context. Для ответа на уточнение клиент повторяет запрос с
         полученным task_id; backend загружает context из Redis.
+        После успешной операции или поиска кандидатов backend вызывает
+        POST /api/respond с фактическим data, intent, status, текущим text и
+        timezone. AI формирует только message; данные и HTTP-статус сохраняются.
+        При сбое генерации используется резервное сообщение без повтора операции.
+        Уточнения и отмена создания встречи не требуют этого вызова.
         Одновременные запросы с одним user_id и task_id не выполняются:
         пока первый обрабатывается, второй получает 409. Клиент ждёт ответ
         первого запроса и только затем отправляет следующую реплику.
@@ -134,9 +139,9 @@ paths:
             список для выбора, в том числе пустой; status=deleted подтверждает
             фактическое удаление всех выбранных записей. Для on_update
             status=update_candidates возвращает список и предлагаемые changes,
-            status=updated — обновлённые записи. Сообщения о кандидатах и
-            удалении формирует backend после обращения к PostgreSQL;
-            при status=updated backend передаёт message от AI-service.
+            status=updated — обновлённые записи. После получения результата
+            backend запрашивает message через AI POST /api/respond.
+            При сбое генерации используется резервное сообщение.
           headers:
             X-Task-Intent:
               description: Проверенный intent; при уточнении — намерение диалога.
@@ -877,7 +882,7 @@ components:
         message:
           type: string
           minLength: 1
-          description: Сообщение AI-service, переданное backend без изменений после успешного сохранения.
+          description: Сообщение POST /api/respond по сохранённой записи, либо резервный текст при сбое генерации.
         data:
           $ref: '#/components/schemas/TaskCreatedData'
     TaskCancelledResponse:
@@ -954,7 +959,7 @@ components:
       description: |
         Ответ фронтенду после выполнения list_events или search_events.
         Агрегатор добавляет user_id, task_id и status к результату внутреннего
-        сервиса в data и передаёт message от AI-service без изменений.
+        сервиса в data. message формирует POST /api/respond, при сбое — резервный текст.
       properties:
         user_id:
           type: string
@@ -970,9 +975,8 @@ components:
           type: string
           minLength: 1
           description: |
-            Сообщение AI-service, переданное backend без изменений после
-            успешного выполнения поиска или получения списка. Количество
-            записей и наличие совпадений определяются по data.items.
+            Сообщение POST /api/respond по data.items, либо резервный текст
+            при сбое генерации. Список записей определяется только по data.items.
         data:
           $ref: '#/components/schemas/TaskCollection'
     TaskCollection:
@@ -984,7 +988,7 @@ components:
         возвращают агрегатору. Записи берутся из PostgreSQL и ограничены
         user_id текущего запроса. Сервисы возвращают только items;
         агрегатор формирует обёртку ответа фронтенду и передаёт message от
-        AI-service без изменений.
+        POST /api/respond; при ошибке генерации используется резервное сообщение.
         Если записей нет, items — пустой массив. Оба сервиса учитывают
         записи со статусами active и completed. Задача без точного времени
         участвует в выборке по дате; отсутствие времени не заменяется
@@ -1083,7 +1087,7 @@ components:
         номера, снимки записей и changes в Redis. Даже при нуле или одном
         совпадении возвращаются candidates и changes; изменений в БД пока нет.
         Для подтверждения клиент передаёт выбранные номера текстом с тем же
-        task_id. message о количестве кандидатов формирует backend.
+        task_id. message запрашивается через POST /api/respond; при сбое используется резервный текст.
       properties:
         user_id: {$ref: '#/components/schemas/UUID'}
         task_id: {$ref: '#/components/schemas/UUID'}
@@ -1111,8 +1115,8 @@ components:
       description: |
         Результат on_update/update_confirmed после проверки выбранных ID и
         снимков, затем атомарной записи в PostgreSQL. Устаревший выбор даёт
-        HTTP 409 без частичного изменения. message от AI-service передаётся
-        после успешной записи.
+        HTTP 409 без частичного изменения. message запрашивается через
+        POST /api/respond после записи; при сбое используется резервный текст.
       properties:
         user_id: {$ref: '#/components/schemas/UUID'}
         task_id: {$ref: '#/components/schemas/UUID'}

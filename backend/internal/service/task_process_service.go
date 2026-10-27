@@ -81,6 +81,7 @@ type TaskProcess struct {
 	deleter   DeleteService
 	updater   UpdateService
 	aiURL     string
+	narrate   bool
 	conflicts ConflictFinder
 	pending   PendingTaskStore
 }
@@ -692,6 +693,9 @@ func (t *TaskProcess) Process(
 	defer unlock()
 	if !newDialogue {
 		confirmed, err := t.confirmPending(ctx, userID, *taskID, text, location)
+		if err == nil && confirmed != nil {
+			t.narrateResult(ctx, confirmed, text, timezone)
+		}
 		if err != nil || confirmed != nil {
 			return confirmed, err
 		}
@@ -731,6 +735,7 @@ func (t *TaskProcess) Process(
 	if err != nil {
 		return nil, err
 	}
+	t.narrateResult(ctx, processed, text, timezone)
 	// The candidate list must survive find_candidates. Every other successful
 	// ready result closes this dialogue; Redis expiry covers cleanup failures.
 	switch processed.Body.(type) {
