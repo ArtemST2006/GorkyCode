@@ -1,65 +1,93 @@
-import json
+"""The result endpoint never needs a model, even when one is configured."""
+
+import asyncio
 from types import SimpleNamespace
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import httpx
+import pytest
 
-from app.api.dependencies import get_job_service
 from app.api.exception_handlers import register_exception_handlers
 from app.api.routes.respond import router
 
 
-def client_for(completion):
-    class Gateway:
-        async def complete(self, messages):
-            self.messages = messages
-            return completion
-    gateway = Gateway()
-    app = FastAPI()
-    app.include_router(router)
-    register_exception_handlers(app)
-    app.dependency_overrides[get_job_service] = lambda: SimpleNamespace(gateway=gateway)
-    return TestClient(app), gateway
+USER_ID = "b80e93e1-9945-48e0-8460-3ee68bcfb402"
+TASK_ID = "7b612951-57ae-4ac4-a93c-42fa9c9e8359"
 
 
 def payload():
     return {
-        "user_id": "b80e93e1-9945-48e0-8460-3ee68bcfb402",
-        "task_id": "7b612951-57ae-4ac4-a93c-42fa9c9e8359",
+        "user_id": USER_ID, "task_id": TASK_ID,
         "text": "Найди встречи", "timezone": "Europe/Moscow",
         "intent": "search_events", "status": "ok", "data": {"items": []},
     }
 
 
-def test_respond_uses_database_result_and_returns_original_ids():
-    client, gateway = client_for('{"message":"Встреч не нашлось. Попробуем другой период?"}')
-    response = client.post("/api/respond", json=payload())
+def client_response(value, *, configured_gateway=True):
+    class ForbiddenGateway:
+        async def complete(self, *args, **kwargs):
+            pytest.fail("Result narration must never call the model")
+
+    app = FastAPI()
+    app.include_router(router)
+    register_exception_handlers(app)
+    if configured_gateway:
+        app.state.job_service = SimpleNamespace(gateway=ForbiddenGateway())
+
+    async def send():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.post("/api/respond", json=value)
+
+    return asyncio.run(send())
+
+
+@pytest.mark.parametrize("configured_gateway", [True, False])
+def test_respond_preserves_original_ids_without_a_model(configured_gateway):
+    response = client_response(payload(), configured_gateway=configured_gateway)
     assert response.status_code == 200
-    assert response.json()["user_id"] == payload()["user_id"]
-    assert response.json()["task_id"] == payload()["task_id"]
-    assert json.loads(gateway.messages[-1]["content"])["data"] == {"items": []}
+    assert response.json() == {
+        "user_id": USER_ID, "task_id": TASK_ID,
+        "message": "Записей не найдено. Уточните запрос.",
+    }
 
 
-def test_respond_rejects_actions_and_empty_messages():
-    for value in ('{"message":""}', '{"message":"   "}', '{"message":"ok","action":{"delete":true}}', 'not json'):
-        client, _ = client_for(value)
-        assert client.post("/api/respond", json=payload()).status_code == 502
+@pytest.mark.parametrize("intent,status,data,expected", [
+    ("create_event", "ok", {"event": {}}, "Запись создана."),
+    ("list_events", "ok", {"items": [{}, {}]}, "Найдено записей: 2."),
+    ("search_events", "ok", {"items": [{} for _ in range(60)]}, "Найдено записей: 60."),
+    ("on_delete", "candidates", {"candidates": [{"number": 7}, {"number": 42}]},
+     "Найдено записей: 2. Удаление ещё не выполнено. Выберите номера для подтверждения: 7, 42."),
+    ("on_update", "update_candidates", {"candidates": [{"number": 9}], "changes": {"title": "x"}},
+     "Найдено записей: 1. Изменение ещё не выполнено. Предлагается изменить: название. Выберите номера для подтверждения: 9."),
+    ("on_delete", "deleted", {"deleted_events": []}, "Удалено записей: 0."),
+    ("on_update", "updated", {"updated_events": [{}]}, "Обновлено записей: 1."),
+])
+def test_all_supported_operation_variants(intent, status, data, expected, assert_contract):
+    value = payload() | {"intent": intent, "status": status, "data": data}
+    assert_contract(value, "RespondRequest")
+    response = client_response(value)
+    assert response.status_code == 200
+    assert response.json()["message"] == expected
+    assert_contract(response.json(), "RespondResponse")
 
 
-def test_respond_rejects_incompatible_result():
-    client, _ = client_for('{"message":"ok"}')
-    assert client.post("/api/respond", json=payload() | {"status": "deleted"}).status_code == 400
+@pytest.mark.parametrize("patch", [
+    {"status": "deleted"},
+    {"intent": "create_event", "data": {"items": []}},
+    {"data": {"items": {}, "event": {}}},
+    {"data": {"items": ["bad"]}},
+    {"data": {"items": [], "unknown": "injection"}},
+    {"intent": "on_update", "status": "update_candidates", "data": {"candidates": []}},
+])
+def test_invalid_result_variants_are_rejected(patch):
+    response = client_response(payload() | patch)
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_request"
 
 
-def test_provider_receives_display_fields_only_and_bounded_lists():
-    client, gateway = client_for('{"message":"Нашёл 60 записей."}')
-    value = payload() | {"data": {"items": [
-        {"id": "internal-id", "user_id": "internal-owner", "title": "Встреча", "access_token": "must-not-leave"}
-        for _ in range(60)
-    ]}}
-    assert client.post("/api/respond", json=value).status_code == 200
-    sent = json.loads(gateway.messages[-1]["content"])
-    assert sent["total_counts"]["items"] == 60
-    assert len(sent["data"]["items"]) == 50
-    assert sent["data"]["items"][0] == {"title": "Встреча"}
-    assert "user_id" not in sent and "task_id" not in sent
+def test_operation_id_is_unchanged():
+    app = FastAPI()
+    app.include_router(router)
+    assert app.openapi()["paths"]["/api/respond"]["post"]["operationId"] == "respondToResult"

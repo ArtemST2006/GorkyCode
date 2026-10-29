@@ -46,6 +46,16 @@ class Settings(BaseSettings):
         return value.rstrip("/")
 
     job_timeout_seconds: float = Field(default=150.0, gt=0, le=600)
+    security_guard_mode: Literal["enforce", "observe"] = "enforce"
+    security_guard_model: str = Field(default="", max_length=256)
+    security_guard_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    security_guard_max_tokens: int = Field(default=256, ge=128, le=2048)
+    security_guard_max_concurrency: int = Field(default=4, ge=1, le=64)
+    security_job_max_body_bytes: int = Field(default=262144, ge=1024, le=4194304)
+    security_respond_max_body_bytes: int = Field(default=524288, ge=1024, le=4194304)
+    security_user_max_chars: int = Field(default=8192, ge=1, le=131072)
+    security_history_message_max_chars: int = Field(default=8192, ge=1, le=131072)
+    security_context_max_chars: int = Field(default=32768, ge=1024, le=524288)
     embedding_enabled: bool = True
     embedding_model_path: str = "models/multilingual-e5-small"
     embedding_num_threads: int = Field(default=2, ge=1, le=64)

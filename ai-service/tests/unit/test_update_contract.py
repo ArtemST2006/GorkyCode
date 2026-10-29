@@ -9,6 +9,7 @@ from app.llm.schemas import ModelDecision
 from app.schemas.job import JobRequest, UpdateFindCandidatesResponse
 from app.services.context import build_job_response
 from app.services.jobs import JobService
+from app.security.guard_schemas import GuardVerdict
 
 
 USER_ID = "b80e93e1-9945-48e0-8460-3ee68bcfb402"
@@ -49,7 +50,14 @@ def test_one_change_is_enough_to_search(changes, assert_contract):
             return decision.model_dump_json(exclude_unset=True)
 
     gateway = Gateway()
-    result = asyncio.run(JobService(Settings(job_timeout_seconds=5), gateway).process(request()))
+
+    class AllowGuard:
+        async def verify(self, _request, *, intent, proposal):
+            return GuardVerdict(decision="allow", reason_code="consistent_request")
+
+    result = asyncio.run(
+        JobService(Settings(job_timeout_seconds=5), gateway, AllowGuard()).process(request())
+    )
     assert isinstance(result, UpdateFindCandidatesResponse)
     assert gateway.calls == 1  # No paid retry for an already complete patch.
     payload = result.model_dump(mode="json", exclude_unset=True)

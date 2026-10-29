@@ -85,6 +85,32 @@ class TaskDeadlineTest(unittest.TestCase):
         self.assertIsNone(result.action.time)
         self.assertNotIn("23:59", result.message)
 
+    def test_compact_explicit_hour_survives_deadline_normalization(self):
+        decision = ModelDecision.model_validate({
+            "status": "ready", "intent": "create_event", "message": "Готово.",
+            "action": {"record_type": "task", "title": "Отчёт",
+                       "date": "2026-11-01", "time": "15:00"},
+            "draft": None, "topic_changed": False,
+        })
+        for hour in ("в15", "в 15", "к15", "в15ч", "в15 часов"):
+            with self.subTest(hour=hour):
+                result = normalize_task_deadline(
+                    request("Отчёт до конца недели " + hour), decision)
+                self.assertEqual(result.action.time, "15:00")
+
+    def test_compact_date_is_not_an_explicit_hour(self):
+        decision = ModelDecision.model_validate({
+            "status": "ready", "intent": "create_event", "message": "Готово.",
+            "action": {"record_type": "task", "title": "Отчёт",
+                       "date": "2026-11-01", "time": "23:59"},
+            "draft": None, "topic_changed": False,
+        })
+        for date in ("в15.11", "в 15/11", "к15-11", "в15 ноября", "в15-го", "в25"):
+            with self.subTest(date=date):
+                result = normalize_task_deadline(
+                    request("Отчёт до конца недели, обсуждали " + date), decision)
+                self.assertIsNone(result.action.time)
+
 
 if __name__ == "__main__":
     unittest.main()

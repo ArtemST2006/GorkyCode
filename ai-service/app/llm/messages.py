@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.errors import ServiceError
 from app.llm.protocols import ChatMessage
+from app.schemas.context import JobRequestContext
 from app.schemas.job import JobRequest
 from app.schemas.messages import MAX_RECENT_MESSAGES
 
@@ -15,6 +16,23 @@ from app.schemas.messages import MAX_RECENT_MESSAGES
 @lru_cache(maxsize=1)
 def load_system_prompt() -> str:
     return files("app.llm").joinpath("prompts/job.txt").read_text(encoding="utf-8")
+
+
+def project_context_for_model(context: JobRequestContext) -> dict:
+    """Copy dialogue data, exposing only candidate numbers to the model.
+
+    Stored record text and IDs are unnecessary for intent extraction. Keep
+    them exclusively on the original context for application-side validation
+    and mapping a user's explicit selection to IDs.
+    """
+    projected = context.model_dump(mode="json", exclude_unset=True)
+    if "candidates" in projected:
+        projected["candidates"] = [
+            {"number": candidate["number"]} for candidate in projected["candidates"]
+        ]
+    if "recent_messages" in projected:
+        projected["recent_messages"] = projected["recent_messages"][-MAX_RECENT_MESSAGES:]
+    return projected
 
 
 def build_messages(request: JobRequest, result_schema: dict) -> list[ChatMessage]:
@@ -50,10 +68,8 @@ def build_messages(request: JobRequest, result_schema: dict) -> list[ChatMessage
             "next_week_end": shifted(13 - today.weekday()),
             "next_week_end_exclusive": shifted(14 - today.weekday()),
         },
-        "context": request.context.model_dump(mode="json", exclude_unset=True),
+        "context": project_context_for_model(request.context),
     }
-    if "recent_messages" in payload["context"]:
-        payload["context"]["recent_messages"] = payload["context"]["recent_messages"][-MAX_RECENT_MESSAGES:]
     return [
         {
             "role": "system",
