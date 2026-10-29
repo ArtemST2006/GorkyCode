@@ -125,12 +125,15 @@ type fakeGoogleClient struct {
 	revokeErr  error
 	busy       []google.Busy
 	busyErr    error
+	syncErr    error
 	authURLFor string
 
 	exchangedCode string
 	createdEvent  *google.Event
 	createdIn     string
 	revoked       string
+	updated       map[string]google.Event
+	deletedEvents []string
 }
 
 func (c *fakeGoogleClient) AuthURL(state string) string {
@@ -153,12 +156,17 @@ func (c *fakeGoogleClient) CreateEvent(_ context.Context, _ google.Credentials, 
 	return c.eventID, c.createErr
 }
 
-func (c *fakeGoogleClient) UpdateEvent(context.Context, google.Credentials, string, string, google.Event) error {
-	return nil
+func (c *fakeGoogleClient) UpdateEvent(_ context.Context, _ google.Credentials, _, eventID string, ev google.Event) error {
+	if c.updated == nil {
+		c.updated = map[string]google.Event{}
+	}
+	c.updated[eventID] = ev
+	return c.syncErr
 }
 
-func (c *fakeGoogleClient) DeleteEvent(context.Context, google.Credentials, string, string) error {
-	return nil
+func (c *fakeGoogleClient) DeleteEvent(_ context.Context, _ google.Credentials, _, eventID string) error {
+	c.deletedEvents = append(c.deletedEvents, eventID)
+	return c.syncErr
 }
 
 func (c *fakeGoogleClient) FreeBusy(context.Context, google.Credentials, string, time.Time, time.Time) ([]google.Busy, error) {
@@ -392,7 +400,7 @@ func TestCalendarServiceSyncCreatedTask(t *testing.T) {
 	}
 
 	t.Run("skipped record types", func(t *testing.T) {
-		for _, recordType := range []string{"task", "reminder"} {
+		for _, recordType := range []string{"task"} {
 			client := &fakeGoogleClient{eventID: "event-1"}
 			calendar := newCalendarService(newFakeGoogleStore(newIntegration()), newFakeOAuthStates(), client)
 			task := newMeeting(userID, "15:00")
@@ -404,6 +412,25 @@ func TestCalendarServiceSyncCreatedTask(t *testing.T) {
 			if client.createdEvent != nil {
 				t.Fatalf("%s must not be sent to Google Calendar", recordType)
 			}
+		}
+	})
+
+	t.Run("reminder is a point in time", func(t *testing.T) {
+		client := &fakeGoogleClient{eventID: "event-1"}
+		store := newFakeGoogleStore(newIntegration())
+		calendar := newCalendarService(store, newFakeOAuthStates(), client)
+		task := newMeeting(userID, "18:00")
+		task.Type = "reminder"
+
+		if err := calendar.SyncCreatedTask(t.Context(), task); err != nil {
+			t.Fatal(err)
+		}
+		ev := client.createdEvent
+		if ev == nil || !ev.Reminder || ev.AllDay || !ev.End.Equal(ev.Start) || ev.Start.Format("15:04") != "18:00" {
+			t.Fatalf("event = %+v, want a reminder at 18:00 that ends at its start", ev)
+		}
+		if store.eventID == nil || *store.eventID != "event-1" {
+			t.Fatalf("saved event id = %v, want event-1", store.eventID)
 		}
 	})
 
@@ -612,5 +639,84 @@ func TestCalendarServiceGoogleBusy(t *testing.T) {
 				t.Fatalf("integration deleted = %v, want %v", deleted, tc.wantDeleted)
 			}
 		})
+	}
+}
+
+func syncedMeeting(userID uuid.UUID, clock, eventID string) model.Task {
+	task := newMeeting(userID, clock)
+	if eventID != "" {
+		task.GoogleEventID = &eventID
+	}
+	return *task
+}
+
+func TestCalendarServiceSyncDeletedTasks(t *testing.T) {
+	userID := uuid.New()
+	connected := func() *fakeGoogleStore {
+		return newFakeGoogleStore(&model.GoogleIntegration{UserID: userID, RefreshToken: "refresh", CalendarID: "primary"})
+	}
+	tasks := []model.Task{syncedMeeting(userID, "15:00", "event-1"), syncedMeeting(userID, "16:00", ""), syncedMeeting(userID, "17:00", "event-3")}
+
+	t.Run("deletes only synced events", func(t *testing.T) {
+		client := &fakeGoogleClient{}
+		newCalendarService(connected(), newFakeOAuthStates(), client).SyncDeletedTasks(t.Context(), tasks)
+
+		if !reflect.DeepEqual(client.deletedEvents, []string{"event-1", "event-3"}) {
+			t.Fatalf("deleted events = %v, want [event-1 event-3]", client.deletedEvents)
+		}
+	})
+
+	t.Run("not connected", func(t *testing.T) {
+		client := &fakeGoogleClient{}
+		newCalendarService(newFakeGoogleStore(), newFakeOAuthStates(), client).SyncDeletedTasks(t.Context(), tasks)
+
+		if len(client.deletedEvents) != 0 {
+			t.Fatalf("deleted events = %v, want none", client.deletedEvents)
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		newCalendarService(connected(), newFakeOAuthStates(), nil).SyncDeletedTasks(t.Context(), tasks)
+	})
+
+	t.Run("revoked token stops and disconnects", func(t *testing.T) {
+		store := connected()
+		client := &fakeGoogleClient{syncErr: model.ErrGoogleTokenRevoked}
+		newCalendarService(store, newFakeOAuthStates(), client).SyncDeletedTasks(t.Context(), tasks)
+
+		if len(client.deletedEvents) != 1 || len(store.deleted) != 1 {
+			t.Fatalf("calls = %v, deleted integrations = %v; want one call and a removed integration", client.deletedEvents, store.deleted)
+		}
+	})
+
+	t.Run("google failure continues", func(t *testing.T) {
+		store := connected()
+		client := &fakeGoogleClient{syncErr: errors.New("google unavailable")}
+		newCalendarService(store, newFakeOAuthStates(), client).SyncDeletedTasks(t.Context(), tasks)
+
+		if len(client.deletedEvents) != 2 || len(store.deleted) != 0 {
+			t.Fatalf("calls = %v, deleted integrations = %v", client.deletedEvents, store.deleted)
+		}
+	})
+}
+
+func TestCalendarServiceSyncUpdatedTasks(t *testing.T) {
+	userID := uuid.New()
+	store := newFakeGoogleStore(&model.GoogleIntegration{UserID: userID, RefreshToken: "refresh", CalendarID: "primary"})
+	client := &fakeGoogleClient{}
+	task := syncedMeeting(userID, "18:30", "event-1")
+	task.Title = "Встреча с Петром"
+
+	newCalendarService(store, newFakeOAuthStates(), client).
+		SyncUpdatedTasks(t.Context(), []model.Task{task, syncedMeeting(userID, "19:00", "")})
+
+	if len(client.updated) != 1 {
+		t.Fatalf("updated events = %v, want only event-1", client.updated)
+	}
+	ev := client.updated["event-1"]
+	moscow, _ := time.LoadLocation("Europe/Moscow")
+	wantStart := time.Date(2026, 10, 21, 18, 30, 0, 0, moscow)
+	if ev.Title != task.Title || !ev.Start.Equal(wantStart) || !ev.End.Equal(wantStart.Add(testEventDuration)) || ev.TimeZone != "Europe/Moscow" {
+		t.Fatalf("updated event = %+v", ev)
 	}
 }

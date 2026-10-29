@@ -31,10 +31,17 @@ type TaskUpdate struct {
 	rep      TaskUpdateRepository
 	deleter  *TaskDelete
 	embedder model.Embedder
+	calendar CalendarSync
 }
 
 func NewTaskUpdateService(rep TaskUpdateRepository, deleter *TaskDelete, embedder model.Embedder) *TaskUpdate {
 	return &TaskUpdate{rep: rep, deleter: deleter, embedder: embedder}
+}
+
+// WithCalendarSync makes confirmed updates also move the records' calendar events.
+func (s *TaskUpdate) WithCalendarSync(calendar CalendarSync) *TaskUpdate {
+	s.calendar = calendar
+	return s
 }
 
 // FindCandidates reuses exactly the same owner-scoped search and numbering as
@@ -133,6 +140,9 @@ func (s *TaskUpdate) UpdateConfirmed(ctx context.Context, userID uuid.UUID, acti
 	tasks, err := s.rep.UpdateTasks(ctx, userID, confirmed.RecordIds, saved, command, embedding)
 	if err != nil {
 		return nil, fmt.Errorf("update tasks: %w", err)
+	}
+	if s.calendar != nil {
+		s.calendar.SyncUpdatedTasks(ctx, tasks)
 	}
 	byID := make(map[uuid.UUID]model.Task, len(tasks))
 	for _, task := range tasks {

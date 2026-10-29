@@ -44,6 +44,9 @@ var (
 	ErrGoogleTokenRevoked = errors.New("google token revoked")
 	// ErrGoogleDisabled is returned when Google Calendar credentials are not configured.
 	ErrGoogleDisabled = errors.New("google calendar integration disabled")
+	// ErrGoogleScopeMissing is returned when the user unchecked a calendar
+	// permission on the Google consent page.
+	ErrGoogleScopeMissing = errors.New("google calendar permission not granted")
 	// ErrPendingTaskNotFound is returned when no task waits for the user's confirmation.
 	ErrPendingTaskNotFound = errors.New("pending task not found")
 )

@@ -154,6 +154,41 @@ func TestExchange(t *testing.T) {
 	}
 }
 
+func TestExchangeChecksGrantedScopes(t *testing.T) {
+	const eventsScope = "https://www.googleapis.com/auth/calendar.events"
+	const freeBusyScope = "https://www.googleapis.com/auth/calendar.events.freebusy"
+	for _, tc := range []struct {
+		name    string
+		scope   string
+		wantErr bool
+	}{
+		{name: "all granted", scope: "openid " + eventsScope + " " + freeBusyScope + " https://www.googleapis.com/auth/userinfo.email"},
+		{name: "events unchecked", scope: "openid " + freeBusyScope, wantErr: true},
+		{name: "free/busy unchecked", scope: eventsScope + " openid", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				writeJSON(t, w, http.StatusOK, map[string]any{
+					"access_token":  testAccessToken,
+					"refresh_token": testRefreshToken,
+					"token_type":    "Bearer",
+					"expires_in":    3600,
+					"scope":         tc.scope,
+				})
+			}))
+
+			_, err := client.Exchange(t.Context(), "auth-code")
+
+			if errors.Is(err, model.ErrGoogleScopeMissing) != tc.wantErr {
+				t.Fatalf("Exchange() = %v, want scope error %v", err, tc.wantErr)
+			}
+			if err != nil {
+				assertNoTokens(t, err)
+			}
+		})
+	}
+}
+
 func TestExchangeInvalidGrant(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(t, w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
@@ -255,6 +290,7 @@ func TestCreateEvent(t *testing.T) {
 		wantPath   string
 		wantStart  map[string]string
 		wantEnd    map[string]string
+		wantTransp string
 	}{
 		{
 			name:      "timed event in primary calendar",
@@ -270,6 +306,7 @@ func TestCreateEvent(t *testing.T) {
 			wantPath:   "/calendar/calendars/team@group.calendar.google.com/events",
 			wantStart:  map[string]string{"date": "2026-10-21", "timeZone": "Europe/Moscow"},
 			wantEnd:    map[string]string{"date": "2026-10-22", "timeZone": "Europe/Moscow"},
+			wantTransp: "transparent",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -281,14 +318,16 @@ func TestCreateEvent(t *testing.T) {
 					t.Errorf("Authorization = %q", got)
 				}
 				var body struct {
-					Summary string            `json:"summary"`
-					Start   map[string]string `json:"start"`
-					End     map[string]string `json:"end"`
+					Summary      string            `json:"summary"`
+					Start        map[string]string `json:"start"`
+					End          map[string]string `json:"end"`
+					Transparency string            `json:"transparency"`
 				}
 				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 					t.Error(err)
 				}
-				if body.Summary != tc.event.Title || !equalMaps(body.Start, tc.wantStart) || !equalMaps(body.End, tc.wantEnd) {
+				if body.Summary != tc.event.Title || !equalMaps(body.Start, tc.wantStart) || !equalMaps(body.End, tc.wantEnd) ||
+					body.Transparency != tc.wantTransp {
 					t.Errorf("event body = %+v", body)
 				}
 				writeJSON(t, w, http.StatusOK, map[string]string{"id": "event-1"})
@@ -302,6 +341,42 @@ func TestCreateEvent(t *testing.T) {
 				t.Fatalf("event id = %q, want event-1", id)
 			}
 		})
+	}
+}
+
+func TestCreateEventReminder(t *testing.T) {
+	moscow, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 10, 21, 18, 0, 0, 0, moscow)
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Transparency string `json:"transparency"`
+			Reminders    struct {
+				UseDefault *bool `json:"useDefault"`
+				Overrides  []struct {
+					Method  string `json:"method"`
+					Minutes *int   `json:"minutes"`
+				} `json:"overrides"`
+			} `json:"reminders"`
+		}
+		if decodeErr := json.NewDecoder(r.Body).Decode(&body); decodeErr != nil {
+			t.Error(decodeErr)
+		}
+		reminders := body.Reminders
+		if body.Transparency != "transparent" || reminders.UseDefault == nil || *reminders.UseDefault ||
+			len(reminders.Overrides) != 1 || reminders.Overrides[0].Method != "popup" ||
+			reminders.Overrides[0].Minutes == nil || *reminders.Overrides[0].Minutes != 0 {
+			t.Errorf("reminder body = %+v", body)
+		}
+		writeJSON(t, w, http.StatusOK, map[string]string{"id": "event-1"})
+	}))
+
+	_, err = client.CreateEvent(t.Context(), Credentials{AccessToken: testAccessToken}, "",
+		Event{Title: "Позвонить маме", Start: start, End: start, TimeZone: "Europe/Moscow", Reminder: true})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
