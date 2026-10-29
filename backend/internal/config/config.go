@@ -12,16 +12,17 @@ import (
 
 // Config holds backend settings.
 type Config struct {
-	Env             string        `yaml:"env" env:"ENV" env-default:"local"`
-	LogLevel        string        `yaml:"log_level" env:"LOG_LEVEL" env-default:"info"`
-	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" env:"SHUTDOWN_TIMEOUT" env-default:"10s"`
-	HTTPServer      HTTPServer    `yaml:"http-server"`
-	Database        Database      `yaml:"database"`
-	ArsModel        ArsModel      `yaml:"ars_model"`
-	AIServiceURL    string        `yaml:"ai_service_url" env:"AI_SERVICE_URL" env-default:"http://localhost:8090"`
-	Redis           Redis         `yaml:"redis"`
-	Auth            Auth          `yaml:"auth"`
-	Google          Google        `yaml:"google"`
+	Env             string         `yaml:"env" env:"ENV" env-default:"local"`
+	LogLevel        string         `yaml:"log_level" env:"LOG_LEVEL" env-default:"info"`
+	ShutdownTimeout time.Duration  `yaml:"shutdown_timeout" env:"SHUTDOWN_TIMEOUT" env-default:"10s"`
+	HTTPServer      HTTPServer     `yaml:"http-server"`
+	Database        Database       `yaml:"database"`
+	ArsModel        ArsModel       `yaml:"ars_model"`
+	AIServiceURL    string         `yaml:"ai_service_url" env:"AI_SERVICE_URL" env-default:"http://localhost:8090"`
+	Redis           Redis          `yaml:"redis"`
+	Auth            Auth           `yaml:"auth"`
+	Google          Google         `yaml:"google"`
+	SemanticSearch  SemanticSearch `yaml:"semantic_search"`
 }
 
 // HTTPServer holds HTTP listener settings.
@@ -85,6 +86,9 @@ func Load() (*Config, error) {
 		}
 	} else if err := cleanenv.ReadEnv(&cfg); err != nil {
 		return nil, fmt.Errorf("read config from environment: %w", err)
+	}
+	if err := cfg.SemanticSearch.Validate(); err != nil {
+		return nil, fmt.Errorf("semantic search config: %w", err)
 	}
 
 	return &cfg, nil

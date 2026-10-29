@@ -70,7 +70,7 @@ func run() error {
 	}
 	defer rec.Close()
 
-	repo := storage.NewRepository(pool, rdb)
+	repo := storage.NewRepository(pool, rdb, postgres.WithSemanticSearch(cfg.SemanticSearch, log))
 	// The interface stays nil while Google is disabled, so the service skips calendar sync.
 	var googleClient service.GoogleCalendarClient
 	if cfg.Google.Enabled() {

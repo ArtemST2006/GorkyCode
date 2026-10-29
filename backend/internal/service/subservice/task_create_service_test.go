@@ -56,10 +56,10 @@ type fakeEmbeddingStore struct {
 	result model.EmbeddingResult
 }
 
-func (f *fakeEmbeddingStore) StoreEmbedding(_ context.Context, taskID uuid.UUID, result model.EmbeddingResult) error {
+func (f *fakeEmbeddingStore) StoreEmbeddingIfCurrent(_ context.Context, taskID uuid.UUID, _ string, result model.EmbeddingResult) (bool, error) {
 	f.called = true
 	f.taskID, f.result = taskID, result
-	return nil
+	return true, nil
 }
 
 func createCommand() CreateTaskCommand {

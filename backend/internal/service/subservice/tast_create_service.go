@@ -16,7 +16,7 @@ type TaskCreateRepository interface {
 
 // EmbeddingStore persists computed embeddings for semantic search.
 type EmbeddingStore interface {
-	StoreEmbedding(ctx context.Context, taskID uuid.UUID, result model.EmbeddingResult) error
+	StoreEmbeddingIfCurrent(ctx context.Context, taskID uuid.UUID, sourceTitle string, result model.EmbeddingResult) (bool, error)
 }
 
 // CreateTaskCommand is a domain command built from a validated AI action.
@@ -75,5 +75,5 @@ func (s *TaskCreate) embedTask(ctx context.Context, task *model.Task) {
 	if err != nil {
 		return
 	}
-	_ = s.embeddings.StoreEmbedding(ctx, task.ID, result)
+	_, _ = s.embeddings.StoreEmbeddingIfCurrent(ctx, task.ID, task.Title, result)
 }

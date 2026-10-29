@@ -18,6 +18,8 @@ export
 
 GOOSE = $(GOOSE_BIN) -dir $(MIGRATIONS_DIR)
 
+.PHONY: embedding-backfill
+
 .DEFAULT_GOAL := help
 .PHONY: help install build run format lint tidy-check test test-asr migrate migrate-down migrate-status migrate-create generate generate-backend generate-ai download-model clean-model
 
@@ -55,6 +57,9 @@ test-asr: ## Протестировать распознавание речи н
 
 migrate: ## Применить миграции PostgreSQL к DATABASE_URL
 	$(GOOSE) postgres "$(DATABASE_URL)" up
+
+embedding-backfill: ## Дозаполнить embeddings: ARGS='--dry-run --limit 1000'
+	$(GO) run ./cmd/embedding-backfill $(ARGS)
 
 migrate-down: ## Откатить последнюю миграцию
 	$(GOOSE) postgres "$(DATABASE_URL)" down

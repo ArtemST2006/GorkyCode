@@ -3,7 +3,9 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"gorkycode/backend/internal/config"
 	"gorkycode/backend/internal/model"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -30,16 +32,31 @@ const (
 
 // TaskRepository reads user tasks from PostgreSQL.
 type TaskRepository struct {
-	pool *pgxpool.Pool
-	sb   sq.StatementBuilderType
+	pool   *pgxpool.Pool
+	sb     sq.StatementBuilderType
+	search config.SemanticSearch
+	log    *slog.Logger
+}
+
+// TaskRepositoryOption configures optional retrieval behavior.
+type TaskRepositoryOption func(*TaskRepository)
+
+// WithSemanticSearch is shared by the application and the benchmark.
+func WithSemanticSearch(cfg config.SemanticSearch, log *slog.Logger) TaskRepositoryOption {
+	return func(r *TaskRepository) { r.search, r.log = cfg, log }
 }
 
 // NewTaskRepository creates a task repository over a connection pool.
-func NewTaskRepository(pool *pgxpool.Pool) *TaskRepository {
-	return &TaskRepository{
-		pool: pool,
-		sb:   sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
+func NewTaskRepository(pool *pgxpool.Pool, options ...TaskRepositoryOption) *TaskRepository {
+	r := &TaskRepository{
+		pool:   pool,
+		sb:     sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
+		search: config.DefaultSemanticSearch(),
 	}
+	for _, option := range options {
+		option(r)
+	}
+	return r
 }
 
 // ListEvents returns the user's dated tasks with from <= date < to, ordered by
@@ -116,59 +133,6 @@ func (r *TaskRepository) StoreEmbedding(ctx context.Context, taskID uuid.UUID, r
 		return fmt.Errorf("store embedding: %w", err)
 	}
 	return nil
-}
-
-// FindSemantic returns the owner's tasks whose stored embedding of the given
-// model version is closest to the query vector and matches every filter the
-// same way FindCandidates does. The result is ordered by cosine distance.
-func (r *TaskRepository) FindSemantic(
-	ctx context.Context,
-	userID uuid.UUID,
-	query []float32,
-	modelName, version string,
-	dateFrom, dateTo *time.Time,
-	timeFrom, timeTo *string,
-	types []string,
-) ([]model.Task, error) {
-	if !validVector(query) {
-		return nil, fmt.Errorf("invalid query embedding")
-	}
-	// The vector is interpolated directly: vectorLiteral() produces digits,
-	// dots and commas only, so the string is injection-safe.
-	distance := fmt.Sprintf("(e.embedding <=> '%s'::vector)", vectorLiteral(query))
-	q := r.sb.
-		Select("t.id", "t.user_id", "t.type", "t.title", "t.date", "to_char(t.time, 'HH24:MI') AS time_text", "t.status", "t.created_at", distance+" AS distance").
-		From("tasks AS t").
-		Join("task_embeddings AS e ON e.task_id = t.id").
-		Where(sq.Eq{"t.user_id": userID, "e.model": modelName, "e.model_version": version}).
-		Where(fmt.Sprintf("%s <= %v", distance, semanticMaxCosineDistance)).
-		OrderBy(distance, "t.date", "t.time NULLS FIRST", "t.created_at", "t.id").
-		Limit(semanticLimit)
-	if dateFrom != nil {
-		q = q.Where(sq.Expr("t.date >= ?::date", dateFrom.Format(time.DateOnly)))
-	}
-	if dateTo != nil {
-		q = q.Where(sq.Expr("t.date < ?::date", dateTo.Format(time.DateOnly)))
-	}
-	if timeFrom != nil {
-		q = q.Where(sq.Expr("t.time >= ?::time", *timeFrom))
-	}
-	if timeTo != nil {
-		q = q.Where(sq.Expr("t.time < ?::time", *timeTo))
-	}
-	if len(types) > 0 {
-		q = q.Where(sq.Eq{"t.type": types})
-	}
-	innerSQL, args, err := q.ToSql()
-	if err != nil {
-		return nil, fmt.Errorf("build semantic query: %w", err)
-	}
-	querySQL := fmt.Sprintf(`WITH ranked AS (%s)
-		SELECT id, user_id, type, title, date, time_text, status, created_at
-		FROM ranked
-		WHERE distance <= (SELECT MIN(distance) + %v FROM ranked)
-		ORDER BY distance, date, time_text NULLS FIRST, created_at, id`, innerSQL, semanticMaxDistanceFromBest)
-	return r.fetchTasksSQL(ctx, querySQL, args...)
 }
 
 func validVector(vector []float32) bool {

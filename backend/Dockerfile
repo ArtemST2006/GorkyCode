@@ -8,6 +8,7 @@ RUN go mod download && go mod verify
 
 COPY . .
 RUN CGO_ENABLED=1 go build -buildvcs=false -trimpath -o /out/backend ./cmd/backend
+RUN CGO_ENABLED=1 go build -buildvcs=false -trimpath -o /out/embedding-backfill ./cmd/embedding-backfill
 
 # забираем .so библиотеки sherpa и onnxruntime из module cache
 RUN mkdir -p /out/lib && \
@@ -27,6 +28,7 @@ RUN useradd -r -u 10001 app && mkdir -p /app/model && chown -R app:app /app
 
 WORKDIR /app
 COPY --from=build /out/backend /app/backend
+COPY --from=build /out/embedding-backfill /app/embedding-backfill
 COPY --from=build /out/lib/ /usr/local/lib/
 RUN ldconfig
 

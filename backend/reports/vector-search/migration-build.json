@@ -1,0 +1,7 @@
+{
+  "seconds": 2.6943962199984526,
+  "exit_code": 0,
+  "output": "2026/10/29 23:39:38 OK   20261029210000_task_embeddings_hnsw.sql (2.67s)\n2026/10/29 23:39:38 goose: successfully migrated database to version: 20261029210000\n",
+  "fixture_vectors": 10000,
+  "up_down_up_verified": true
+}

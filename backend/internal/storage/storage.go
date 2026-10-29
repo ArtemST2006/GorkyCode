@@ -23,11 +23,11 @@ type Repository struct {
 }
 
 // NewRepository creates repositories over the shared PostgreSQL pool.
-func NewRepository(pool *pgxpool.Pool, redisClient *goredis.Client) *Repository {
+func NewRepository(pool *pgxpool.Pool, redisClient *goredis.Client, options ...postgres.TaskRepositoryOption) *Repository {
 	return &Repository{
 		HealthRepository:     postgres.NewHealthRepository(pool),
 		AuthRepository:       postgres.NewAuthRepository(pool),
-		TaskRepository:       postgres.NewTaskRepository(pool),
+		TaskRepository:       postgres.NewTaskRepository(pool, options...),
 		GoogleRepository:     postgres.NewGoogleRepository(pool),
 		SessionRepository:    redis.NewSessionRepository(redisClient),
 		TaskProcess:          redis.NewTaskProcess(redisClient),

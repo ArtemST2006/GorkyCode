@@ -22,5 +22,13 @@ ars_model:
 
 ai_service_url: "http://localhost:8090"
 
+semantic_search:
+  mode: exact
+  ef_search: 100
+  max_scan_tuples: 20000
+  candidates: 100
+  exact_threshold: 1500
+  ann_timeout: 500ms
+
 google:
   event_duration: 1h

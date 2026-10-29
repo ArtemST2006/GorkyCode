@@ -1,0 +1,19 @@
+{
+  "extension": {
+    "version": "0.8.7"
+  },
+  "index": {
+    "name": "task_embeddings_embedding_hnsw_idx",
+    "valid": true,
+    "ready": true,
+    "bytes": 20512768,
+    "definition": "CREATE INDEX task_embeddings_embedding_hnsw_idx ON public.task_embeddings USING hnsw (embedding vector_cosine_ops) WITH (m='16', ef_construction='64')"
+  },
+  "docker": {
+    "build_passed": true,
+    "image": "sha256:8277706c02eb45bbd0d22e2e662dccb86e82ab5a9ef765f47b9e7cf3620520e0",
+    "backfill_container_dry_run_passed": true,
+    "read_only": true,
+    "uid": 10001
+  }
+}
