@@ -29,6 +29,11 @@ SERVICE_KEYS = {
     "CLOUDRU_MAX_TOKENS", "CLOUDRU_MAX_COMPLETION_TOKENS", "JOB_TIMEOUT_SECONDS",
     "EMBEDDING_ENABLED", "EMBEDDING_MODEL_PATH", "EMBEDDING_NUM_THREADS",
     "EMBEDDING_MAX_WORKERS", "EMBEDDING_TIMEOUT_SECONDS", "LOG_LEVEL", "PORT",
+    "SECURITY_GUARD_MODE", "SECURITY_GUARD_MODEL", "SECURITY_GUARD_TIMEOUT_SECONDS",
+    "SECURITY_EXPOSE_DOCS",
+    "SECURITY_GUARD_MAX_TOKENS", "SECURITY_GUARD_MAX_CONCURRENCY",
+    "SECURITY_JOB_MAX_BODY_BYTES", "SECURITY_RESPOND_MAX_BODY_BYTES",
+    "SECURITY_USER_MAX_CHARS", "SECURITY_HISTORY_MESSAGE_MAX_CHARS", "SECURITY_CONTEXT_MAX_CHARS",
 }
 
 
@@ -359,7 +364,7 @@ def serve(args):
         "level=os.environ['LOG_LEVEL']; "
         "logging.basicConfig(level=level,format='%(levelname)s %(name)s %(message)s'); "
         "uvicorn.run('app.main:app',host='127.0.0.1',port=int(os.environ['PORT']),"
-        "log_level=level.lower(),access_log=False)"
+        "log_level=level.lower(),access_log=False,server_header=False)"
     )
     os.execvpe(sys.executable, [sys.executable, "-c", bootstrap], os.environ)
 

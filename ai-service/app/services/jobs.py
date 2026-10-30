@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from time import perf_counter
 
 from pydantic import ValidationError
 
@@ -17,15 +18,28 @@ from app.schemas.update_event import UpdateCandidateContext
 from app.services.context import build_job_response, explicit_selection_numbers
 from app.services.task_deadline import normalize_task_deadline
 from app.services.list_period import is_orphan_reply
+from app.security.guard_protocols import ActionVerifier
+from app.security.guard_schemas import GuardVerdict
+from app.security.limits import validate_job_limits, validate_response_limits
+from app.security.disclosure import DisclosurePolicy
+from app.services.public_dialogue import PublicDialogue
+from app.services.safe_messages import clarification_message
 from app.services.status_update_recovery import recover_task_status_update
 
 
 class JobService:
-    def __init__(self, settings: Settings, gateway: ModelGateway):
+    def __init__(self, settings: Settings, gateway: ModelGateway,
+                 guard: ActionVerifier | None = None):
         self.settings = settings
         self.gateway = gateway
+        self.guard = guard
+        self._guard_slots = asyncio.Semaphore(settings.security_guard_max_concurrency)
+        self.disclosure = DisclosurePolicy(settings)
+        self.dialogue = PublicDialogue(gateway, self.disclosure)
 
     async def process(self, request: JobRequest) -> JobResponse:
+        validate_job_limits(request, self.settings)
+        self.disclosure.check_credentials(request.model_dump(mode="json"))
         logger.info(
             "job_started task_id=%s context_messages=%d context_candidates=%d",
             request.task_id, len(getattr(request.context, "recent_messages", [])),
@@ -42,8 +56,21 @@ class JobService:
                 "The request exceeded its processing deadline.",
             ) from None
 
-    def _response(self, request: JobRequest, decision: ModelDecision, source: str) -> JobResponse:
+    async def _response(self, request: JobRequest, decision: ModelDecision, source: str) -> JobResponse:
+        # Never publish free text from the privileged extractor. Chat has a
+        # separate minimal public prompt; questions are assembled from fields.
+        if decision.intent == "chat":
+            message = await self.dialogue.reply(request)
+        elif decision.status == "needs_clarification":
+            message = clarification_message(decision)
+        else:
+            message = "Запрос подготовлен."
+        decision = decision.model_copy(update={"message": message})
         result = build_job_response(request, decision)
+        validate_response_limits(result, self.settings)
+        self.disclosure.check_proposal(result)
+        if source != "candidate_selection":
+            result = await self._verify_proposal(request, decision.intent, result)
         logger.info(
             "job_completed task_id=%s status=%s intent=%s topic_changed=%s source=%s",
             request.task_id, result.status, decision.intent, decision.topic_changed, source,
@@ -66,7 +93,7 @@ class JobService:
                 "on_delete" if is_delete else "on_update",
             )
             if selected is not None:
-                return self._response(request, ModelDecision.model_validate({
+                return await self._response(request, ModelDecision.model_validate({
                     "status": "ready", "intent": "on_delete" if is_delete else "on_update",
                     "message": "Удаляю выбранные записи." if is_delete else "Выбранные записи изменены.",
                     "action": {
@@ -87,7 +114,7 @@ class JobService:
                     changes = getattr(decision.action, "changes", None) or getattr(decision.draft, "changes", None)
                     actual = getattr(changes, "status", None)
                     if decision.intent != "on_update" or (expected is not None and actual != expected):
-                        return self._response(request, status_update_recovery, "status_update_recovery")
+                        return await self._response(request, status_update_recovery, "status_update_recovery")
                 if decision.status == "unsupported":
                     raise ServiceError(
                         400,
@@ -95,10 +122,10 @@ class JobService:
                         "Unsupported request",
                         "Supported requests create, list, search, update, or delete calendar entries.",
                     )
-                return self._response(request, decision, "model")
+                return await self._response(request, decision, "model")
             except (ValidationError, InvalidModelOutput) as exc:
                 if status_update_recovery is not None:
-                    return self._response(request, status_update_recovery, "status_update_recovery")
+                    return await self._response(request, status_update_recovery, "status_update_recovery")
                 if attempt == 1:
                     raise ServiceError(
                         500,
@@ -134,3 +161,46 @@ class JobService:
                 if isinstance(value.get(name), dict):
                     value[name] = {key: item for key, item in value[name].items() if item is not None}
         return value
+
+
+    async def _verify_proposal(self, request: JobRequest, intent: str,
+                               proposal: JobResponse) -> JobResponse:
+        if proposal.status != "ready" or intent in ("list_events", "search_events", "chat"):
+            return proposal
+        started = perf_counter()
+        error_code = None
+        verdict = None
+        try:
+            if self.guard is None:
+                raise ServiceError(503, "guard_not_configured", "Action verification unavailable",
+                                   "A verification model must be configured before issuing actions.")
+            # Queue time is part of the verification deadline; context managers
+            # release slots on timeout, exception and cancellation.
+            async with asyncio.timeout(self.settings.security_guard_timeout_seconds):
+                async with self._guard_slots:
+                    verdict = await self.guard.verify(request, intent=intent, proposal=proposal)
+                    if not isinstance(verdict, GuardVerdict):
+                        raise ValueError("Invalid verifier result")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            safe_codes = {"guard_not_configured", "guard_timeout", "guard_invalid_output",
+                          "guard_unavailable", "guard_invalid_proposal", "guard_invalid_context",
+                          "guard_context_too_large"}
+            error_code = (exc.code if isinstance(exc, ServiceError) and exc.code in safe_codes
+                          else "guard_timeout" if isinstance(exc, TimeoutError)
+                          else "guard_unavailable")
+        logger.info("action_guard mode=%s reason=%s error=%s duration_ms=%.1f",
+                    self.settings.security_guard_mode,
+                    verdict.reason_code if verdict is not None else "unavailable",
+                    error_code or "none", (perf_counter() - started) * 1000)
+        if self.settings.security_guard_mode == "observe":
+            return proposal
+        if error_code is not None:
+            raise ServiceError(503, error_code, "Action verification unavailable",
+                               "The proposed action could not be verified safely.") from None
+        if verdict is None or verdict.decision != "allow":
+            # Do not echo or retain rejected actions/drafts in clarification state.
+            raise ServiceError(400, "unsupported_intent", "Unsupported request",
+                               "Please restate the intended calendar operation explicitly.")
+        return proposal

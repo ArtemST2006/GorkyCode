@@ -5,7 +5,7 @@ import json
 
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import httpx
 
 from app.api.dependencies import get_job_service
 from app.api.routes.jobs import router as jobs_router
@@ -13,10 +13,16 @@ from app.core.config import Settings
 from app.schemas.job import JobRequest, UpdateFindCandidatesResponse
 from app.services.jobs import JobService
 from app.services.status_update_recovery import recover_task_status_update
+from app.security.guard_schemas import GuardVerdict
 
 
 USER_ID = "b80e93e1-9945-48e0-8460-3ee68bcfb402"
 TASK_ID = "7b612951-57ae-4ac4-a93c-42fa9c9e8359"
+
+
+class AllowGuard:
+    async def verify(self, _request, *, intent, proposal):
+        return GuardVerdict(decision="allow", reason_code="consistent_request")
 
 
 def request(text: str) -> JobRequest:
@@ -81,7 +87,7 @@ def test_broken_or_wrong_model_result_still_finds_task_candidates(model_output):
             return model_output
 
     gateway = Gateway()
-    result = asyncio.run(JobService(Settings(job_timeout_seconds=5), gateway).process(
+    result = asyncio.run(JobService(Settings(job_timeout_seconds=5), gateway, AllowGuard()).process(
         request("Переведи статус задачи в выполнение")))
     assert isinstance(result, UpdateFindCandidatesResponse)
     assert result.action.changes.status == "in_progress"
@@ -101,7 +107,7 @@ def test_valid_model_keeps_its_specific_task_filter():
                 "draft": None, "topic_changed": False,
             })
 
-    result = asyncio.run(JobService(Settings(job_timeout_seconds=5), Gateway()).process(
+    result = asyncio.run(JobService(Settings(job_timeout_seconds=5), Gateway(), AllowGuard()).process(
         request("Переведи задачу по проекту C в выполнение")))
     assert isinstance(result, UpdateFindCandidatesResponse)
     assert result.action.title_query == "проект C"
@@ -114,11 +120,18 @@ def test_http_response_exposes_update_intent_after_recovery():
 
     application = FastAPI()
     application.include_router(jobs_router)
-    application.dependency_overrides[get_job_service] = lambda: JobService(
-        Settings(job_timeout_seconds=5), BrokenGateway())
-    with TestClient(application) as client:
-        response = client.post("/api/job", json=request(
-            "Переведи статус задачи в выполнение").model_dump(mode="json"))
+    async def service():
+        return JobService(Settings(job_timeout_seconds=5), BrokenGateway(), AllowGuard())
+
+    application.dependency_overrides[get_job_service] = service
+
+    async def check():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=application),
+                                    base_url="http://test") as client:
+            return await client.post("/api/job", json=request(
+                "Переведи статус задачи в выполнение").model_dump(mode="json"))
+
+    response = asyncio.run(check())
     assert response.status_code == 200
     assert response.headers["X-Task-Intent"] == "on_update"
     assert response.json()["action"]["changes"]["status"] == "in_progress"

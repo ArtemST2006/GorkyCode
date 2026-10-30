@@ -17,4 +17,5 @@ if __name__ == "__main__":
         port=settings.port,
         log_level=settings.log_level.lower(),
         access_log=False,
+        server_header=False,
     )

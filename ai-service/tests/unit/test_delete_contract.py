@@ -1,12 +1,13 @@
 """Offline checks for the two-stage on_delete wire contract."""
 
+import asyncio
 import json
 import unittest
 from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import httpx
 from pydantic import ValidationError
 
 from app.api.dependencies import get_job_service
@@ -25,12 +26,20 @@ from app.schemas.job import (
 )
 from app.services.context import build_job_response, explicit_selection_numbers
 from app.services.jobs import JobService
+from app.security.guard_schemas import GuardVerdict
 
 
 USER_ID = "b80e93e1-9945-48e0-8460-3ee68bcfb402"
 TASK_ID = "70ce187e-a2a6-4499-91a0-5c61e5920b51"
 FIRST_ID = "2d7f8e0b-2fae-4b46-835a-675f748f3b11"
 FIFTH_ID = "ee79bdbf-f5a8-4204-a821-4a4ab21d14f6"
+
+
+class AllowGuard:
+    """Keep legacy extraction tests focused; production remains fail-closed."""
+
+    async def verify(self, _request, *, intent, proposal):
+        return GuardVerdict(decision="allow", reason_code="consistent_request")
 
 
 def request(text: str, context: dict | None = None) -> JobRequest:
@@ -132,27 +141,43 @@ class DeleteContractTest(unittest.TestCase):
         application = FastAPI()
         application.include_router(jobs_router)
         delete_result = build_job_response(request("Удали встречи с Иваном"), decision())
-        application.dependency_overrides[get_job_service] = lambda: FakeService(delete_result)
-        with TestClient(application) as client:
-            response = client.post("/api/job", json=request("Удали встречи с Иваном").model_dump(mode="json"))
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.headers["x-task-intent"], "on_delete")
-            self.assertNotIn("intent", response.json())
-            self.assertEqual(response.json()["action"]["phase"], "find_candidates")
 
-            legacy = build_job_response(
-                request("Что у меня завтра?"),
-                ModelDecision.model_validate({
-                    "status": "ready", "intent": "list_events", "message": "Проверил события.",
-                    "action": {"date_from": "2026-10-24", "date_to_exclusive": "2026-10-25"},
-                    "draft": None, "topic_changed": False,
-                }),
-            )
-            application.dependency_overrides[get_job_service] = lambda: FakeService(legacy)
-            response = client.post("/api/job", json=request("Что у меня завтра?").model_dump(mode="json"))
-            self.assertEqual(response.status_code, 200)
-            self.assertNotIn("x-task-intent", response.headers)
-            self.assertEqual(response.json()["intent"], "list_events")
+        async def delete_service():
+            return FakeService(delete_result)
+
+        application.dependency_overrides[get_job_service] = delete_service
+        async def check_headers():
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=application), base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/api/job", json=request("Удали встречи с Иваном").model_dump(mode="json")
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["x-task-intent"], "on_delete")
+                self.assertNotIn("intent", response.json())
+                self.assertEqual(response.json()["action"]["phase"], "find_candidates")
+
+                legacy = build_job_response(
+                    request("Что у меня завтра?"),
+                    ModelDecision.model_validate({
+                        "status": "ready", "intent": "list_events", "message": "Проверил события.",
+                        "action": {"date_from": "2026-10-24", "date_to_exclusive": "2026-10-25"},
+                        "draft": None, "topic_changed": False,
+                    }),
+                )
+                async def legacy_service():
+                    return FakeService(legacy)
+
+                application.dependency_overrides[get_job_service] = legacy_service
+                response = await client.post(
+                    "/api/job", json=request("Что у меня завтра?").model_dump(mode="json")
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertNotIn("x-task-intent", response.headers)
+                self.assertEqual(response.json()["intent"], "list_events")
+
+        asyncio.run(check_headers())
 
     def test_clarification_has_no_json_intent(self):
         result = build_job_response(
@@ -273,7 +298,7 @@ class DeleteJobServiceTest(unittest.IsolatedAsyncioTestCase):
             "draft": {"title_query": "Иван", "changes": {"time": "16:00"}}
         }
         gateway = Gateway()
-        result = await JobService(Settings(job_timeout_seconds=5), gateway).process(
+        result = await JobService(Settings(job_timeout_seconds=5), gateway, AllowGuard()).process(
             request("Удали №1", context)
         )
         self.assertEqual(gateway.calls, 1)
@@ -325,7 +350,7 @@ class DeleteJobServiceTest(unittest.IsolatedAsyncioTestCase):
             message="Удаляю выбранные записи.",
         ).model_dump(mode="json")
         gateway = Gateway([invalid, valid])
-        service = JobService(Settings(job_timeout_seconds=5), gateway)
+        service = JobService(Settings(job_timeout_seconds=5), gateway, AllowGuard())
         result = await service.process(request("Удали запись №1 из найденных кандидатов", CANDIDATE_CONTEXT))
         self.assertIsInstance(result, DeleteConfirmedResponse)
         self.assertEqual(result.action.task_ids, [FIRST_ID])

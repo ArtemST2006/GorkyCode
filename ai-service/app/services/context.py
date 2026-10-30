@@ -205,6 +205,19 @@ def build_job_response(request: JobRequest, decision: ModelDecision) -> JobRespo
             values["action"] = _repeat_update_search(request, decision)
             message = "Выберите номера записей для изменения."
     # No implicit merging: a new action/draft is the full current topic state.
+    if status == "ready" and decision.intent != "chat":
+        # These messages may enter dialogue history. Never narrate with model
+        # text or interpolate titles from actions, records or user input.
+        phase = (values["action"] or {}).get("phase")
+        message = {
+            "create_event": "Запись подготовлена к созданию.",
+            "list_events": "Запрос списка записей подготовлен.",
+            "search_events": "Запрос поиска записей подготовлен.",
+            "on_delete": ("Удаляю выбранные записи." if phase == "delete_confirmed"
+                          else "Выберите номера записей для удаления."),
+            "on_update": ("Применяю изменения к выбранным записям." if phase == "update_confirmed"
+                          else "Выберите номера записей для изменения."),
+        }[decision.intent]
     response = {
         "user_id": request.user_id,
         "task_id": request.task_id,
