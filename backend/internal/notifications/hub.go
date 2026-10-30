@@ -152,6 +152,13 @@ func (h *Hub) serve(r *http.Request, ws *websocket.Conn) {
 		return
 	}
 
+	// Gorilla's default pong handler does not update the read deadline, so an
+	// idle client that never sends application frames would be closed at
+	// readTimeout even though the server's pings are answered by Pongs.
+	// Reset the deadline on every pong to keep healthy idle sockets alive.
+	conn.ws.SetPongHandler(func(string) error {
+		return conn.ws.SetReadDeadline(time.Now().Add(readTimeout))
+	})
 	// The contract limits client frames to 16 KiB; an oversize frame closes
 	// the connection with 1009 through the WebSocket library itself.
 	conn.ws.SetReadLimit(maxMessageBytes)
