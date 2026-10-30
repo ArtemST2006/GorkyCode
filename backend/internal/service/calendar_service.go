@@ -19,8 +19,10 @@ const (
 	oauthStateTTL = 10 * time.Minute
 	// googleCallTimeout bounds every call to Google.
 	googleCallTimeout = 3 * time.Second
-	// syncedRecordType is the only record type sent to Google Calendar.
-	syncedRecordType = "meeting"
+	// meetingType and reminderType are the record types sent to Google
+	// Calendar; tasks stay only in the app.
+	meetingType  = "meeting"
+	reminderType = "reminder"
 )
 
 // GoogleIntegrationStore keeps users' Google Calendar connections.
@@ -207,11 +209,12 @@ func (s *CalendarService) Disconnect(ctx context.Context, userID uuid.UUID) erro
 	return s.deleteIntegration(ctx, userID)
 }
 
-// SyncCreatedTask creates a Google Calendar event for a new meeting and saves
-// its event ID. Other record types and users without a connection are skipped.
+// SyncCreatedTask creates a Google Calendar event for a new meeting or
+// reminder and saves its event ID. Tasks and users without a connection are
+// skipped.
 // When Google no longer accepts the token, the connection is removed.
 func (s *CalendarService) SyncCreatedTask(ctx context.Context, task *model.Task) error {
-	if !s.Enabled() || task == nil || task.Type != syncedRecordType || task.Date == nil {
+	if !s.Enabled() || task == nil || (task.Type != meetingType && task.Type != reminderType) || task.Date == nil {
 		return nil
 	}
 
@@ -249,6 +252,80 @@ func (s *CalendarService) SyncCreatedTask(ctx context.Context, task *model.Task)
 		return fmt.Errorf("save google event id: %w", err)
 	}
 	return nil
+}
+
+// SyncDeletedTasks deletes the Google events of deleted records. Failures are
+// only logged: the records are already deleted and the user gets the result.
+func (s *CalendarService) SyncDeletedTasks(ctx context.Context, tasks []model.Task) {
+	s.syncTasks(ctx, tasks, "delete google event", func(creds google.Credentials, calendarID string, task model.Task) error {
+		googleCtx, cancel := context.WithTimeout(ctx, googleCallTimeout)
+		defer cancel()
+		return s.client.DeleteEvent(googleCtx, creds, calendarID, *task.GoogleEventID)
+	})
+}
+
+// SyncUpdatedTasks moves the Google events of updated records to their new
+// title, date and time. Failures are only logged, as in SyncDeletedTasks.
+func (s *CalendarService) SyncUpdatedTasks(ctx context.Context, tasks []model.Task) {
+	s.syncTasks(ctx, tasks, "update google event", func(creds google.Credentials, calendarID string, task model.Task) error {
+		event, err := s.buildEvent(ctx, &task)
+		if err != nil {
+			return err
+		}
+		googleCtx, cancel := context.WithTimeout(ctx, googleCallTimeout)
+		defer cancel()
+		return s.client.UpdateEvent(googleCtx, creds, calendarID, *task.GoogleEventID, event)
+	})
+}
+
+// syncTasks calls sync for every record that has a Google event. All records
+// belong to one user, because deletes and updates are owner-scoped.
+func (s *CalendarService) syncTasks(
+	ctx context.Context,
+	tasks []model.Task,
+	op string,
+	sync func(creds google.Credentials, calendarID string, task model.Task) error,
+) {
+	if !s.Enabled() {
+		return
+	}
+	synced := make([]model.Task, 0, len(tasks))
+	for _, task := range tasks {
+		if task.GoogleEventID != nil {
+			synced = append(synced, task)
+		}
+	}
+	if len(synced) == 0 {
+		return
+	}
+	userID := synced[0].UserID
+	log := s.log.With(slog.String("op", op), slog.String("user_id", userID.String()))
+
+	queryCtx, cancel := context.WithTimeout(ctx, s.queryTimeout)
+	integration, err := s.store.GetGoogleIntegration(queryCtx, userID)
+	cancel()
+	if errors.Is(err, model.ErrGoogleNotConnected) {
+		return
+	}
+	if err != nil {
+		log.Warn("failed to sync tasks with google calendar", logger.Err(err))
+		return
+	}
+
+	creds, err := s.credentials(ctx, integration)
+	if err != nil {
+		log.Warn("failed to sync tasks with google calendar", logger.Err(err))
+		return
+	}
+	for _, task := range synced {
+		if err = sync(creds, integration.CalendarID, task); err != nil {
+			err = s.handleGoogleError(ctx, userID, op, err)
+			log.Warn("failed to sync task with google calendar", slog.String("task_id", task.ID.String()), logger.Err(err))
+			if errors.Is(err, model.ErrGoogleTokenRevoked) {
+				return
+			}
+		}
+	}
 }
 
 // GoogleBusy reports whether the user's Google Calendar has events between
@@ -302,7 +379,8 @@ func (s *CalendarService) credentials(ctx context.Context, integration *model.Go
 }
 
 // buildEvent places the task's date and time in the user's time zone.
-// A task without time becomes an all-day event.
+// A task without time becomes an all-day event. A reminder takes no time:
+// it ends where it starts.
 func (s *CalendarService) buildEvent(ctx context.Context, task *model.Task) (google.Event, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, s.queryTimeout)
 	timezone, err := s.timezones.GetUserTimezone(queryCtx, task.UserID)
@@ -316,7 +394,7 @@ func (s *CalendarService) buildEvent(ctx context.Context, task *model.Task) (goo
 	}
 
 	date := *task.Date
-	event := google.Event{Title: task.Title, TimeZone: timezone}
+	event := google.Event{Title: task.Title, TimeZone: timezone, Reminder: task.Type == reminderType}
 	if task.Time == nil {
 		event.AllDay = true
 		event.Start = time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, location)
@@ -328,7 +406,10 @@ func (s *CalendarService) buildEvent(ctx context.Context, task *model.Task) (goo
 		return google.Event{}, fmt.Errorf("parse task time: %w", err)
 	}
 	event.Start = time.Date(date.Year(), date.Month(), date.Day(), clock.Hour(), clock.Minute(), 0, 0, location)
-	event.End = event.Start.Add(s.eventDuration)
+	event.End = event.Start
+	if !event.Reminder {
+		event.End = event.Start.Add(s.eventDuration)
+	}
 	return event, nil
 }
 

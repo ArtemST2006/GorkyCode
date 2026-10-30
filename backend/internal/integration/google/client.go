@@ -27,7 +27,13 @@ import (
 const (
 	defaultRevokeURL  = "https://oauth2.googleapis.com/revoke"
 	defaultCalendarID = "primary"
+	// transparent marks an event as free, so it does not show up in free/busy.
+	transparent = "transparent"
 )
+
+// requiredScopes are the calendar permissions the user must not uncheck on
+// the consent page: without them every Calendar call fails with 403.
+var requiredScopes = []string{calendar.CalendarEventsScope, calendar.CalendarEventsFreebusyScope}
 
 // Token is the result of the OAuth code exchange. Expiry is nil when Google
 // did not report it; Email is empty when the id_token has no email.
@@ -45,13 +51,15 @@ type Credentials struct {
 }
 
 // Event is a calendar event. TimeZone is an IANA name. For an all-day event
-// only the date of Start is used.
+// only the date of Start is used. A reminder is a free event with a popup
+// notification at its start.
 type Event struct {
 	Title    string
 	Start    time.Time
 	End      time.Time
 	TimeZone string
 	AllDay   bool
+	Reminder bool
 }
 
 // Busy is a period when the calendar already has an event.
@@ -119,10 +127,15 @@ func (c *Client) AuthURL(state string) string {
 }
 
 // Exchange trades the authorization code from the callback for tokens.
+// It returns model.ErrGoogleScopeMissing when the user unchecked a calendar
+// permission on the consent page.
 func (c *Client) Exchange(ctx context.Context, code string) (*Token, error) {
 	tok, err := c.oauth.Exchange(c.oauthContext(ctx), code)
 	if err != nil {
 		return nil, wrapOAuthError("exchange google code", err)
+	}
+	if missing := missingScopes(tok); len(missing) > 0 {
+		return nil, fmt.Errorf("%w: %s", model.ErrGoogleScopeMissing, strings.Join(missing, " "))
 	}
 	return &Token{
 		AccessToken:  tok.AccessToken,
@@ -286,18 +299,51 @@ func calendarOrPrimary(calendarID string) string {
 
 func toCalendarEvent(ev Event) *calendar.Event {
 	if ev.AllDay {
-		// Google treats the end date of an all-day event as exclusive.
+		// Google treats the end date of an all-day event as exclusive. The
+		// event is free: otherwise free/busy reports the whole day as taken.
 		return &calendar.Event{
-			Summary: ev.Title,
-			Start:   &calendar.EventDateTime{Date: ev.Start.Format(time.DateOnly), TimeZone: ev.TimeZone},
-			End:     &calendar.EventDateTime{Date: ev.Start.AddDate(0, 0, 1).Format(time.DateOnly), TimeZone: ev.TimeZone},
+			Summary:      ev.Title,
+			Transparency: transparent,
+			Start:        &calendar.EventDateTime{Date: ev.Start.Format(time.DateOnly), TimeZone: ev.TimeZone},
+			End:          &calendar.EventDateTime{Date: ev.Start.AddDate(0, 0, 1).Format(time.DateOnly), TimeZone: ev.TimeZone},
 		}
 	}
-	return &calendar.Event{
+	event := &calendar.Event{
 		Summary: ev.Title,
 		Start:   &calendar.EventDateTime{DateTime: ev.Start.Format(time.RFC3339), TimeZone: ev.TimeZone},
 		End:     &calendar.EventDateTime{DateTime: ev.End.Format(time.RFC3339), TimeZone: ev.TimeZone},
 	}
+	if ev.Reminder {
+		// The reminder must not take the slot, and it notifies at its start
+		// instead of the calendar's default notifications. UseDefault=false
+		// is forced because the JSON encoder drops false values.
+		event.Transparency = transparent
+		event.Reminders = &calendar.EventReminders{
+			Overrides:       []*calendar.EventReminder{{Method: "popup", Minutes: 0, ForceSendFields: []string{"Minutes"}}},
+			ForceSendFields: []string{"UseDefault"},
+		}
+	}
+	return event
+}
+
+// missingScopes lists the required scopes absent from the granted ones. Google
+// always reports the granted scopes; a token without them is trusted as is.
+func missingScopes(tok *oauth2.Token) []string {
+	raw, _ := tok.Extra("scope").(string)
+	if raw == "" {
+		return nil
+	}
+	granted := make(map[string]bool)
+	for scope := range strings.FieldsSeq(raw) {
+		granted[scope] = true
+	}
+	var missing []string
+	for _, scope := range requiredScopes {
+		if !granted[scope] {
+			missing = append(missing, scope)
+		}
+	}
+	return missing
 }
 
 // idTokenEmail reads the email claim of the id_token without checking its

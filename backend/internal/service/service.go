@@ -61,6 +61,8 @@ func New(
 	if calendar.Enabled() {
 		creator = NewCalendarSyncingCreator(taskCreate, calendar, log)
 		googleBusy = calendar
+		taskDelete.WithCalendarSync(calendar)
+		taskUpdate.WithCalendarSync(calendar)
 	}
 	conflicts := NewMeetingConflicts(repo, googleBusy, log, queryTimeout, googleCfg.EventDuration)
 	return &Services{

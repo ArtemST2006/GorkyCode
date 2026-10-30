@@ -263,7 +263,7 @@ func (r *TaskRepository) DeleteTasks(ctx context.Context, userID uuid.UUID, ids 
 		Delete("tasks").
 		Where(sq.Eq{"user_id": userID}).
 		Where(sq.Eq{"id": ids}).
-		Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at").
+		Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at, google_event_id").
 		ToSql()
 	if err != nil {
 		return nil, fmt.Errorf("build delete query: %w", err)
@@ -309,7 +309,8 @@ func (r *TaskRepository) DeleteTasks(ctx context.Context, userID uuid.UUID, ids 
 			&task.Date,
 			&task.Time,
 			&task.Status,
-			&task.CreatedAt); err != nil {
+			&task.CreatedAt,
+			&task.GoogleEventID); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("scan deleted task: %w", err)
 		}
@@ -419,12 +420,12 @@ func (r *TaskRepository) UpdateTasks(
 		query, values, err := r.sb.Update("tasks").
 			Set("title", item.Title).Set("date", item.Date).Set("time", item.Time).
 			Set("status", item.Status).Where(sq.Eq{"id": id, "user_id": userID}).
-			Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at").ToSql()
+			Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at, google_event_id").ToSql()
 		if err != nil {
 			return nil, fmt.Errorf("build task update: %w", err)
 		}
 		var saved model.Task
-		if err := tx.QueryRow(ctx, query, values...).Scan(&saved.ID, &saved.UserID, &saved.Type, &saved.Title, &saved.Date, &saved.Time, &saved.Status, &saved.CreatedAt); err != nil {
+		if err := tx.QueryRow(ctx, query, values...).Scan(&saved.ID, &saved.UserID, &saved.Type, &saved.Title, &saved.Date, &saved.Time, &saved.Status, &saved.CreatedAt, &saved.GoogleEventID); err != nil {
 			return nil, fmt.Errorf("update task: %w", err)
 		}
 		if changes.Title != nil {
