@@ -22,6 +22,8 @@ type Config struct {
 	Redis           Redis         `yaml:"redis"`
 	Auth            Auth          `yaml:"auth"`
 	Google          Google        `yaml:"google"`
+	Reminder        Reminder      `yaml:"reminder"`
+	Email           Email         `yaml:"email"`
 }
 
 // HTTPServer holds HTTP listener settings.
@@ -74,6 +76,52 @@ type Google struct {
 // Enabled reports whether Google Calendar credentials are configured.
 func (g Google) Enabled() bool {
 	return g.ClientID != "" && g.ClientSecret != ""
+}
+
+// Reminder holds the reminder dispatch settings.
+type Reminder struct {
+	// Offsets are the advance moments before a task at which a reminder is
+	// fired, as a comma-separated list of durations such as "72h,24h,3h,10m".
+	Offsets string `yaml:"offsets" env:"REMINDER_OFFSETS" env-default:"72h,24h,3h,10m"`
+	// ScanInterval is how often due pending notifications are claimed and sent.
+	ScanInterval time.Duration `yaml:"scan_interval" env:"REMINDER_SCAN_INTERVAL" env-default:"30s"`
+	// SyncInterval is how often the upcoming moments are re-derived from the
+	// tasks table; it cannot exceed the claim TTL.
+	SyncInterval time.Duration `yaml:"sync_interval" env:"REMINDER_SYNC_INTERVAL" env-default:"10m"`
+	// ClaimTTL is the expiry of one delivery attempt.
+	ClaimTTL time.Duration `yaml:"claim_ttl" env:"REMINDER_CLAIM_TTL" env-default:"2m"`
+	// Retention is how long delivered and unacknowledged records are kept.
+	Retention time.Duration `yaml:"retention" env:"REMINDER_RETENTION" env-default:"720h"`
+	// Horizon is the reconciliation lookahead window.
+	Horizon time.Duration `yaml:"horizon" env:"REMINDER_HORIZON" env-default:"168h"`
+	// ReconcileLimit bounds one reconciliation scan.
+	ReconcileLimit int `yaml:"reconcile_limit" env:"REMINDER_RECONCILE_LIMIT" env-default:"500"`
+	// BatchLimit bounds the number of notifications sent in one scan.
+	BatchLimit int `yaml:"batch_limit" env:"REMINDER_BATCH_LIMIT" env-default:"100"`
+	// MinAdvanceLead is the minimum distance between task creation and the
+	// first advance reminder; advance pings firing sooner than this are
+	// dropped to avoid noisy "reminder about a 24h event" five minutes after
+	// the user asked for it.
+	MinAdvanceLead time.Duration `yaml:"min_advance_lead" env:"REMINDER_MIN_ADVANCE_LEAD" env-default:"5h"`
+}
+
+// Email holds outgoing reminder email settings. The integration is off while
+// Host or From is empty.
+type Email struct {
+	Host     string        `yaml:"host" env:"SMTP_HOST"`
+	Port     int           `yaml:"port" env:"SMTP_PORT" env-default:"587"`
+	Username string        `yaml:"username" env:"SMTP_USERNAME"`
+	Password string        `yaml:"password" env:"SMTP_PASSWORD"`
+	From     string        `yaml:"from" env:"EMAIL_FROM"`
+	Timeout  time.Duration `yaml:"timeout" env:"EMAIL_TIMEOUT" env-default:"15s"`
+	// Kinds lists the notification kinds mailed to the user address; by
+	// default letters cover every user-facing kind.
+	Kinds []string `yaml:"kinds" env:"EMAIL_KINDS" env-default:"reminder_due,task_due,meeting_start"`
+}
+
+// Enabled reports whether SMTP credentials are configured.
+func (e Email) Enabled() bool {
+	return e.Host != "" && e.From != ""
 }
 
 // Load reads CONFIG_PATH when set, then applies environment variables.

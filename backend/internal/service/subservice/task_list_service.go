@@ -8,6 +8,7 @@ import (
 	api "gorkycode/backend/internal/generated"
 	"gorkycode/backend/internal/generated/ai"
 	"gorkycode/backend/internal/model"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,6 +52,70 @@ func NewLister(store TaskReader) *Lister {
 // NewSemanticLister also searches compatible title embeddings for search_events.
 func NewSemanticLister(store TaskReader, semanticStore TaskSemanticSearcher, embedder model.Embedder) *Lister {
 	return &Lister{store: store, semanticStore: semanticStore, embedder: embedder}
+}
+
+// ListAllTasks returns the user's tasks without any dialogue action. If a search
+// query is supplied it is applied by substring; otherwise the dated range [from,to]
+// limits the result (nil bounds defaults to the whole stored range). Items are
+// windowsliced by limit and offset for simple pagination.
+func (l *Lister) ListAllTasks(
+	ctx context.Context,
+	userID uuid.UUID,
+	query string,
+	types []string,
+	from, to *time.Time,
+	limit, offset int,
+) (api.TaskCollection, error) {
+	if userID == uuid.Nil {
+		return api.TaskCollection{}, fmt.Errorf("%w: empty user_id", model.ErrInvalidAction)
+	}
+	if limit <= 0 {
+		limit = 200
+	} else if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var tasks []model.Task
+	var err error
+	dateFrom := time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+	if from != nil {
+		dateFrom = *from
+	}
+	if to != nil {
+		dateTo = *to
+	}
+
+	if strings.TrimSpace(query) != "" {
+		tasks, err = l.store.SearchEvents(ctx, userID, strings.TrimSpace(query), from, to, types)
+	} else {
+		tasks, err = l.store.ListEvents(ctx, userID, dateFrom, dateTo, types)
+	}
+	if err != nil {
+		return api.TaskCollection{}, fmt.Errorf("list tasks: %w", err)
+	}
+	// SearchEvents already returns the matching whole result set.
+	if offset > len(tasks) {
+		offset = len(tasks)
+	}
+	end := offset + limit
+	if end > len(tasks) {
+		end = len(tasks)
+	}
+	tasks = tasks[offset:end]
+
+	items := make([]api.TaskItem, 0, len(tasks))
+	for _, t := range tasks {
+		item, err := toItem(t)
+		if err != nil {
+			return api.TaskCollection{}, err
+		}
+		items = append(items, item)
+	}
+	return api.TaskCollection{Items: items}, nil
 }
 
 // ListEvents returns a collection of tasks for the given user and action.

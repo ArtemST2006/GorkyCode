@@ -28,9 +28,16 @@ type UpdateCandidates struct {
 }
 
 type TaskUpdate struct {
-	rep      TaskUpdateRepository
-	deleter  *TaskDelete
-	embedder model.Embedder
+	rep       TaskUpdateRepository
+	deleter   *TaskDelete
+	embedder  model.Embedder
+	reminders ReminderSyncer
+}
+
+// WithReminderSyncer wires the reminder scheduling into UpdateConfirmed.
+func (s *TaskUpdate) WithReminderSyncer(sync ReminderSyncer) *TaskUpdate {
+	s.reminders = sync
+	return s
 }
 
 func NewTaskUpdateService(rep TaskUpdateRepository, deleter *TaskDelete, embedder model.Embedder) *TaskUpdate {
@@ -133,6 +140,13 @@ func (s *TaskUpdate) UpdateConfirmed(ctx context.Context, userID uuid.UUID, acti
 	tasks, err := s.rep.UpdateTasks(ctx, userID, confirmed.RecordIds, saved, command, embedding)
 	if err != nil {
 		return nil, fmt.Errorf("update tasks: %w", err)
+	}
+	// Changed records may fire at another moment: re-schedule future
+	// notifications for every updated task, best-effort.
+	if s.reminders != nil {
+		for _, task := range tasks {
+			_ = s.reminders.SyncTask(ctx, task)
+		}
 	}
 	byID := make(map[uuid.UUID]model.Task, len(tasks))
 	for _, task := range tasks {

@@ -8,8 +8,11 @@ import (
 	api "gorkycode/backend/internal/generated"
 	"gorkycode/backend/internal/http-server/apierr"
 	"gorkycode/backend/internal/http-server/handlers"
+	"gorkycode/backend/internal/integration/email"
 	"gorkycode/backend/internal/integration/google"
 	"gorkycode/backend/internal/lib/logger"
+	"gorkycode/backend/internal/notifications"
+	"gorkycode/backend/internal/reminder"
 	"gorkycode/backend/internal/service"
 	"gorkycode/backend/internal/storage"
 	"gorkycode/backend/internal/storage/postgres"
@@ -78,8 +81,31 @@ func run() error {
 	} else {
 		log.Info("google calendar integration disabled")
 	}
+
+	schedulerBus := reminder.NewBus(128)
+	reminders := reminder.NewService(repo, repo, cfg.Database.QueryTimeout, cfg.Reminder, log)
+	scheduler := reminder.NewScheduler(repo, schedulerBus, reminders, cfg.Database.QueryTimeout, cfg.Reminder, log)
+	go scheduler.Run(ctx)
+
+	hub := notifications.NewHub(log, repo, repo, cfg.Database.QueryTimeout)
+	hubMessages, stopHubMessages := schedulerBus.Subscribe()
+	defer stopHubMessages()
+	go hub.Run(ctx, hubMessages)
+	log.Info("notifications websocket enabled", slog.String("route", "/api/v1/notifications/ws"))
+
+	if cfg.Email.Enabled() {
+		mail := email.New(cfg.Email)
+		emailer := notifications.NewEmailer(repo, mail, cfg.Email.Kinds, log)
+		mailMessages, stopMail := schedulerBus.Subscribe()
+		defer stopMail()
+		go emailer.Run(ctx, mailMessages)
+		log.Info("reminder email enabled", slog.String("host", cfg.Email.Host))
+	} else {
+		log.Info("reminder email disabled")
+	}
+
 	services := service.New(repo, cfg.Database.QueryTimeout, cfg.Auth.SessionTTL, rec, cfg.AIServiceURL,
-		cfg.Google, googleClient, log)
+		cfg.Google, googleClient, reminders, log)
 	handler := handlers.NewServer(log, services, handlers.WithGoogleFrontendRedirect(cfg.Google.FrontendRedirect))
 	router := chi.NewRouter()
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {
@@ -88,6 +114,9 @@ func run() error {
 	router.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, r, apierr.MethodNotAllowed("method not allowed for this route"))
 	})
+
+	router.Get("/api/v1/notifications/ws", hub.Handle)
+	router.Get("/api/v1/tasks", handler.ListTasks)
 	api.HandlerWithOptions(handler, api.ChiServerOptions{BaseRouter: router})
 	srv := &http.Server{
 		Addr:              cfg.HTTPServer.Address,

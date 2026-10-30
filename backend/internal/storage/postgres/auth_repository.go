@@ -75,6 +75,19 @@ func (r *AuthRepository) GetUserTimezone(ctx context.Context, userID uuid.UUID) 
 	return timezone, nil
 }
 
+// GetUserEmail returns the address the user registered with.
+func (r *AuthRepository) GetUserEmail(ctx context.Context, userID uuid.UUID) (string, error) {
+	var email string
+	err := r.pool.QueryRow(ctx, "SELECT email FROM users WHERE id = $1", userID).Scan(&email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", model.ErrUserNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("select user email: %w", err)
+	}
+	return email, nil
+}
+
 // CreateUser inserts the user and fills its generated ID and creation time.
 // It returns model.ErrEmailTaken when a user with the same email already exists.
 func (r *AuthRepository) CreateUser(ctx context.Context, user *model.User) error {

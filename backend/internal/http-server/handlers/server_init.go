@@ -14,6 +14,7 @@ type Services interface {
 	ReadinessService
 	Auth
 	TaskProcess
+	TaskList
 	Calendar
 }
 

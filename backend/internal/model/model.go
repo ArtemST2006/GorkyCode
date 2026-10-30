@@ -46,6 +46,9 @@ var (
 	ErrGoogleDisabled = errors.New("google calendar integration disabled")
 	// ErrPendingTaskNotFound is returned when no task waits for the user's confirmation.
 	ErrPendingTaskNotFound = errors.New("pending task not found")
+	// ErrNotificationNotFound is returned when a notification ID does not exist
+	// or belongs to another user.
+	ErrNotificationNotFound = errors.New("notification not found")
 )
 
 // EmbeddingDimension must match the vector(384) column in task_embeddings
