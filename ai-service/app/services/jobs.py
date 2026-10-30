@@ -19,6 +19,8 @@ from app.services.context import build_job_response, explicit_selection_numbers
 from app.services.task_deadline import normalize_task_deadline
 from app.security.guard_protocols import ActionVerifier
 from app.security.guard_schemas import GuardVerdict
+from app.security.disclosure import DisclosurePolicy
+from app.services.safe_messages import clarification_message
 from app.security.limits import validate_job_limits, validate_response_limits
 
 
@@ -28,10 +30,12 @@ class JobService:
         self.settings = settings
         self.gateway = gateway
         self.guard = guard
+        self.disclosure = DisclosurePolicy(settings)
         self._guard_slots = asyncio.Semaphore(settings.security_guard_max_concurrency)
 
     async def process(self, request: JobRequest) -> JobResponse:
         validate_job_limits(request, self.settings)
+        self.disclosure.check_credentials(request.model_dump(mode="json"))
         try:
             async with asyncio.timeout(self.settings.job_timeout_seconds):
                 return await self._process(request)
@@ -43,6 +47,19 @@ class JobService:
                 "The request exceeded its processing deadline.",
             ) from None
 
+    async def _response(self, request: JobRequest, decision: ModelDecision,
+                        source: str) -> JobResponse:
+        # The privileged extractor's free text never reaches users or history.
+        message = (clarification_message(decision)
+                   if decision.status == "needs_clarification" else "Запрос подготовлен.")
+        decision = decision.model_copy(update={"message": message})
+        proposal = build_job_response(request, decision)
+        validate_response_limits(proposal, self.settings)
+        self.disclosure.check_proposal(proposal)
+        if source != "candidate_selection":
+            proposal = await self._verify_proposal(request, decision.intent, proposal)
+        return proposal
+
     async def _process(self, request: JobRequest) -> JobResponse:
         # The candidate numbers are already trusted dialogue state. Handle an
         # explicit choice before the model can reinterpret it as a new search.
@@ -53,7 +70,7 @@ class JobService:
                 "on_delete" if is_delete else "on_update",
             )
             if selected is not None:
-                proposal = build_job_response(request, ModelDecision.model_validate({
+                return await self._response(request, ModelDecision.model_validate({
                     "status": "ready", "intent": "on_delete" if is_delete else "on_update",
                     "message": "Удаляю выбранные записи." if is_delete else "Выбранные записи изменены.",
                     "action": {
@@ -61,9 +78,7 @@ class JobService:
                         "selected_numbers": selected,
                     },
                     "draft": None, "topic_changed": False,
-                }))
-                validate_response_limits(proposal, self.settings)
-                return proposal
+                }), "candidate_selection")
         messages = build_messages(request, ModelDecision.model_json_schema())
         for attempt in range(2):
             try:
@@ -77,8 +92,7 @@ class JobService:
                         "Unsupported request",
                         "Supported requests create, list, search, update, or delete calendar entries.",
                     )
-                proposal = build_job_response(request, decision)
-                validate_response_limits(proposal, self.settings)
+                return await self._response(request, decision, "model")
             except (ValidationError, InvalidModelOutput) as exc:
                 if attempt == 1:
                     raise ServiceError(
@@ -100,10 +114,6 @@ class JobService:
                         + json.dumps(errors),
                     }
                 ]
-                continue
-            # Never catch a guard refusal as an extraction/schema repair. The
-            # verifier sees the final public action after every normalization.
-            return await self._verify_proposal(request, decision.intent, proposal)
         raise RuntimeError("Unreachable correction state")
 
     async def _verify_proposal(self, request: JobRequest, intent: str,

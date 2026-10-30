@@ -26,6 +26,9 @@ def create_app(settings: Settings | None = None, gateway: ModelGateway | None = 
     application = FastAPI(
         title="GorkyCode AI Service API",
         version="1.0.0",
+        docs_url="/docs" if settings.security_expose_docs else None,
+        redoc_url="/redoc" if settings.security_expose_docs else None,
+        openapi_url="/openapi.json" if settings.security_expose_docs else None,
         lifespan=create_lifespan(settings, gateway, encoder, encoder_factory, guard),
     )
     register_exception_handlers(application)

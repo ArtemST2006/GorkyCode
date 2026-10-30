@@ -1,5 +1,8 @@
 # Независимая проверка защиты ai-service
 
+Это исторический отчёт о первой версии защиты. Последующий перенос и текущие
+проверки описаны в [branch-transfer.md](branch-transfer.md).
+
 Проверка выполнена 30 октября 2026 года на изолированной рабочей копии
 `/home/kandratt/Documents/ChatGPT/hackaton/.build/prompt-injection-hardening/project/ai-service`.
 Основа — исходный проект `/home/kandratt/Desktop/GorkyCode`, commit `764337b`.

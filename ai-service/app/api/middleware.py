@@ -45,6 +45,8 @@ async def observe_requests(
         response.status_code,
         (perf_counter() - started) * 1000,
     )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
     return response
 
 

@@ -47,6 +47,7 @@ class Settings(BaseSettings):
 
     job_timeout_seconds: float = Field(default=150.0, gt=0, le=600)
     security_guard_mode: Literal["enforce", "observe"] = "enforce"
+    security_expose_docs: bool = False
     security_guard_model: str = Field(default="", max_length=256)
     security_guard_timeout_seconds: float = Field(default=15.0, gt=0, le=120)
     security_guard_max_tokens: int = Field(default=256, ge=128, le=2048)
