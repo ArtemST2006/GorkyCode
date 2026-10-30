@@ -7,6 +7,97 @@ info:
     уже работающей реализации. OpenAPI описывает HTTP Upgrade, а протокол
     сообщений WebSocket задан ниже в description и компонентах schemas.
 paths:
+  /api/v1/tasks:
+    get:
+      tags: [Tasks]
+      summary: Список задач пользователя (read-only)
+      operationId: listTasks
+      security:
+        - bearerAuth: []
+      description: |
+        Возвращает записи текущего пользователя в запрошенном диапазоне дат.
+        Быстрая read-ручка для фронта; не запускает AI-диалог.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Начало периода, включительно (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: Конец периода, исключительно (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: type
+          in: query
+          required: false
+          style: form
+          explode: true
+          description: Фильтр record_type.
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [meeting, task, reminder]
+        - name: query
+          in: query
+          required: false
+          description: Подстрочный поиск по названию.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Находит записи пользователя.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  user_id:
+                    type: string
+                    format: uuid
+                  task_id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+        '400':
+          description: Некорректный запрос.
+        '401':
+          description: Токен missing/invalid.
+        '403':
+          description: user_id mismatch.
+        '500':
+          description: Ошибка хранилища.
   /api/v1/notifications/ws:
     get:
       tags: [Notifications]
@@ -23,8 +114,9 @@ paths:
         Каждое сообщение — один UTF-8 JSON text frame. Binary frames не
         поддерживаются. В одном соединении разрешён один пользователь;
         user_id берётся только из токена. После ReadyMessage сервер посылает
-        сохранённые неподтверждённые уведомления пользователя, затем новые.
-        Порядок отправки — по created_at и id; при повторном подключении
+        сохранённые неподтверждённые уведомления пользователя, момент которых
+        уже наступил (scheduled_at не позже текущего времени), затем новые;
+        уведомления с будущим моментом посылаются в свой scheduled_at. Порядок отправки — по created_at и id; при повторном подключении
         возможны дубликаты. Клиент устраняет их по notification.id и
         подтверждает обработку AckMessage. Подтверждение относится только к
         уведомлению этого пользователя и идемпотентно. Неподтверждённые
