@@ -11,6 +11,22 @@ from app.services.context import build_job_response
 
 
 class ChatIntentTest(unittest.TestCase):
+    def test_chat_message_and_saved_history_are_plain_text(self):
+        request = JobRequest.model_validate({
+            "user_id": "b80e93e1-9945-48e0-8460-3ee68bcfb402",
+            "task_id": "7b612951-57ae-4ac4-a93c-42fa9c9e8359",
+            "text": "Привет!", "request_time": "2026-10-30T12:00:00+03:00",
+            "timezone": "Europe/Moscow", "context": {},
+        })
+        decision = ModelDecision.model_validate({
+            "status": "ready", "intent": "chat",
+            "message": "**Привет!** 👋\nЧем помочь?", "action": None,
+            "draft": None, "topic_changed": False,
+        })
+        response = build_job_response(request, decision)
+        self.assertEqual(response.message, "Привет! Чем помочь?")
+        self.assertEqual(response.context.recent_messages[-1].text, response.message)
+
     def test_response_keeps_history_and_has_no_action(self):
         request = JobRequest.model_validate({
             "user_id": "b80e93e1-9945-48e0-8460-3ee68bcfb402",

@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from app.api.dependencies import JobServiceDependency
 from app.core.errors import InvalidModelOutput, ServiceError
 from app.schemas.respond import RespondRequest, RespondResponse
+from app.services.plain_message import plain_message
 
 router = APIRouter(prefix="/api", tags=["AI"])
 
@@ -47,7 +48,8 @@ async def respond_to_result(payload: RespondRequest, service: JobServiceDependen
         'Не выводи UUID. Не назначай время, если оно отсутствует. '
         'Сохраняй показанные номера кандидатов. Даты и время уже локальные в timezone. '
         'Списки могут быть сокращены до 50 записей: точное полное количество в total_counts. '
-        'Если список сокращён, не говори, что перечислил всё: остальные записи доступны в интерфейсе.'
+        'Если список сокращён, не говори, что перечислил всё: остальные записи доступны в интерфейсе. '
+        'Пиши обычным текстом в одну строку: без эмодзи, Markdown, HTML и переносов строк.'
     )
     try:
         async with asyncio.timeout(25):
@@ -58,6 +60,9 @@ async def respond_to_result(payload: RespondRequest, service: JobServiceDependen
         value = json.loads(raw)
         if not isinstance(value, dict) or set(value) != {"message"}:
             raise ValueError("Expected message only")
+        if not isinstance(value["message"], str):
+            raise ValueError("Expected text message")
+        value["message"] = plain_message(value["message"])
         result = RespondResponse(user_id=payload.user_id, task_id=payload.task_id, **value)
         if not result.message.strip():
             raise ValueError("Empty message")

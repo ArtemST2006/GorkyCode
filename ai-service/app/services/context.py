@@ -17,6 +17,7 @@ from app.schemas.update_event import (
     UpdateConfirmedAction,
     UpdateFindCandidatesAction,
 )
+from app.services.plain_message import plain_message
 
 
 _DELETE_FILTERS = (
@@ -165,6 +166,7 @@ def build_job_response(request: JobRequest, decision: ModelDecision) -> JobRespo
             values["draft"] = None
             status = "ready"
             message = "Подбираю записи для изменения."
+    message = plain_message(message)
     history = []
     if isinstance(request.context, (StoredContext, DeleteCandidateContext, UpdateCandidateContext)) and not decision.topic_changed:
         history = [message.model_dump() for message in request.context.recent_messages]

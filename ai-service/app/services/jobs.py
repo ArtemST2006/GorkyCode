@@ -17,6 +17,7 @@ from app.schemas.update_event import UpdateCandidateContext
 from app.services.context import build_job_response, explicit_selection_numbers
 from app.services.task_deadline import normalize_task_deadline
 from app.services.list_period import is_orphan_reply
+from app.services.status_update_recovery import recover_task_status_update
 
 
 class JobService:
@@ -75,11 +76,18 @@ class JobService:
                     "draft": None, "topic_changed": False,
                 }), "candidate_selection")
         messages = build_messages(request, ModelDecision.model_json_schema())
+        status_update_recovery = recover_task_status_update(request.text)
         for attempt in range(2):
             try:
                 content = await self.gateway.complete(messages)
                 decision = ModelDecision.model_validate(self._normalized_model_content(content))
                 decision = normalize_task_deadline(request, decision)
+                if status_update_recovery is not None:
+                    expected = getattr(getattr(status_update_recovery.action, "changes", None), "status", None)
+                    changes = getattr(decision.action, "changes", None) or getattr(decision.draft, "changes", None)
+                    actual = getattr(changes, "status", None)
+                    if decision.intent != "on_update" or (expected is not None and actual != expected):
+                        return self._response(request, status_update_recovery, "status_update_recovery")
                 if decision.status == "unsupported":
                     raise ServiceError(
                         400,
@@ -89,6 +97,8 @@ class JobService:
                     )
                 return self._response(request, decision, "model")
             except (ValidationError, InvalidModelOutput) as exc:
+                if status_update_recovery is not None:
+                    return self._response(request, status_update_recovery, "status_update_recovery")
                 if attempt == 1:
                     raise ServiceError(
                         500,
