@@ -40,10 +40,20 @@ func NewModel(cfg *Config) (*Recognizer, error) {
 	}
 
 	switch {
+	case fileExists(cfg.ModelPath+"/encoder.int8.onnx") &&
+		fileExists(cfg.ModelPath+"/decoder.int8.onnx") &&
+		fileExists(cfg.ModelPath+"/joiner.int8.onnx"):
+		// Legacy Zipformer transducer (quantized int8).
+		settings.FeatConfig.FeatureDim = 80
+		settings.ModelConfig.Transducer = sherpa.OfflineTransducerModelConfig{
+			Encoder: cfg.ModelPath + "/encoder.int8.onnx",
+			Decoder: cfg.ModelPath + "/decoder.int8.onnx",
+			Joiner:  cfg.ModelPath + "/joiner.int8.onnx",
+		}
 	case fileExists(cfg.ModelPath+"/encoder.onnx") &&
 		fileExists(cfg.ModelPath+"/decoder.onnx") &&
 		fileExists(cfg.ModelPath+"/joiner.onnx"):
-		// Legacy Zipformer transducer.
+		// Legacy Zipformer transducer (fp32 fallback).
 		settings.FeatConfig.FeatureDim = 80
 		settings.ModelConfig.Transducer = sherpa.OfflineTransducerModelConfig{
 			Encoder: cfg.ModelPath + "/encoder.onnx",
