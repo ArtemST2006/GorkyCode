@@ -106,13 +106,16 @@ paths:
         старый draft в новое действие и возвращает context только новой темы.
         user_id и task_id при этом остаются прежними; backend перезаписывает
         черновик либо завершает диалог по обычным правилам status.
+        Однозначный ответ с периодом на вопрос о списке продолжает list_events
+        с сохранением record_types. Короткий распознаваемый период без context
+        (например «до конца недели») возвращает HTTP 400 Problem с
+        code=dialogue_context_required; действие не угадывается.
         Для on_delete и on_update AI возвращает intent только в заголовке
         X-Task-Intent; в JSON этих ответов поля intent нет.
         Подтверждение относится только к текущему показанному списку и его
         операции. Вопрос с номером записи, время, отрицание или команда
         другого действия не являются подтверждением удаления/изменения.
-        Существующие create_event, list_events и search_events продолжают
-        возвращать intent в JSON без обязательного X-Task-Intent.
+        create_event, list_events, search_events и chat возвращают intent в JSON без обязательного X-Task-Intent.
         ready/on_delete с phase=find_candidates разрешает только поиск:
         удаление возможно лишь после повторного запроса с подтверждением
         пользователя и phase=delete_confirmed. AI сопоставляет выбранные
@@ -1048,10 +1051,18 @@ components:
           format: date
         time:
           $ref: '#/components/schemas/LocalTime'
+    ListStatuses:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        $ref: '#/components/schemas/TaskStatus'
     ListEventsDraft:
       type: object
       additionalProperties: false
       properties:
+        statuses:
+          $ref: '#/components/schemas/ListStatuses'
         date_from:
           type: string
           format: date
@@ -1114,6 +1125,7 @@ components:
         - $ref: '#/components/schemas/ReadyCreateEvent'
         - $ref: '#/components/schemas/ReadyListEvents'
         - $ref: '#/components/schemas/ReadySearchEvents'
+        - $ref: '#/components/schemas/ReadyChat'
     ReadyBase:
       type: object
       required: [user_id, task_id, status, message, context]
@@ -1172,6 +1184,19 @@ components:
               enum: [list_events]
             action:
               $ref: '#/components/schemas/ListEventsAction'
+    ReadyChat:
+      allOf:
+        - $ref: '#/components/schemas/ReadyBase'
+        - type: object
+          required: [intent, action]
+          properties:
+            intent:
+              type: string
+              enum: [chat]
+            action:
+              nullable: true
+              enum: [null]
+              description: Обычный разговор не вызывает действие над записями.
     ReadySearchEvents:
       allOf:
         - $ref: '#/components/schemas/ReadyBase'
@@ -1231,9 +1256,10 @@ components:
     ListEventsAction:
       type: object
       additionalProperties: false
-      required: [date_from, date_to_exclusive]
-      description: Backend проверяет date_from < date_to_exclusive.
+      description: Границы периода необязательны; если обе заданы, backend проверяет date_from < date_to_exclusive.
       properties:
+        statuses:
+          $ref: '#/components/schemas/ListStatuses'
         date_from:
           type: string
           format: date
