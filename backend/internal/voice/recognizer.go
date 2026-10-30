@@ -15,7 +15,9 @@ type Recognizer struct {
 	rec *sherpa.OfflineRecognizer
 }
 
-// NewModel loads the ASR model located at cfg.ModelPath.
+// NewModel loads the ASR model located at cfg.ModelPath. It supports both
+// the legacy Zipformer transducer build and GigaAM as a single-file NeMo CTC
+// model, selecting the recognizer configuration for the files actually present.
 func NewModel(cfg *Config) (*Recognizer, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("recognizer: check config (cfg is nil)")
@@ -28,19 +30,42 @@ func NewModel(cfg *Config) (*Recognizer, error) {
 	settings := sherpa.OfflineRecognizerConfig{
 		FeatConfig: sherpa.FeatureConfig{
 			SampleRate: 16000,
-			FeatureDim: 80,
 		},
 		ModelConfig: sherpa.OfflineModelConfig{
-			Transducer: sherpa.OfflineTransducerModelConfig{
-				Encoder: cfg.ModelPath + "/encoder.onnx",
-				Decoder: cfg.ModelPath + "/decoder.onnx",
-				Joiner:  cfg.ModelPath + "/joiner.onnx",
-			},
 			Tokens:     cfg.ModelPath + "/tokens.txt",
 			Provider:   cfg.Provider,
 			NumThreads: cfg.NumThreads,
 		},
 		DecodingMethod: cfg.DecodeMethod,
+	}
+
+	switch {
+	case fileExists(cfg.ModelPath+"/encoder.onnx") &&
+		fileExists(cfg.ModelPath+"/decoder.onnx") &&
+		fileExists(cfg.ModelPath+"/joiner.onnx"):
+		// Legacy Zipformer transducer.
+		settings.FeatConfig.FeatureDim = 80
+		settings.ModelConfig.Transducer = sherpa.OfflineTransducerModelConfig{
+			Encoder: cfg.ModelPath + "/encoder.onnx",
+			Decoder: cfg.ModelPath + "/decoder.onnx",
+			Joiner:  cfg.ModelPath + "/joiner.onnx",
+		}
+	case fileExists(cfg.ModelPath + "/model.int8.onnx"):
+		// GigaAM v3 (NeMo CTC), int8.
+		settings.FeatConfig.FeatureDim = 64
+		settings.ModelConfig.NemoCTC = sherpa.OfflineNemoEncDecCtcModelConfig{
+			Model: cfg.ModelPath + "/model.int8.onnx",
+		}
+		settings.ModelConfig.ModelType = "nemo_ctc"
+	case fileExists(cfg.ModelPath + "/model.onnx"):
+		// GigaAM v3 (NeMo CTC), fp32.
+		settings.FeatConfig.FeatureDim = 64
+		settings.ModelConfig.NemoCTC = sherpa.OfflineNemoEncDecCtcModelConfig{
+			Model: cfg.ModelPath + "/model.onnx",
+		}
+		settings.ModelConfig.ModelType = "nemo_ctc"
+	default:
+		return nil, fmt.Errorf("recognizer: no supported model files found in %q", cfg.ModelPath)
 	}
 
 	recognizer := sherpa.NewOfflineRecognizer(&settings)
@@ -78,4 +103,9 @@ func (r *Recognizer) Transcribe(ctx context.Context, wav io.Reader) (string, err
 	}
 
 	return result, nil
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
