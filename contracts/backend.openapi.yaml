@@ -54,7 +54,12 @@ paths:
         контекста, например «до конца недели», возвращает 200
         needs_clarification с новым task_id и просьбой повторить запрос
         целиком; этот контекст сохраняется для следующей реплики. Ошибки
-        Redis и другие сбои не считаются потерей контекста.
+        Повреждённый context Redis также начинает новый диалог. Если модель
+        дважды вернула ответ вне схемы, backend возвращает 200
+        needs_clarification без действий над записями. Недоступность AI,
+        Redis и базы данных остаётся ошибкой сервиса.
+        Запросы о ближайшем времени AI передаёт как list_events с
+        upcoming_minutes; backend применяет окно в часовом поясе пользователя.
         После успешной операции или поиска кандидатов backend вызывает
         POST /api/respond с фактическим data, intent, status, текущим text и
         timezone. AI формирует только message; данные и HTTP-статус сохраняются.
@@ -1009,7 +1014,8 @@ components:
         агрегатор формирует обёртку ответа фронтенду и передаёт message от
         POST /api/respond; при ошибке генерации используется резервное сообщение.
         Если записей нет, items — пустой массив. Оба сервиса учитывают
-        записи со статусами active и completed. Задача без точного времени
+        задачи со статусами active, in_progress и completed; встречи и
+        напоминания со статусами active и completed. Задача без точного времени
         участвует в выборке по дате; отсутствие времени не заменяется
         фиктивным часом.
       properties:
@@ -1034,7 +1040,8 @@ components:
       description: |
         Представление записи tasks для клиента. Значения record_type на API
         совпадают с AI-контрактом и со значениями колонки tasks.type
-        в PostgreSQL (meeting, task, reminder).
+        в PostgreSQL (meeting, task, reminder). Статус in_progress допустим
+        только для task; meeting и reminder сохраняют active/completed.
       properties:
         id:
           type: string
@@ -1063,7 +1070,8 @@ components:
           format: date-time
         status:
           type: string
-          enum: [active, completed]
+          enum: [active, in_progress, completed]
+          description: in_progress допустим только для record_type=task.
     UUID:
       type: string
       format: uuid
@@ -1072,7 +1080,8 @@ components:
       enum: [task, reminder, meeting]
     TaskStatus:
       type: string
-      enum: [active, completed]
+      enum: [active, in_progress, completed]
+      description: in_progress допустим только для record_type=task.
     Date:
       type: string
       format: date
@@ -1091,7 +1100,8 @@ components:
         неизменяемые поля до поиска кандидатов. record_type, user_id, id и created_at
         неизменяемы. Если time задано для записи без date, changes обязано
         задать date. Дату без времени и время без даты можно сохранять только
-        если итоговая строка удовлетворяет ограничению БД.
+        если итоговая строка удовлетворяет ограничению БД. status=in_progress
+        разрешён только для задач; встречи и напоминания остаются active/completed.
       properties:
         title:
           type: string

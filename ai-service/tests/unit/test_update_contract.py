@@ -7,6 +7,7 @@ import pytest
 from app.core.config import Settings
 from app.llm.schemas import ModelDecision
 from app.schemas.job import JobRequest, UpdateFindCandidatesResponse
+from app.schemas.update_event import UpdateCandidate, UpdateChanges
 from app.services.context import build_job_response
 from app.services.jobs import JobService
 
@@ -107,3 +108,27 @@ def test_null_change_is_not_enough_to_become_ready():
     result = build_job_response(request(), decision)
     assert result.status == "needs_clarification"
     assert result.action is None
+
+
+def test_progress_status_is_task_only():
+    assert UpdateChanges(status="in_progress").status == "in_progress"
+    candidate = {
+        "number": 1, "id": TASK_ID, "record_type": "task",
+        "title": "Проект", "date": None, "time": None, "status": "in_progress",
+    }
+    assert UpdateCandidate.model_validate(candidate).status == "in_progress"
+    for record_type in ("meeting", "reminder"):
+        with pytest.raises(ValueError):
+            UpdateCandidate.model_validate(candidate | {"record_type": record_type})
+
+
+def test_task_progress_update_reaches_candidate_search(assert_contract):
+    result = build_job_response(request(), clarification({
+        "title_query": "проект", "record_types": ["task"],
+        "changes": {"status": "in_progress"},
+    }))
+    assert isinstance(result, UpdateFindCandidatesResponse)
+    payload = result.model_dump(mode="json", exclude_unset=True)
+    assert payload["action"]["changes"]["status"] == "in_progress"
+    assert payload["action"]["record_types"] == ["task"]
+    assert_contract(payload, "UpdateFindCandidates")

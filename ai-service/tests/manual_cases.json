@@ -44,7 +44,33 @@
     {
       "id": "list_tomorrow",
       "request_overrides": {"text": "Что у меня завтра?"},
-      "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"date_from": "2026-10-19", "date_to_exclusive": "2026-10-20"}}
+      "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"date_from": "2026-10-19", "date_to_exclusive": "2026-10-20"}, "action_absent": ["statuses"]}
+    },
+    {
+      "id": "list_tasks_without_status",
+      "request_overrides": {"text": "Покажи мои задачи на завтра"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"date_from": "2026-10-19", "date_to_exclusive": "2026-10-20", "record_types": ["task"]}, "action_absent": ["statuses"]}
+    },
+    {
+      "id": "list_active_tasks",
+      "request_overrides": {"text": "Выведи только активные задачи"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"record_types": ["task"], "statuses": ["active"]}, "action_absent": ["date_from", "date_to_exclusive"]}
+    },
+    {
+      "id": "list_nearest_hour",
+      "request_overrides": {"text": "А напомни, что я должен сделать в течении часа?"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"upcoming_minutes": 60}, "action_absent": ["date_from", "date_to_exclusive"]}
+    },
+    {
+      "id": "list_nearest_half_hour",
+      "request_overrides": {"text": "Что у меня запланировано на ближайшие 30 минут?"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"upcoming_minutes": 30}}
+    },
+    {
+      "id": "list_followup_status",
+      "setup": "Используйте фактический context ответа list_tomorrow с теми же user_id и task_id. Backend сохраняет историю успешного списка с пустым draft.",
+      "request_overrides": {"text": "А только активные?"},
+      "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"date_from": "2026-10-19", "date_to_exclusive": "2026-10-20", "statuses": ["active"]}}
     },
     {
       "id": "search_meetings",
@@ -62,15 +88,15 @@
       "expected": {"http_status": 200, "status": "ready", "intent": "list_events", "action_contains": {"date_from": "2026-10-19", "date_to_exclusive": "2026-10-20"}}
     },
     {
-      "id": "unsupported_request",
+      "id": "chat_request",
       "request_overrides": {"text": "Напиши стихотворение про осень"},
-      "expected": {"http_status": 400, "content_type": "application/problem+json", "code": "unsupported_intent"}
+      "expected": {"http_status": 200, "status": "ready", "intent": "chat"}
     },
     {
       "id": "cancel_draft",
       "setup": "Используйте context ответа meeting_missing_time.",
       "request_overrides": {"text": "Отмени, ничего не создавай"},
-      "expected": {"http_status": 400, "content_type": "application/problem+json", "code": "unsupported_intent"}
+      "expected": {"http_status": 200, "status": "ready", "intent": "chat", "action": null, "topic_changed": true}
     }
   ]
 }

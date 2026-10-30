@@ -16,7 +16,7 @@ from app.schemas.job import JobRequest, JobResponse
 from app.schemas.update_event import UpdateCandidateContext
 from app.services.context import build_job_response, explicit_selection_numbers
 from app.services.task_deadline import normalize_task_deadline
-from app.services.list_period import is_orphan_period_reply, resolve_list_period_reply
+from app.services.list_period import is_orphan_reply
 
 
 class JobService:
@@ -50,15 +50,12 @@ class JobService:
         return result
 
     async def _process(self, request: JobRequest) -> JobResponse:
-        if is_orphan_period_reply(request):
+        if is_orphan_reply(request):
             logger.info("job_rejected task_id=%s code=dialogue_context_required", request.task_id)
             raise ServiceError(
                 400, "dialogue_context_required", "Dialogue context required",
-                "A period alone does not specify an action. Repeat the full request or send the saved dialogue context.",
+                "A short reply alone does not specify an action. Repeat the full request or send the saved dialogue context.",
             )
-        period_reply = resolve_list_period_reply(request)
-        if period_reply is not None:
-            return self._response(request, period_reply, "list_period_reply")
         # The candidate numbers are already trusted dialogue state. Handle an
         # explicit choice before the model can reinterpret it as a new search.
         if isinstance(request.context, (DeleteCandidateContext, UpdateCandidateContext)):
@@ -81,7 +78,7 @@ class JobService:
         for attempt in range(2):
             try:
                 content = await self.gateway.complete(messages)
-                decision = ModelDecision.model_validate_json(content)
+                decision = ModelDecision.model_validate(self._normalized_model_content(content))
                 decision = normalize_task_deadline(request, decision)
                 if decision.status == "unsupported":
                     raise ServiceError(
@@ -113,3 +110,17 @@ class JobService:
                     }
                 ]
         raise RuntimeError("Unreachable correction state")
+
+    @staticmethod
+    def _normalized_model_content(content: str):
+        try:
+            value = json.loads(content)
+        except json.JSONDecodeError:
+            return content
+        if not isinstance(value, dict):
+            return value
+        if value.get("intent") in ("create_event", "list_events", "search_events"):
+            for name in ("action", "draft"):
+                if isinstance(value.get(name), dict):
+                    value[name] = {key: item for key, item in value[name].items() if item is not None}
+        return value

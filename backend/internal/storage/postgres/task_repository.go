@@ -65,6 +65,25 @@ func (r *TaskRepository) ListEvents(
 	return r.fetchTasks(ctx, q)
 }
 
+// ListEventsFiltered applies optional date, type and status filters.
+func (r *TaskRepository) ListEventsFiltered(ctx context.Context, userID uuid.UUID, from, to *time.Time, types, statuses []string) ([]model.Task, error) {
+	q := r.sb.Select("id", "user_id", "type", "title", "date", "to_char(time, 'HH24:MI')", "status", "created_at").
+		From("tasks").Where(sq.Eq{"user_id": userID}).OrderBy("date NULLS LAST", "time NULLS FIRST", "created_at", "id")
+	if from != nil {
+		q = q.Where(sq.Expr("date >= ?::date", from.Format(time.DateOnly)))
+	}
+	if to != nil {
+		q = q.Where(sq.Expr("date < ?::date", to.Format(time.DateOnly)))
+	}
+	if len(types) > 0 {
+		q = q.Where(sq.Eq{"type": types})
+	}
+	if len(statuses) > 0 {
+		q = q.Where(sq.Eq{"status": statuses})
+	}
+	return r.fetchTasks(ctx, q)
+}
+
 // SearchEvents finds titles containing the query without case sensitivity.
 // The date bounds are optional and exclude undated tasks only when provided.
 func (r *TaskRepository) SearchEvents(
@@ -372,6 +391,9 @@ func (r *TaskRepository) UpdateTasks(
 		old, shown := snapshots[id]
 		if !shown || !sameTaskSnapshot(current[id], old) {
 			return nil, model.ErrStaleSelection
+		}
+		if changes.Status != nil && *changes.Status == "in_progress" && current[id].Type != "task" {
+			return nil, fmt.Errorf("%w: in_progress requires a task", model.ErrInvalidAction)
 		}
 	}
 	updated := make([]model.Task, 0, len(ids))

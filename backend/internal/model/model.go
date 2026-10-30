@@ -33,6 +33,11 @@ var (
 	ErrInvalidAction = errors.New("invalid action")
 	// ErrUnsupportedIntent means the user asked for an operation the product does not support.
 	ErrUnsupportedIntent = errors.New("unsupported intent")
+	// ErrDialogueContextRequired means a bare reply arrived without a dialogue.
+	ErrDialogueContextRequired = errors.New("dialogue context required")
+	// ErrModelInvalidOutput means the AI model could not produce a valid action
+	// after the service's correction attempt; no user action was performed.
+	ErrModelInvalidOutput = errors.New("model output did not match contract")
 	// ErrStaleSelection marks a delete selection that no longer matches the
 	// shown candidates or the session owner.
 	ErrStaleSelection = errors.New("selected tasks are missing or outdated")
@@ -47,6 +52,15 @@ var (
 	// ErrPendingTaskNotFound is returned when no task waits for the user's confirmation.
 	ErrPendingTaskNotFound = errors.New("pending task not found")
 )
+
+// MeetingConflictError reports occupied meeting time without inserting a record.
+type MeetingConflictError struct {
+	Detail string
+	UserID uuid.UUID
+	TaskID uuid.UUID
+}
+
+func (e *MeetingConflictError) Error() string { return e.Detail }
 
 // EmbeddingDimension must match the vector(384) column in task_embeddings
 // and the /api/embed contract.

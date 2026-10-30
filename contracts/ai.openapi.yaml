@@ -826,7 +826,8 @@ components:
           pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
         status:
           type: string
-          enum: [active, completed]
+          enum: [active, in_progress, completed]
+          description: in_progress допустим только для record_type=task.
     RecentMessages:
       type: array
       description: AI использует и возвращает последние 20 сообщений; draft и candidates сохраняются отдельно. Более длинная входная история допускается, её начало не передаётся модели.
@@ -1071,6 +1072,11 @@ components:
           format: date
         record_types:
           $ref: '#/components/schemas/RecordTypes'
+        upcoming_minutes:
+          type: integer
+          minimum: 1
+          maximum: 10080
+          description: Длительность окна от request_time в минутах; точные границы вычисляет backend.
     SearchEventsDraft:
       type: object
       additionalProperties: false
@@ -1268,6 +1274,11 @@ components:
           format: date
         record_types:
           $ref: '#/components/schemas/RecordTypes'
+        upcoming_minutes:
+          type: integer
+          minimum: 1
+          maximum: 10080
+          description: Длительность окна от request_time в минутах; точные границы вычисляет backend.
     SearchEventsAction:
       type: object
       additionalProperties: false
@@ -1422,7 +1433,8 @@ components:
       format: date
     TaskStatus:
       type: string
-      enum: [active, completed]
+      enum: [active, in_progress, completed]
+      description: in_progress допустим только при record_type=task; для meeting/reminder остаются active и completed.
     UpdateChanges:
       type: object
       additionalProperties: false
@@ -1435,7 +1447,8 @@ components:
         неизменяемые поля до поиска кандидатов. record_type, user_id, id и created_at
         неизменяемы. Если time задано для записи без date, changes обязано
         задать date. Дату без времени и время без даты можно сохранять только
-        если итоговая строка удовлетворяет ограничению БД.
+        если итоговая строка удовлетворяет ограничению БД. status=in_progress
+        разрешён только для задач; встречи и напоминания остаются active/completed.
       properties:
         title:
           type: string

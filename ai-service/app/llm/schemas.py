@@ -46,7 +46,7 @@ class ModelDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     status: Literal["ready", "needs_clarification", "unsupported"]
-    intent: Literal["create_event", "list_events", "search_events", "on_delete", "on_update"] | None
+    intent: Literal["create_event", "list_events", "search_events", "on_delete", "on_update", "chat"] | None
     message: str | None
     action: (
         CreateEventAction
@@ -70,6 +70,9 @@ class ModelDecision(BaseModel):
                 raise ValueError("Unsupported decisions must have null intent/message/action/draft")
         elif self.intent is None:
             raise ValueError("Supported decisions must specify intent")
+        elif self.intent == "chat":
+            if self.status != "ready" or not self.message or not self.message.strip() or self.action is not None or self.draft is not None:
+                raise ValueError("Chat requires a message, null action and null draft")
         elif self.status == "ready":
             if (
                 not self.message

@@ -18,6 +18,7 @@ import (
 // empty types means all record types.
 type TaskLister interface {
 	ListEvents(ctx context.Context, userID uuid.UUID, from, to time.Time, types []string) ([]model.Task, error)
+	ListEventsFiltered(ctx context.Context, userID uuid.UUID, from, to *time.Time, types, statuses []string) ([]model.Task, error)
 }
 
 // TaskSearcher finds user tasks by title with optional date and type filters.
@@ -58,14 +59,22 @@ func (l *Lister) ListEvents(ctx context.Context, userID uuid.UUID, action json.R
 	if userID == uuid.Nil {
 		return api.TaskCollection{}, fmt.Errorf("%w: empty user_id", model.ErrInvalidAction)
 	}
+	if string(action) == "null" || len(action) == 0 {
+		return api.TaskCollection{}, fmt.Errorf("%w: missing action", model.ErrInvalidAction)
+	}
 	var act ai.ListEventsAction
 	if err := json.Unmarshal(action, &act); err != nil {
 		return api.TaskCollection{}, fmt.Errorf("%w: decode: %w", model.ErrInvalidAction, err)
 	}
 
-	from := act.DateFrom.Time
-	to := act.DateToExclusive.Time
-	if from.IsZero() || to.IsZero() || !from.Before(to) {
+	var from, to *time.Time
+	if act.DateFrom != nil {
+		from = &act.DateFrom.Time
+	}
+	if act.DateToExclusive != nil {
+		to = &act.DateToExclusive.Time
+	}
+	if from != nil && to != nil && !from.Before(*to) {
 		return api.TaskCollection{}, fmt.Errorf("%w: invalid period", model.ErrInvalidAction)
 	}
 
@@ -74,7 +83,21 @@ func (l *Lister) ListEvents(ctx context.Context, userID uuid.UUID, action json.R
 		return api.TaskCollection{}, err
 	}
 
-	tasks, err := l.store.ListEvents(ctx, userID, from, to, types)
+	var statuses []string
+	if act.Statuses != nil {
+		if len(*act.Statuses) == 0 {
+			return api.TaskCollection{}, fmt.Errorf("%w: empty statuses", model.ErrInvalidAction)
+		}
+		seen := map[ai.TaskStatus]bool{}
+		for _, status := range *act.Statuses {
+			if !status.Valid() || seen[status] {
+				return api.TaskCollection{}, fmt.Errorf("%w: invalid status %q", model.ErrInvalidAction, status)
+			}
+			seen[status] = true
+			statuses = append(statuses, string(status))
+		}
+	}
+	tasks, err := l.store.ListEventsFiltered(ctx, userID, from, to, types, statuses)
 	if err != nil {
 		return api.TaskCollection{}, fmt.Errorf("list tasks: %w", err)
 	}
@@ -145,7 +168,7 @@ func toItem(t model.Task) (api.TaskItem, error) {
 	}
 
 	status := api.TaskItemStatus(t.Status)
-	if !status.Valid() {
+	if !status.Valid() || (status == api.TaskItemStatusInProgress && recordType != api.TaskItemRecordTypeTask) {
 		return api.TaskItem{}, fmt.Errorf("unknown task status %q in storage", t.Status)
 	}
 

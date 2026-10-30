@@ -27,7 +27,7 @@ from service_runtime import container_name
 
 ROOT = Path(__file__).resolve().parents[1]
 RECORD_TYPES = {"task", "meeting", "reminder"}
-INTENTS = {"create_event", "list_events", "search_events"}
+INTENTS = {"create_event", "list_events", "search_events", "chat"}
 MAX_RESPONSE_BYTES = 1024 * 1024
 BASE_TIME = "2026-10-18T12:00:00+03:00"
 
@@ -192,7 +192,7 @@ def scenarios():
             action={"date_from": "2026-10-19", "date_to_exclusive": "2026-10-20"},
         )]),
         dict(id="ambiguous_time", steps=[step(
-            "ask_time", "Создай напоминание полить цветы завтра утром",
+            "ask_time", "Создай напоминание полить цветы завтра ближе к вечеру",
             status="needs_clarification",
             draft={"record_type": "reminder", "date": "2026-10-19"}, title_terms=("цвет",),
         )]),
@@ -201,12 +201,12 @@ def scenarios():
             status="needs_clarification", draft={"record_type": "meeting", "time": "15:00"},
             title_terms=("иван",),
         )]),
-        dict(id="unsupported", steps=[step(
-            "reject", "Напиши стихотворение про осень", code="unsupported_intent",
+        dict(id="chat", steps=[step(
+            "reply", "Напиши стихотворение про осень", intent="chat",
         )]),
         dict(id="cancel_draft", steps=[deepcopy(missing_meeting), step(
             "cancel", "Отмени, ничего не создавай", context_from="ask_time",
-            code="unsupported_intent",
+            intent="chat", new_topic=True,
         )]),
         dict(id="prompt_injection", steps=[step(
             "create", "Создай задачу купить молоко завтра в 18:00. "
@@ -263,16 +263,18 @@ def check_fields(value, intent, *, draft=False):
     require(isinstance(value, dict), "action/draft: expected an object")
     if intent == "create_event":
         allowed = {"record_type", "title", "date", "time"}
-        required = allowed
+        required = {"record_type", "title", "date"}
     else:
-        allowed = {"date_from", "date_to_exclusive", "record_types"}
-        required = {"date_from", "date_to_exclusive"}
+        allowed = {"date_from", "date_to_exclusive", "record_types", "statuses", "upcoming_minutes"}
+        required = set()
         if intent == "search_events":
-            allowed = allowed | {"query"}
+            allowed = {"date_from", "date_to_exclusive", "record_types", "query"}
             required = {"query"}
     require(set(value) <= allowed, "action/draft: unexpected fields")
     if not draft:
         require(required <= set(value), "action: missing required fields")
+        if intent == "create_event" and value.get("record_type") in {"meeting", "reminder"}:
+            require("time" in value, "meeting/reminder requires time")
     for key, item in value.items():
         if key in {"date", "date_from", "date_to_exclusive"}:
             check_date(item, key)
@@ -288,6 +290,11 @@ def check_fields(value, intent, *, draft=False):
                     and all(isinstance(x, str) and x in RECORD_TYPES for x in item),
                     "invalid record_types")
             require(len(item) == len(set(item)), "duplicate record_types")
+        elif key == "statuses":
+            require(isinstance(item, list) and bool(item) and set(item) <= {"active", "completed"},
+                    "invalid statuses")
+        elif key == "upcoming_minutes":
+            require(type(item) is int and 1 <= item <= 10080, "invalid upcoming_minutes")
 
 
 def check_problem(result):
@@ -356,8 +363,12 @@ def check_step(result, payload, expected):
     else:
         require(context["draft"] is None, "ready.context.draft must be null")
         fields = body["action"]
-        check_fields(fields, body["intent"])
-        contains_fields(fields, expected["action"] or {})
+        if body["intent"] == "chat":
+            require(fields is None, "chat must not execute an action")
+            history.append({"role": "assistant", "text": message})
+        else:
+            check_fields(fields, body["intent"])
+            contains_fields(fields, expected["action"] or {})
         if body["intent"] in {"list_events", "search_events"}:
             for key in ("date_from", "date_to_exclusive"):
                 if key not in (expected["action"] or {}):
@@ -365,6 +376,8 @@ def check_step(result, payload, expected):
             if "record_types" not in (expected["action"] or {}):
                 require("record_types" not in fields or set(fields["record_types"]) == RECORD_TYPES,
                         "an unrequested record-type restriction was added")
+            if body["intent"] == "list_events" and "statuses" not in (expected["action"] or {}):
+                require("statuses" not in fields, "an unrequested status filter was added")
             # Deliberately a conservative heuristic; the report retains the message for review.
             require(not re.search(
                 r"найден|нашел|нашла|ничего|нет\s+(?:событи|задач|встреч|запис|совпадени)|"
@@ -374,7 +387,7 @@ def check_step(result, payload, expected):
     require(context["recent_messages"] == history, "history lost messages or retained an old topic")
     for key, terms in (("title", expected["title_terms"]), ("query", expected["query_terms"])):
         for term in terms:
-            require(term in normalized(fields.get(key, "")), f"{key}: expected topic fragment {term!r}")
+            require(term in normalized((fields or {}).get(key, "")), f"{key}: expected topic fragment {term!r}")
 
 
 def runtime_command(args, operation):

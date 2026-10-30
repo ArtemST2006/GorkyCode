@@ -75,12 +75,9 @@ class JobTests(LiveCase):
                     cloud.check_step(result, payload, expected)
                 except cloud.CheckFailed as exc:
                     self.fail(str(exc))
-                if expected["status"] == "needs_clarification" and not expected["code"]:
+                if not expected["code"]:
                     if expected["id"] == "ask_title":
                         self.assertNotIn("title", result["body"]["context"]["draft"])
-                    if expected["id"] == "ask_period":
-                        self.assertNotIn("date_from", result["body"]["context"]["draft"])
-                        self.assertNotIn("date_to_exclusive", result["body"]["context"]["draft"])
                     contexts[expected["id"]] = deepcopy(result["body"]["context"])
 
 
@@ -103,15 +100,13 @@ extra_scenarios = [
         cloud.step("ask_title", "Создай задачу", status="needs_clarification", draft={"record_type": "task"}),
         cloud.step("ask_date", "Купить молоко", status="needs_clarification", context_from="ask_title",
                    draft={"record_type": "task"}, title_terms=("молок",)),
-        cloud.step("ask_time", "Завтра", status="needs_clarification", context_from="ask_date",
-                   draft={"record_type": "task", "date": "2026-10-19"}, title_terms=("молок",)),
-        cloud.step("ready", "В 18:00", context_from="ask_time",
-                   action={"record_type": "task", "date": "2026-10-19", "time": "18:00"}, title_terms=("молок",)),
+        cloud.step("ready", "Завтра", context_from="ask_date",
+                   action={"record_type": "task", "date": "2026-10-19"}, title_terms=("молок",)),
     ]),
-    dict(id="list_clarification", steps=[
-        cloud.step("ask_period", "Покажи мои встречи", intent="list_events", status="needs_clarification",
-                   draft={"record_types": ["meeting"]}),
-        cloud.step("ready", "На следующей неделе", intent="list_events", context_from="ask_period",
+    dict(id="list_followup", steps=[
+        cloud.step("list", "Покажи мои встречи", intent="list_events",
+                   action={"record_types": ["meeting"]}),
+        cloud.step("ready", "А на следующей неделе?", intent="list_events", context_from="list",
                    request_time="2026-10-22T12:00:00+03:00",
                    action={"date_from": "2026-10-26", "date_to_exclusive": "2026-11-02", "record_types": ["meeting"]}),
     ]),
@@ -128,7 +123,9 @@ extra_scenarios = [
     dict(id="leap_day", steps=[cloud.step(
         "ready", "Создай задачу отправить отчёт завтра в 18:00", request_time="2028-02-28T12:00:00+03:00",
         action={"record_type": "task", "date": "2028-02-29", "time": "18:00"}, title_terms=("отчет",))]),
-    dict(id="unsupported_update", steps=[cloud.step("reject", "Перенеси встречу с Иваном на завтра", code="unsupported_intent")]),
+    dict(id="list_nearest_hour", steps=[cloud.step(
+        "list", "А напомни, что я должен сделать в течении часа?", intent="list_events",
+        action={"upcoming_minutes": 60})]),
 ]
 
 for scenario in cloud.scenarios() + extra_scenarios:

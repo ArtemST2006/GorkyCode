@@ -72,6 +72,7 @@ NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
 Timezone = Annotated[NonEmptyString, AfterValidator(_timezone)]
 RequestTime = Annotated[AwareDatetime, BeforeValidator(_request_time)]
 RecordType = Literal["task", "reminder", "meeting"]
+TaskStatus = Literal["active", "in_progress", "completed"]
 RecordTypes = Annotated[
     list[RecordType],
     Field(min_length=1, json_schema_extra={"uniqueItems": True}),

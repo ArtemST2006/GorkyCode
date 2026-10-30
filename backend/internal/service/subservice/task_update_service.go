@@ -60,6 +60,25 @@ func (s *TaskUpdate) FindCandidates(ctx context.Context, userID uuid.UUID, actio
 	if err != nil {
 		return UpdateCandidates{}, err
 	}
+	if changes.Status != nil && *changes.Status == api.TaskStatusInProgress {
+		filteredItems := make([]api.TaskDeleteCandidate, 0, len(set.Items))
+		filteredStored := make([]ai.DeleteCandidate, 0, len(set.Stored))
+		filteredTasks := make([]model.Task, 0, len(set.Tasks))
+		for i, item := range set.Tasks {
+			if item.Type != "task" {
+				continue
+			}
+			number := len(filteredItems) + 1
+			shown := set.Items[i]
+			shown.Number = number
+			stored := set.Stored[i]
+			stored.Number = number
+			filteredItems = append(filteredItems, shown)
+			filteredStored = append(filteredStored, stored)
+			filteredTasks = append(filteredTasks, item)
+		}
+		set.Items, set.Stored, set.Tasks = filteredItems, filteredStored, filteredTasks
+	}
 	stored := make([]ai.UpdateCandidate, 0, len(set.Stored))
 	for _, item := range set.Stored {
 		raw, err := json.Marshal(item)
@@ -119,6 +138,13 @@ func (s *TaskUpdate) UpdateConfirmed(ctx context.Context, userID uuid.UUID, acti
 	if err != nil {
 		return nil, err
 	}
+	if command.Status != nil && *command.Status == "in_progress" {
+		for _, item := range saved {
+			if seen[item.ID] && item.Type != "task" {
+				return nil, fmt.Errorf("%w: in_progress requires a task", model.ErrInvalidAction)
+			}
+		}
+	}
 	var embedding *model.EmbeddingResult
 	if command.Title != nil {
 		if s.embedder == nil {
@@ -175,7 +201,7 @@ func parseTaskChanges(changes api.UpdateChanges) (model.TaskChanges, error) {
 	}
 	if changes.Status != nil {
 		value := string(*changes.Status)
-		if value != "active" && value != "completed" {
+		if value != "active" && value != "in_progress" && value != "completed" {
 			return result, fmt.Errorf("%w: invalid updated status", model.ErrInvalidAction)
 		}
 		result.Status = &value

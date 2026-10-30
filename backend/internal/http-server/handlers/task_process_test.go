@@ -271,6 +271,8 @@ func TestProcessTaskMapsResultTypes(t *testing.T) {
 	}{
 		{name: "clarification", result: &api.TaskClarificationResponse{}, intent: "search_events", wantCode: http.StatusOK},
 		{name: "collection", result: &api.TaskCollectionResponse{}, intent: "list_events", wantCode: http.StatusOK},
+		{name: "chat", result: &api.TaskChatResponse{Status: api.TaskChatResponseStatusOk, Message: "Привет!"}, intent: "chat", wantCode: http.StatusOK},
+		{name: "chat with wrong intent", result: &api.TaskChatResponse{}, intent: "create_event", wantCode: http.StatusInternalServerError},
 		{name: "created", result: &api.TaskCreatedResponse{}, intent: "create_event", wantCode: http.StatusCreated},
 		{name: "unknown result", result: struct{}{}, intent: "create_event", wantCode: http.StatusInternalServerError},
 		{name: "unknown intent", result: &api.TaskClarificationResponse{}, intent: "other", wantCode: http.StatusInternalServerError},
@@ -367,7 +369,9 @@ func TestProcessTaskMapsServiceError(t *testing.T) {
 		{"timeout", model.ErrGatewayTimeout, http.StatusGatewayTimeout, "gateway_timeout"},
 		{"unavailable", model.ErrServiceUnavailable, http.StatusServiceUnavailable, "service_unavailable"},
 		{"missing draft", model.ErrDraftNotFound, http.StatusNotFound, "not_found"},
+		{"meeting conflict", &model.MeetingConflictError{Detail: "Это время уже занято."}, http.StatusConflict, "meeting_conflict"},
 		{"unsupported command", model.ErrUnsupportedIntent, http.StatusBadRequest, "invalid_request"},
+		{"orphan reply", model.ErrDialogueContextRequired, http.StatusBadRequest, "invalid_request"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			process := &fakeTaskProcess{err: tc.err}
@@ -377,6 +381,14 @@ func TestProcessTaskMapsServiceError(t *testing.T) {
 				t.Fatalf("POST /api/task: got %d, want %d", response.Code, tc.status)
 			}
 			assertProblemResponse(t, response, tc.code)
+			if tc.code == "meeting_conflict" {
+				if !strings.Contains(response.Body.String(), `"task_id"`) || !strings.Contains(response.Body.String(), `"user_id"`) {
+					t.Fatalf("conflict response lacks dialogue IDs: %s", response.Body.String())
+				}
+			}
+			if errors.Is(tc.err, model.ErrDialogueContextRequired) && !strings.Contains(response.Body.String(), "Уточните просьбу целиком") {
+				t.Fatalf("orphan reply lacks actionable detail: %s", response.Body.String())
+			}
 			if tc.status == http.StatusInternalServerError && !strings.Contains(response.Body.String(), "Извините, возникли внутренние проблемы.") {
 				t.Fatalf("500 response lacks neutral detail: %s", response.Body.String())
 			}

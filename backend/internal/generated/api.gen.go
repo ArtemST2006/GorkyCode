@@ -114,6 +114,21 @@ func (e TaskCancelledResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for TaskChatResponseStatus.
+const (
+	TaskChatResponseStatusOk TaskChatResponseStatus = "ok"
+)
+
+// Valid indicates whether the value is a known member of the TaskChatResponseStatus enum.
+func (e TaskChatResponseStatus) Valid() bool {
+	switch e {
+	case TaskChatResponseStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskClarificationResponseStatus.
 const (
 	NeedsClarification TaskClarificationResponseStatus = "needs_clarification"
@@ -233,8 +248,9 @@ func (e TaskItemRecordType) Valid() bool {
 
 // Defines values for TaskItemStatus.
 const (
-	TaskItemStatusActive    TaskItemStatus = "active"
-	TaskItemStatusCompleted TaskItemStatus = "completed"
+	TaskItemStatusActive     TaskItemStatus = "active"
+	TaskItemStatusCompleted  TaskItemStatus = "completed"
+	TaskItemStatusInProgress TaskItemStatus = "in_progress"
 )
 
 // Valid indicates whether the value is a known member of the TaskItemStatus enum.
@@ -244,6 +260,8 @@ func (e TaskItemStatus) Valid() bool {
 		return true
 	case TaskItemStatusCompleted:
 		return true
+	case TaskItemStatusInProgress:
+		return true
 	default:
 		return false
 	}
@@ -251,8 +269,9 @@ func (e TaskItemStatus) Valid() bool {
 
 // Defines values for TaskStatus.
 const (
-	TaskStatusActive    TaskStatus = "active"
-	TaskStatusCompleted TaskStatus = "completed"
+	TaskStatusActive     TaskStatus = "active"
+	TaskStatusCompleted  TaskStatus = "completed"
+	TaskStatusInProgress TaskStatus = "in_progress"
 )
 
 // Valid indicates whether the value is a known member of the TaskStatus enum.
@@ -261,6 +280,8 @@ func (e TaskStatus) Valid() bool {
 	case TaskStatusActive:
 		return true
 	case TaskStatusCompleted:
+		return true
+	case TaskStatusInProgress:
 		return true
 	default:
 		return false
@@ -309,7 +330,8 @@ type FrontendUpdateCandidates struct {
 		Candidates []struct {
 			// Event Представление записи tasks для клиента. Значения record_type на API
 			// совпадают с AI-контрактом и со значениями колонки tasks.type
-			// в PostgreSQL (meeting, task, reminder).
+			// в PostgreSQL (meeting, task, reminder). Статус in_progress допустим
+			// только для task; meeting и reminder сохраняют active/completed.
 			Event  TaskItem `json:"event"`
 			Number int      `json:"number"`
 		} `json:"candidates"`
@@ -321,7 +343,8 @@ type FrontendUpdateCandidates struct {
 		// неизменяемые поля до поиска кандидатов. record_type, user_id, id и created_at
 		// неизменяемы. Если time задано для записи без date, changes обязано
 		// задать date. Дату без времени и время без даты можно сохранять только
-		// если итоговая строка удовлетворяет ограничению БД.
+		// если итоговая строка удовлетворяет ограничению БД. status=in_progress
+		// разрешён только для задач; встречи и напоминания остаются active/completed.
 		Changes UpdateChanges `json:"changes"`
 	} `json:"data"`
 	Message string                         `json:"message"`
@@ -391,8 +414,14 @@ type Problem struct {
 	Detail   *string `json:"detail,omitempty"`
 	Instance *string `json:"instance,omitempty"`
 	Status   int32   `json:"status"`
-	Title    string  `json:"title"`
-	Type     string  `json:"type"`
+
+	// TaskId ID диалога; передаётся при code=meeting_conflict.
+	TaskId *openapi_types.UUID `json:"task_id,omitempty"`
+	Title  string              `json:"title"`
+	Type   string              `json:"type"`
+
+	// UserId Передаётся при code=meeting_conflict.
+	UserId *openapi_types.UUID `json:"user_id,omitempty"`
 }
 
 // RecordType defines model for RecordType.
@@ -439,13 +468,9 @@ type TaskAudioRequest struct {
 	UserId openapi_types.UUID `json:"user_id"`
 }
 
-// TaskCancelledResponse Ответ на вопрос о конфликте встреч, если пользователь отказался.
-// Когда новая встреча пересекается с активной встречей пользователя
-// или с занятым временем в подключённом Google Calendar, backend не
-// создаёт её сразу, а возвращает 200 TaskClarificationResponse с
-// вопросом. Клиент повторяет запрос с тем же task_id: ответ «да»
-// создаёт встречу (201), «нет» возвращает этот ответ, другой текст
-// повторяет вопрос. Неподтверждённая встреча хранится 10 минут.
+// TaskCancelledResponse Устаревший тип; пересекающаяся встреча теперь возвращает 409.
+//
+// Deprecated: this type has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 type TaskCancelledResponse struct {
 	Message string                      `json:"message"`
 	Status  TaskCancelledResponseStatus `json:"status"`
@@ -455,6 +480,19 @@ type TaskCancelledResponse struct {
 
 // TaskCancelledResponseStatus defines model for TaskCancelledResponse.Status.
 type TaskCancelledResponseStatus string
+
+// TaskChatResponse Ответ на обычную реплику; задачи и встречи не читаются и не меняются.
+type TaskChatResponse struct {
+	Message string                 `json:"message"`
+	Status  TaskChatResponseStatus `json:"status"`
+
+	// TaskId Передайте этот ID для продолжения разговора.
+	TaskId openapi_types.UUID `json:"task_id"`
+	UserId openapi_types.UUID `json:"user_id"`
+}
+
+// TaskChatResponseStatus defines model for TaskChatResponse.Status.
+type TaskChatResponseStatus string
 
 // TaskClarificationResponse defines model for TaskClarificationResponse.
 type TaskClarificationResponse struct {
@@ -476,7 +514,8 @@ type TaskClarificationResponseStatus string
 // агрегатор формирует обёртку ответа фронтенду и передаёт message от
 // POST /api/respond; при ошибке генерации используется резервное сообщение.
 // Если записей нет, items — пустой массив. Оба сервиса учитывают
-// записи со статусами active и completed. Задача без точного времени
+// задачи со статусами active, in_progress и completed; встречи и
+// напоминания со статусами active и completed. Задача без точного времени
 // участвует в выборке по дате; отсутствие времени не заменяется
 // фиктивным часом.
 //
@@ -495,7 +534,8 @@ type TaskCollectionResponse struct {
 	// агрегатор формирует обёртку ответа фронтенду и передаёт message от
 	// POST /api/respond; при ошибке генерации используется резервное сообщение.
 	// Если записей нет, items — пустой массив. Оба сервиса учитывают
-	// записи со статусами active и completed. Задача без точного времени
+	// задачи со статусами active, in_progress и completed; встречи и
+	// напоминания со статусами active и completed. Задача без точного времени
 	// участвует в выборке по дате; отсутствие времени не заменяется
 	// фиктивным часом.
 	//
@@ -566,7 +606,8 @@ type TaskCreatedResponseStatus string
 type TaskDeleteCandidate struct {
 	// Event Представление записи tasks для клиента. Значения record_type на API
 	// совпадают с AI-контрактом и со значениями колонки tasks.type
-	// в PostgreSQL (meeting, task, reminder).
+	// в PostgreSQL (meeting, task, reminder). Статус in_progress допустим
+	// только для task; meeting и reminder сохраняют active/completed.
 	Event TaskItem `json:"event"`
 
 	// Number Номер для ответа пользователя, стабильный в этом диалоге.
@@ -602,7 +643,8 @@ type TaskDeleteCandidatesResponseStatus string
 
 // TaskItem Представление записи tasks для клиента. Значения record_type на API
 // совпадают с AI-контрактом и со значениями колонки tasks.type
-// в PostgreSQL (meeting, task, reminder).
+// в PostgreSQL (meeting, task, reminder). Статус in_progress допустим
+// только для task; meeting и reminder сохраняют active/completed.
 type TaskItem struct {
 	CreatedAt time.Time `json:"created_at"`
 
@@ -610,7 +652,9 @@ type TaskItem struct {
 	Date       *openapi_types.Date `json:"date,omitempty"`
 	Id         openapi_types.UUID  `json:"id"`
 	RecordType TaskItemRecordType  `json:"record_type"`
-	Status     TaskItemStatus      `json:"status"`
+
+	// Status in_progress допустим только для record_type=task.
+	Status TaskItemStatus `json:"status"`
 
 	// Time Локальное время HH:MM; отсутствует или null, если не задано.
 	Time   *string            `json:"time,omitempty"`
@@ -621,10 +665,10 @@ type TaskItem struct {
 // TaskItemRecordType defines model for TaskItem.RecordType.
 type TaskItemRecordType string
 
-// TaskItemStatus defines model for TaskItem.Status.
+// TaskItemStatus in_progress допустим только для record_type=task.
 type TaskItemStatus string
 
-// TaskStatus defines model for TaskStatus.
+// TaskStatus in_progress допустим только для record_type=task.
 type TaskStatus string
 
 // TaskTextRequest defines model for TaskTextRequest.
@@ -676,9 +720,12 @@ type UUID = openapi_types.UUID
 // неизменяемые поля до поиска кандидатов. record_type, user_id, id и created_at
 // неизменяемы. Если time задано для записи без date, changes обязано
 // задать date. Дату без времени и время без даты можно сохранять только
-// если итоговая строка удовлетворяет ограничению БД.
+// если итоговая строка удовлетворяет ограничению БД. status=in_progress
+// разрешён только для задач; встречи и напоминания остаются active/completed.
 type UpdateChanges struct {
-	Date   *Date       `json:"date,omitempty"`
+	Date *Date `json:"date,omitempty"`
+
+	// Status in_progress допустим только для record_type=task.
 	Status *TaskStatus `json:"status,omitempty"`
 	Time   *LocalTime  `json:"time,omitempty"`
 
@@ -778,10 +825,6 @@ func (t ProcessTask200JSONResponseBody) AsTaskClarificationResponse() (TaskClari
 // FromTaskClarificationResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskClarificationResponse
 func (t *ProcessTask200JSONResponseBody) FromTaskClarificationResponse(v TaskClarificationResponse) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"needs_clarification"}`))
 	t.union = b
 	return err
 }
@@ -789,10 +832,6 @@ func (t *ProcessTask200JSONResponseBody) FromTaskClarificationResponse(v TaskCla
 // MergeTaskClarificationResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TaskClarificationResponse
 func (t *ProcessTask200JSONResponseBody) MergeTaskClarificationResponse(v TaskClarificationResponse) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"needs_clarification"}`))
 	if err != nil {
 		return err
 	}
@@ -812,10 +851,6 @@ func (t ProcessTask200JSONResponseBody) AsTaskCollectionResponse() (TaskCollecti
 // FromTaskCollectionResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskCollectionResponse
 func (t *ProcessTask200JSONResponseBody) FromTaskCollectionResponse(v TaskCollectionResponse) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"ok"}`))
 	t.union = b
 	return err
 }
@@ -826,41 +861,29 @@ func (t *ProcessTask200JSONResponseBody) MergeTaskCollectionResponse(v TaskColle
 	if err != nil {
 		return err
 	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"ok"}`))
-	if err != nil {
-		return err
-	}
 
 	merged, err := runtime.JSONMerge(t.union, b)
 	t.union = merged
 	return err
 }
 
-// AsTaskCancelledResponse returns the union data inside the ProcessTask200JSONResponseBody as a TaskCancelledResponse
-func (t ProcessTask200JSONResponseBody) AsTaskCancelledResponse() (TaskCancelledResponse, error) {
-	var body TaskCancelledResponse
+// AsTaskChatResponse returns the union data inside the ProcessTask200JSONResponseBody as a TaskChatResponse
+func (t ProcessTask200JSONResponseBody) AsTaskChatResponse() (TaskChatResponse, error) {
+	var body TaskChatResponse
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromTaskCancelledResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskCancelledResponse
-func (t *ProcessTask200JSONResponseBody) FromTaskCancelledResponse(v TaskCancelledResponse) error {
+// FromTaskChatResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskChatResponse
+func (t *ProcessTask200JSONResponseBody) FromTaskChatResponse(v TaskChatResponse) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"cancelled"}`))
 	t.union = b
 	return err
 }
 
-// MergeTaskCancelledResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TaskCancelledResponse
-func (t *ProcessTask200JSONResponseBody) MergeTaskCancelledResponse(v TaskCancelledResponse) error {
+// MergeTaskChatResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TaskChatResponse
+func (t *ProcessTask200JSONResponseBody) MergeTaskChatResponse(v TaskChatResponse) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"cancelled"}`))
 	if err != nil {
 		return err
 	}
@@ -880,10 +903,6 @@ func (t ProcessTask200JSONResponseBody) AsTaskDeleteCandidatesResponse() (TaskDe
 // FromTaskDeleteCandidatesResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TaskDeleteCandidatesResponse
 func (t *ProcessTask200JSONResponseBody) FromTaskDeleteCandidatesResponse(v TaskDeleteCandidatesResponse) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"candidates"}`))
 	t.union = b
 	return err
 }
@@ -891,10 +910,6 @@ func (t *ProcessTask200JSONResponseBody) FromTaskDeleteCandidatesResponse(v Task
 // MergeTaskDeleteCandidatesResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TaskDeleteCandidatesResponse
 func (t *ProcessTask200JSONResponseBody) MergeTaskDeleteCandidatesResponse(v TaskDeleteCandidatesResponse) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"candidates"}`))
 	if err != nil {
 		return err
 	}
@@ -914,10 +929,6 @@ func (t ProcessTask200JSONResponseBody) AsTasksDeletedResponse() (TasksDeletedRe
 // FromTasksDeletedResponse overwrites any union data inside the ProcessTask200JSONResponseBody as the provided TasksDeletedResponse
 func (t *ProcessTask200JSONResponseBody) FromTasksDeletedResponse(v TasksDeletedResponse) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"deleted"}`))
 	t.union = b
 	return err
 }
@@ -925,10 +936,6 @@ func (t *ProcessTask200JSONResponseBody) FromTasksDeletedResponse(v TasksDeleted
 // MergeTasksDeletedResponse performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided TasksDeletedResponse
 func (t *ProcessTask200JSONResponseBody) MergeTasksDeletedResponse(v TasksDeletedResponse) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"deleted"}`))
 	if err != nil {
 		return err
 	}
@@ -948,10 +955,6 @@ func (t ProcessTask200JSONResponseBody) AsFrontendUpdateCandidates() (FrontendUp
 // FromFrontendUpdateCandidates overwrites any union data inside the ProcessTask200JSONResponseBody as the provided FrontendUpdateCandidates
 func (t *ProcessTask200JSONResponseBody) FromFrontendUpdateCandidates(v FrontendUpdateCandidates) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"update_candidates"}`))
 	t.union = b
 	return err
 }
@@ -959,10 +962,6 @@ func (t *ProcessTask200JSONResponseBody) FromFrontendUpdateCandidates(v Frontend
 // MergeFrontendUpdateCandidates performs a merge with any union data inside the ProcessTask200JSONResponseBody, using the provided FrontendUpdateCandidates
 func (t *ProcessTask200JSONResponseBody) MergeFrontendUpdateCandidates(v FrontendUpdateCandidates) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"update_candidates"}`))
 	if err != nil {
 		return err
 	}
@@ -982,10 +981,6 @@ func (t ProcessTask200JSONResponseBody) AsFrontendUpdated() (FrontendUpdated, er
 // FromFrontendUpdated overwrites any union data inside the ProcessTask200JSONResponseBody as the provided FrontendUpdated
 func (t *ProcessTask200JSONResponseBody) FromFrontendUpdated(v FrontendUpdated) error {
 	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"updated"}`))
 	t.union = b
 	return err
 }
@@ -996,47 +991,10 @@ func (t *ProcessTask200JSONResponseBody) MergeFrontendUpdated(v FrontendUpdated)
 	if err != nil {
 		return err
 	}
-	b, err = runtime.JSONMerge(b, []byte(`{"status":"updated"}`))
-	if err != nil {
-		return err
-	}
 
 	merged, err := runtime.JSONMerge(t.union, b)
 	t.union = merged
 	return err
-}
-
-func (t ProcessTask200JSONResponseBody) Discriminator() (string, error) {
-	var discriminator struct {
-		Discriminator string `json:"status"`
-	}
-	err := json.Unmarshal(t.union, &discriminator)
-	return discriminator.Discriminator, err
-}
-
-func (t ProcessTask200JSONResponseBody) ValueByDiscriminator() (interface{}, error) {
-	discriminator, err := t.Discriminator()
-	if err != nil {
-		return nil, err
-	}
-	switch discriminator {
-	case "cancelled":
-		return t.AsTaskCancelledResponse()
-	case "candidates":
-		return t.AsTaskDeleteCandidatesResponse()
-	case "deleted":
-		return t.AsTasksDeletedResponse()
-	case "needs_clarification":
-		return t.AsTaskClarificationResponse()
-	case "ok":
-		return t.AsTaskCollectionResponse()
-	case "update_candidates":
-		return t.AsFrontendUpdateCandidates()
-	case "updated":
-		return t.AsFrontendUpdated()
-	default:
-		return nil, errors.New("unknown discriminator value: " + discriminator)
-	}
 }
 
 func (t ProcessTask200JSONResponseBody) MarshalJSON() ([]byte, error) {

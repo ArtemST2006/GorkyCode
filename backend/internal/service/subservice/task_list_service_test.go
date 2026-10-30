@@ -24,6 +24,7 @@ type fakeTaskLister struct {
 	from        time.Time
 	to          time.Time
 	types       []string
+	statuses    []string
 	searchQuery string
 	searchFrom  *time.Time
 	searchTo    *time.Time
@@ -32,6 +33,18 @@ type fakeTaskLister struct {
 func (f *fakeTaskLister) ListEvents(_ context.Context, userID uuid.UUID, from, to time.Time, types []string) ([]model.Task, error) {
 	f.called = true
 	f.userID, f.from, f.to, f.types = userID, from, to, types
+	return f.tasks, f.err
+}
+
+func (f *fakeTaskLister) ListEventsFiltered(_ context.Context, userID uuid.UUID, from, to *time.Time, types, statuses []string) ([]model.Task, error) {
+	f.called = true
+	f.userID, f.types, f.statuses = userID, types, statuses
+	if from != nil {
+		f.from = *from
+	}
+	if to != nil {
+		f.to = *to
+	}
 	return f.tasks, f.err
 }
 
@@ -90,6 +103,17 @@ func TestListEventsPassesQueryToStore(t *testing.T) {
 	}
 }
 
+func TestListEventsFiltersStatusWithoutPeriod(t *testing.T) {
+	store := &fakeTaskLister{}
+	_, err := NewLister(store).ListEvents(t.Context(), uuid.New(), json.RawMessage(`{"record_types":["task"],"statuses":["active"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.called || !store.from.IsZero() || !store.to.IsZero() || !slices.Equal(store.types, []string{"task"}) || !slices.Equal(store.statuses, []string{"active"}) {
+		t.Fatalf("filters: called=%v from=%s to=%s types=%v statuses=%v", store.called, store.from, store.to, store.types, store.statuses)
+	}
+}
+
 func TestListEventsConvertsTasks(t *testing.T) {
 	userID := uuid.New()
 	meetingDate := date(t, "2026-10-20")
@@ -98,6 +122,7 @@ func TestListEventsConvertsTasks(t *testing.T) {
 	tasks := []model.Task{
 		{ID: uuid.New(), UserID: userID, Type: "meeting", Title: "Встреча с Иваном", Date: &meetingDate, Time: &meetingTime, Status: "active", CreatedAt: createdAt},
 		{ID: uuid.New(), UserID: userID, Type: "task", Title: "Отчёт", Status: "completed", CreatedAt: createdAt},
+		{ID: uuid.New(), UserID: userID, Type: "task", Title: "Проект", Status: "in_progress", CreatedAt: createdAt},
 		{ID: uuid.New(), UserID: userID, Type: "reminder", Title: "Позвонить", Date: &meetingDate, Status: "active", CreatedAt: createdAt},
 	}
 	store := &fakeTaskLister{tasks: tasks}
@@ -110,8 +135,8 @@ func TestListEventsConvertsTasks(t *testing.T) {
 	if len(got.Items) != len(tasks) {
 		t.Fatalf("len(items) = %d, want %d", len(got.Items), len(tasks))
 	}
-	wantTypes := []api.TaskItemRecordType{api.TaskItemRecordTypeMeeting, api.TaskItemRecordTypeTask, api.TaskItemRecordTypeReminder}
-	wantStatuses := []api.TaskItemStatus{api.TaskItemStatusActive, api.TaskItemStatusCompleted, api.TaskItemStatusActive}
+	wantTypes := []api.TaskItemRecordType{api.TaskItemRecordTypeMeeting, api.TaskItemRecordTypeTask, api.TaskItemRecordTypeTask, api.TaskItemRecordTypeReminder}
+	wantStatuses := []api.TaskItemStatus{api.TaskItemStatusActive, api.TaskItemStatusCompleted, api.TaskItemStatusInProgress, api.TaskItemStatusActive}
 	for i, item := range got.Items {
 		task := tasks[i]
 		if item.Id != task.ID || item.UserId != task.UserID || item.Title != task.Title || !item.CreatedAt.Equal(task.CreatedAt) {
@@ -134,8 +159,8 @@ func TestListEventsConvertsTasks(t *testing.T) {
 	if got.Items[1].Date != nil || got.Items[1].Time != nil {
 		t.Fatalf("items[1] date/time = %v/%v, want nil/nil", got.Items[1].Date, got.Items[1].Time)
 	}
-	if got.Items[2].Time != nil {
-		t.Fatalf("items[2].Time = %v, want nil", got.Items[2].Time)
+	if got.Items[3].Time != nil {
+		t.Fatalf("items[3].Time = %v, want nil", got.Items[3].Time)
 	}
 }
 
@@ -165,8 +190,6 @@ func TestListEventsRejectsInvalidAction(t *testing.T) {
 		{name: "nil user", userID: uuid.Nil, action: `{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"}`},
 		{name: "bad json", action: `{`},
 		{name: "null action", action: `null`},
-		{name: "missing date_from", action: `{"date_to_exclusive":"2026-10-21"}`},
-		{name: "missing date_to_exclusive", action: `{"date_from":"2026-10-20"}`},
 		{name: "invalid date", action: `{"date_from":"20-10-2026","date_to_exclusive":"2026-10-21"}`},
 		{name: "equal dates", action: `{"date_from":"2026-10-20","date_to_exclusive":"2026-10-20"}`},
 		{name: "reversed dates", action: `{"date_from":"2026-10-21","date_to_exclusive":"2026-10-20"}`},
@@ -214,6 +237,8 @@ func TestListEventsRejectsUnknownStoredValues(t *testing.T) {
 	}{
 		{name: "unknown type", task: model.Task{Type: "birthday", Status: "active"}},
 		{name: "unknown status", task: model.Task{Type: "task", Status: "deleted"}},
+		{name: "meeting in progress", task: model.Task{Type: "meeting", Status: "in_progress"}},
+		{name: "reminder in progress", task: model.Task{Type: "reminder", Status: "in_progress"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &fakeTaskLister{tasks: []model.Task{tc.task}}

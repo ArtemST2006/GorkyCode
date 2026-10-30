@@ -25,7 +25,6 @@ type Repositories interface {
 	GoogleIntegrationStore
 	OAuthStateStore
 	MeetingOverlapFinder
-	PendingTaskStore
 }
 
 // Services groups application services for HTTP wiring.
@@ -67,7 +66,7 @@ func New(
 	return &Services{
 		HealthService:   NewHealthService(repo, queryTimeout),
 		AuthService:     NewAuthService(repo, repo, queryTimeout, sessionTTL),
-		TaskProcess:     NewTaskProcess(rec, repo, repo, creator, eventReader, taskDelete, aiServiceURL, taskUpdate).WithMeetingConflicts(conflicts, repo).WithResultNarration(),
+		TaskProcess:     NewTaskProcess(rec, repo, repo, creator, eventReader, taskDelete, aiServiceURL, taskUpdate).WithMeetingConflicts(conflicts).WithResultNarration(),
 		TaskCreate:      taskCreate,
 		TaskDelete:      taskDelete,
 		TaskUpdate:      taskUpdate,
