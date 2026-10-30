@@ -50,12 +50,20 @@ type DeleteCandidates struct {
 type TaskDelete struct {
 	rep      TaskDeleteRepository
 	embedder model.Embedder
+	calendar CalendarSync
 }
 
 // NewTaskDeleteService constructs an on_delete service. The embedder may be
 // nil: then only the substring search answers find_candidates.
 func NewTaskDeleteService(rep TaskDeleteRepository, embedder model.Embedder) *TaskDelete {
 	return &TaskDelete{rep: rep, embedder: embedder}
+}
+
+// WithCalendarSync makes confirmed deletions also remove the records'
+// calendar events.
+func (s *TaskDelete) WithCalendarSync(calendar CalendarSync) *TaskDelete {
+	s.calendar = calendar
+	return s
 }
 
 // FindCandidates parses a find_candidates action, searches the user's tasks
@@ -181,6 +189,9 @@ func (s *TaskDelete) DeleteConfirmed(
 	tasks, err := s.rep.DeleteTasks(ctx, userID, act.TaskIds, expected)
 	if err != nil {
 		return nil, fmt.Errorf("delete tasks: %w", err)
+	}
+	if s.calendar != nil {
+		s.calendar.SyncDeletedTasks(ctx, tasks)
 	}
 
 	byID := make(map[uuid.UUID]model.Task, len(tasks))

@@ -17,6 +17,7 @@ from app.schemas.update_event import (
     UpdateConfirmedAction,
     UpdateFindCandidatesAction,
 )
+from app.services.plain_message import plain_message
 
 
 _DELETE_FILTERS = (
@@ -125,6 +126,13 @@ def build_job_response(request: JobRequest, decision: ModelDecision) -> JobRespo
     values = decision.model_dump(mode="json", exclude_unset=True)
     status = decision.status
     message = decision.message
+    if decision.intent in ("create_event", "list_events", "search_events"):
+        # Optional model fields may be emitted as explicit null. Public actions
+        # use omitted fields for absent filters; normalize before validation.
+        if isinstance(values.get("action"), dict):
+            values["action"] = {key: value for key, value in values["action"].items() if value is not None}
+        if isinstance(values.get("draft"), dict):
+            values["draft"] = {key: value for key, value in values["draft"].items() if value is not None}
     if (
         decision.intent == "on_delete"
         and status == "needs_clarification"
@@ -158,10 +166,13 @@ def build_job_response(request: JobRequest, decision: ModelDecision) -> JobRespo
             values["draft"] = None
             status = "ready"
             message = "Подбираю записи для изменения."
+    message = plain_message(message)
     history = []
     if isinstance(request.context, (StoredContext, DeleteCandidateContext, UpdateCandidateContext)) and not decision.topic_changed:
         history = [message.model_dump() for message in request.context.recent_messages]
     history.append({"role": "user", "text": request.text})
+    if decision.intent == "chat":
+        history.append({"role": "assistant", "text": message})
     if status == "needs_clarification":
         history.append({"role": "assistant", "text": message})
     if decision.intent == "on_delete":
@@ -194,7 +205,7 @@ def build_job_response(request: JobRequest, decision: ModelDecision) -> JobRespo
             values["action"] = _repeat_update_search(request, decision)
             message = "Выберите номера записей для изменения."
     # No implicit merging: a new action/draft is the full current topic state.
-    if status == "ready":
+    if status == "ready" and decision.intent != "chat":
         # These messages may enter dialogue history. Never narrate with model
         # text or interpolate titles from actions, records or user input.
         phase = (values["action"] or {}).get("phase")

@@ -155,8 +155,9 @@ func (e ClarificationSearchEventsStatus) Valid() bool {
 
 // Defines values for DeleteCandidateStatus.
 const (
-	DeleteCandidateStatusActive    DeleteCandidateStatus = "active"
-	DeleteCandidateStatusCompleted DeleteCandidateStatus = "completed"
+	DeleteCandidateStatusActive     DeleteCandidateStatus = "active"
+	DeleteCandidateStatusCompleted  DeleteCandidateStatus = "completed"
+	DeleteCandidateStatusInProgress DeleteCandidateStatus = "in_progress"
 )
 
 // Valid indicates whether the value is a known member of the DeleteCandidateStatus enum.
@@ -165,6 +166,8 @@ func (e DeleteCandidateStatus) Valid() bool {
 	case DeleteCandidateStatusActive:
 		return true
 	case DeleteCandidateStatusCompleted:
+		return true
+	case DeleteCandidateStatusInProgress:
 		return true
 	default:
 		return false
@@ -291,6 +294,36 @@ const (
 func (e ReadyBaseStatus) Valid() bool {
 	switch e {
 	case ReadyBaseStatusReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReadyChatIntent.
+const (
+	Chat ReadyChatIntent = "chat"
+)
+
+// Valid indicates whether the value is a known member of the ReadyChatIntent enum.
+func (e ReadyChatIntent) Valid() bool {
+	switch e {
+	case Chat:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReadyChatStatus.
+const (
+	ReadyChatStatusReady ReadyChatStatus = "ready"
+)
+
+// Valid indicates whether the value is a known member of the ReadyChatStatus enum.
+func (e ReadyChatStatus) Valid() bool {
+	switch e {
+	case ReadyChatStatusReady:
 		return true
 	default:
 		return false
@@ -479,8 +512,9 @@ func (e TaskActionRecordType) Valid() bool {
 
 // Defines values for TaskStatus.
 const (
-	TaskStatusActive    TaskStatus = "active"
-	TaskStatusCompleted TaskStatus = "completed"
+	TaskStatusActive     TaskStatus = "active"
+	TaskStatusCompleted  TaskStatus = "completed"
+	TaskStatusInProgress TaskStatus = "in_progress"
 )
 
 // Valid indicates whether the value is a known member of the TaskStatus enum.
@@ -489,6 +523,8 @@ func (e TaskStatus) Valid() bool {
 	case TaskStatusActive:
 		return true
 	case TaskStatusCompleted:
+		return true
+	case TaskStatusInProgress:
 		return true
 	default:
 		return false
@@ -714,14 +750,16 @@ type DeleteCandidate struct {
 	Id openapi_types.UUID `json:"id"`
 
 	// Number Стабильный номер, показанный пользователю.
-	Number     int                   `json:"number"`
-	RecordType RecordType            `json:"record_type"`
-	Status     DeleteCandidateStatus `json:"status"`
-	Time       *string               `json:"time"`
-	Title      string                `json:"title"`
+	Number     int        `json:"number"`
+	RecordType RecordType `json:"record_type"`
+
+	// Status in_progress допустим только для record_type=task.
+	Status DeleteCandidateStatus `json:"status"`
+	Time   *string               `json:"time"`
+	Title  string                `json:"title"`
 }
 
-// DeleteCandidateStatus defines model for DeleteCandidate.Status.
+// DeleteCandidateStatus in_progress допустим только для record_type=task.
 type DeleteCandidateStatus string
 
 // DeleteCandidateContext Контекст повторного запроса on_delete. Список создаёт backend из
@@ -982,13 +1020,17 @@ type JobResponse struct {
 	union json.RawMessage
 }
 
-// ListEventsAction Backend проверяет date_from < date_to_exclusive.
+// ListEventsAction Границы периода необязательны; если обе заданы, backend проверяет date_from < date_to_exclusive.
 type ListEventsAction struct {
-	DateFrom        openapi_types.Date `json:"date_from"`
-	DateToExclusive openapi_types.Date `json:"date_to_exclusive"`
+	DateFrom        *openapi_types.Date `json:"date_from,omitempty"`
+	DateToExclusive *openapi_types.Date `json:"date_to_exclusive,omitempty"`
 
 	// RecordTypes Если поле отсутствует, backend учитывает все типы.
-	RecordTypes *RecordTypes `json:"record_types,omitempty"`
+	RecordTypes *RecordTypes  `json:"record_types,omitempty"`
+	Statuses    *ListStatuses `json:"statuses,omitempty"`
+
+	// UpcomingMinutes Длительность окна от request_time в минутах; точные границы вычисляет backend.
+	UpcomingMinutes *int `json:"upcoming_minutes,omitempty"`
 }
 
 // ListEventsContext defines model for ListEventsContext.
@@ -1005,8 +1047,15 @@ type ListEventsDraft struct {
 	DateToExclusive *openapi_types.Date `json:"date_to_exclusive,omitempty"`
 
 	// RecordTypes Если поле отсутствует, backend учитывает все типы.
-	RecordTypes *RecordTypes `json:"record_types,omitempty"`
+	RecordTypes *RecordTypes  `json:"record_types,omitempty"`
+	Statuses    *ListStatuses `json:"statuses,omitempty"`
+
+	// UpcomingMinutes Длительность окна от request_time в минутах; точные границы вычисляет backend.
+	UpcomingMinutes *int `json:"upcoming_minutes,omitempty"`
 }
+
+// ListStatuses defines model for ListStatuses.
+type ListStatuses = []TaskStatus
 
 // LocalTime Example: 15:00
 type LocalTime = string
@@ -1043,6 +1092,30 @@ type ReadyBase struct {
 
 // ReadyBaseStatus defines model for ReadyBase.Status.
 type ReadyBaseStatus string
+
+// ReadyChat defines model for ReadyChat.
+type ReadyChat struct {
+	// Action Обычный разговор не вызывает действие над записями.
+	Action  interface{}     `json:"action"`
+	Context ReadyContext    `json:"context"`
+	Intent  ReadyChatIntent `json:"intent"`
+
+	// Message Резервное сообщение для пользователя от AI-service. После action
+	// backend запрашивает финальное сообщение через /api/respond.
+	// Для list_events и search_events резервное сообщение не утверждает,
+	// сколько записей найдено: /api/job ещё не видит результат БД.
+	// После удаления пробелов по краям строка должна быть непустой.
+	Message string             `json:"message"`
+	Status  ReadyChatStatus    `json:"status"`
+	TaskId  openapi_types.UUID `json:"task_id"`
+	UserId  openapi_types.UUID `json:"user_id"`
+}
+
+// ReadyChatIntent defines model for ReadyChat.Intent.
+type ReadyChatIntent string
+
+// ReadyChatStatus defines model for ReadyChat.Status.
+type ReadyChatStatus string
 
 // ReadyContext defines model for ReadyContext.
 type ReadyContext struct {
@@ -1083,7 +1156,7 @@ type ReadyCreateEventStatus string
 
 // ReadyListEvents defines model for ReadyListEvents.
 type ReadyListEvents struct {
-	// Action Backend проверяет date_from < date_to_exclusive.
+	// Action Границы периода необязательны; если обе заданы, backend проверяет date_from < date_to_exclusive.
 	Action  ListEventsAction      `json:"action"`
 	Context ReadyContext          `json:"context"`
 	Intent  ReadyListEventsIntent `json:"intent"`
@@ -1246,7 +1319,7 @@ type TaskAction struct {
 // TaskActionRecordType defines model for TaskAction.RecordType.
 type TaskActionRecordType string
 
-// TaskStatus defines model for TaskStatus.
+// TaskStatus in_progress допустим только при record_type=task; для meeting/reminder остаются active и completed.
 type TaskStatus string
 
 // TimedEventAction defines model for TimedEventAction.
@@ -1271,9 +1344,11 @@ type UpdateCandidate struct {
 	Id         UUID                `json:"id"`
 	Number     int                 `json:"number"`
 	RecordType RecordType          `json:"record_type"`
-	Status     TaskStatus          `json:"status"`
-	Time       *string             `json:"time"`
-	Title      string              `json:"title"`
+
+	// Status in_progress допустим только при record_type=task; для meeting/reminder остаются active и completed.
+	Status TaskStatus `json:"status"`
+	Time   *string    `json:"time"`
+	Title  string     `json:"title"`
 }
 
 // UpdateCandidateContext Backend записывает в Redis показанные номера, ID, полные снимки
@@ -1294,9 +1369,12 @@ type UpdateCandidateContext struct {
 // неизменяемые поля до поиска кандидатов. record_type, user_id, id и created_at
 // неизменяемы. Если time задано для записи без date, changes обязано
 // задать date. Дату без времени и время без даты можно сохранять только
-// если итоговая строка удовлетворяет ограничению БД.
+// если итоговая строка удовлетворяет ограничению БД. status=in_progress
+// разрешён только для задач; встречи и напоминания остаются active/completed.
 type UpdateChanges struct {
-	Date   *Date       `json:"date,omitempty"`
+	Date *Date `json:"date,omitempty"`
+
+	// Status in_progress допустим только при record_type=task; для meeting/reminder остаются active и completed.
 	Status *TaskStatus `json:"status,omitempty"`
 
 	// Time Example: 15:00
@@ -1367,7 +1445,8 @@ type UpdateFindAction struct {
 	// неизменяемые поля до поиска кандидатов. record_type, user_id, id и created_at
 	// неизменяемы. Если time задано для записи без date, changes обязано
 	// задать date. Дату без времени и время без даты можно сохранять только
-	// если итоговая строка удовлетворяет ограничению БД.
+	// если итоговая строка удовлетворяет ограничению БД. status=in_progress
+	// разрешён только для задач; встречи и напоминания остаются active/completed.
 	Changes         UpdateChanges         `json:"changes"`
 	DateFrom        *openapi_types.Date   `json:"date_from"`
 	DateToExclusive *openapi_types.Date   `json:"date_to_exclusive"`
@@ -1441,7 +1520,9 @@ type UpdateReadyContext struct {
 type UpdateSearchDraft struct {
 	// Changes Частичные изменения для needs_clarification.
 	Changes *struct {
-		Date   *Date       `json:"date,omitempty"`
+		Date *Date `json:"date,omitempty"`
+
+		// Status in_progress допустим только при record_type=task; для meeting/reminder остаются active и completed.
 		Status *TaskStatus `json:"status,omitempty"`
 
 		// Time Example: 15:00
@@ -2319,6 +2400,32 @@ func (t *ReadyResponse) MergeReadySearchEvents(v ReadySearchEvents) error {
 	return err
 }
 
+// AsReadyChat returns the union data inside the ReadyResponse as a ReadyChat
+func (t ReadyResponse) AsReadyChat() (ReadyChat, error) {
+	var body ReadyChat
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromReadyChat overwrites any union data inside the ReadyResponse as the provided ReadyChat
+func (t *ReadyResponse) FromReadyChat(v ReadyChat) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeReadyChat performs a merge with any union data inside the ReadyResponse, using the provided ReadyChat
+func (t *ReadyResponse) MergeReadyChat(v ReadyChat) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t ReadyResponse) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
@@ -2875,13 +2982,16 @@ type ClientInterface interface {
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
+	// Однозначный ответ с периодом на вопрос о списке продолжает list_events
+	// с сохранением record_types. Короткий распознаваемый период без context
+	// (например «до конца недели») возвращает HTTP 400 Problem с
+	// code=dialogue_context_required; действие не угадывается.
 	// Для on_delete и on_update AI возвращает intent только в заголовке
 	// X-Task-Intent; в JSON этих ответов поля intent нет.
 	// Подтверждение относится только к текущему показанному списку и его
 	// операции. Вопрос с номером записи, время, отрицание или команда
 	// другого действия не являются подтверждением удаления/изменения.
-	// Существующие create_event, list_events и search_events продолжают
-	// возвращать intent в JSON без обязательного X-Task-Intent.
+	// create_event, list_events, search_events и chat возвращают intent в JSON без обязательного X-Task-Intent.
 	// ready/on_delete с phase=find_candidates разрешает только поиск:
 	// удаление возможно лишь после повторного запроса с подтверждением
 	// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
@@ -2912,13 +3022,16 @@ type ClientInterface interface {
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
+	// Однозначный ответ с периодом на вопрос о списке продолжает list_events
+	// с сохранением record_types. Короткий распознаваемый период без context
+	// (например «до конца недели») возвращает HTTP 400 Problem с
+	// code=dialogue_context_required; действие не угадывается.
 	// Для on_delete и on_update AI возвращает intent только в заголовке
 	// X-Task-Intent; в JSON этих ответов поля intent нет.
 	// Подтверждение относится только к текущему показанному списку и его
 	// операции. Вопрос с номером записи, время, отрицание или команда
 	// другого действия не являются подтверждением удаления/изменения.
-	// Существующие create_event, list_events и search_events продолжают
-	// возвращать intent в JSON без обязательного X-Task-Intent.
+	// create_event, list_events, search_events и chat возвращают intent в JSON без обязательного X-Task-Intent.
 	// ready/on_delete с phase=find_candidates разрешает только поиск:
 	// удаление возможно лишь после повторного запроса с подтверждением
 	// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
@@ -3041,13 +3154,16 @@ func (c *Client) EmbedText(ctx context.Context, body EmbedTextJSONRequestBody, r
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
+// Однозначный ответ с периодом на вопрос о списке продолжает list_events
+// с сохранением record_types. Короткий распознаваемый период без context
+// (например «до конца недели») возвращает HTTP 400 Problem с
+// code=dialogue_context_required; действие не угадывается.
 // Для on_delete и on_update AI возвращает intent только в заголовке
 // X-Task-Intent; в JSON этих ответов поля intent нет.
 // Подтверждение относится только к текущему показанному списку и его
 // операции. Вопрос с номером записи, время, отрицание или команда
 // другого действия не являются подтверждением удаления/изменения.
-// Существующие create_event, list_events и search_events продолжают
-// возвращать intent в JSON без обязательного X-Task-Intent.
+// create_event, list_events, search_events и chat возвращают intent в JSON без обязательного X-Task-Intent.
 // ready/on_delete с phase=find_candidates разрешает только поиск:
 // удаление возможно лишь после повторного запроса с подтверждением
 // пользователя и phase=delete_confirmed. AI сопоставляет выбранные
@@ -3088,13 +3204,16 @@ func (c *Client) ProcessJobWithBody(ctx context.Context, contentType string, bod
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
+// Однозначный ответ с периодом на вопрос о списке продолжает list_events
+// с сохранением record_types. Короткий распознаваемый период без context
+// (например «до конца недели») возвращает HTTP 400 Problem с
+// code=dialogue_context_required; действие не угадывается.
 // Для on_delete и on_update AI возвращает intent только в заголовке
 // X-Task-Intent; в JSON этих ответов поля intent нет.
 // Подтверждение относится только к текущему показанному списку и его
 // операции. Вопрос с номером записи, время, отрицание или команда
 // другого действия не являются подтверждением удаления/изменения.
-// Существующие create_event, list_events и search_events продолжают
-// возвращать intent в JSON без обязательного X-Task-Intent.
+// create_event, list_events, search_events и chat возвращают intent в JSON без обязательного X-Task-Intent.
 // ready/on_delete с phase=find_candidates разрешает только поиск:
 // удаление возможно лишь после повторного запроса с подтверждением
 // пользователя и phase=delete_confirmed. AI сопоставляет выбранные
@@ -3427,13 +3546,16 @@ type ClientWithResponsesInterface interface {
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
+	// Однозначный ответ с периодом на вопрос о списке продолжает list_events
+	// с сохранением record_types. Короткий распознаваемый период без context
+	// (например «до конца недели») возвращает HTTP 400 Problem с
+	// code=dialogue_context_required; действие не угадывается.
 	// Для on_delete и on_update AI возвращает intent только в заголовке
 	// X-Task-Intent; в JSON этих ответов поля intent нет.
 	// Подтверждение относится только к текущему показанному списку и его
 	// операции. Вопрос с номером записи, время, отрицание или команда
 	// другого действия не являются подтверждением удаления/изменения.
-	// Существующие create_event, list_events и search_events продолжают
-	// возвращать intent в JSON без обязательного X-Task-Intent.
+	// create_event, list_events, search_events и chat возвращают intent в JSON без обязательного X-Task-Intent.
 	// ready/on_delete с phase=find_candidates разрешает только поиск:
 	// удаление возможно лишь после повторного запроса с подтверждением
 	// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
@@ -3464,13 +3586,16 @@ type ClientWithResponsesInterface interface {
 	// старый draft в новое действие и возвращает context только новой темы.
 	// user_id и task_id при этом остаются прежними; backend перезаписывает
 	// черновик либо завершает диалог по обычным правилам status.
+	// Однозначный ответ с периодом на вопрос о списке продолжает list_events
+	// с сохранением record_types. Короткий распознаваемый период без context
+	// (например «до конца недели») возвращает HTTP 400 Problem с
+	// code=dialogue_context_required; действие не угадывается.
 	// Для on_delete и on_update AI возвращает intent только в заголовке
 	// X-Task-Intent; в JSON этих ответов поля intent нет.
 	// Подтверждение относится только к текущему показанному списку и его
 	// операции. Вопрос с номером записи, время, отрицание или команда
 	// другого действия не являются подтверждением удаления/изменения.
-	// Существующие create_event, list_events и search_events продолжают
-	// возвращать intent в JSON без обязательного X-Task-Intent.
+	// create_event, list_events, search_events и chat возвращают intent в JSON без обязательного X-Task-Intent.
 	// ready/on_delete с phase=find_candidates разрешает только поиск:
 	// удаление возможно лишь после повторного запроса с подтверждением
 	// пользователя и phase=delete_confirmed. AI сопоставляет выбранные
@@ -3877,13 +4002,16 @@ func (c *ClientWithResponses) EmbedTextWithResponse(ctx context.Context, body Em
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
+// Однозначный ответ с периодом на вопрос о списке продолжает list_events
+// с сохранением record_types. Короткий распознаваемый период без context
+// (например «до конца недели») возвращает HTTP 400 Problem с
+// code=dialogue_context_required; действие не угадывается.
 // Для on_delete и on_update AI возвращает intent только в заголовке
 // X-Task-Intent; в JSON этих ответов поля intent нет.
 // Подтверждение относится только к текущему показанному списку и его
 // операции. Вопрос с номером записи, время, отрицание или команда
 // другого действия не являются подтверждением удаления/изменения.
-// Существующие create_event, list_events и search_events продолжают
-// возвращать intent в JSON без обязательного X-Task-Intent.
+// create_event, list_events, search_events и chat возвращают intent в JSON без обязательного X-Task-Intent.
 // ready/on_delete с phase=find_candidates разрешает только поиск:
 // удаление возможно лишь после повторного запроса с подтверждением
 // пользователя и phase=delete_confirmed. AI сопоставляет выбранные
@@ -3920,13 +4048,16 @@ func (c *ClientWithResponses) ProcessJobWithBodyWithResponse(ctx context.Context
 // старый draft в новое действие и возвращает context только новой темы.
 // user_id и task_id при этом остаются прежними; backend перезаписывает
 // черновик либо завершает диалог по обычным правилам status.
+// Однозначный ответ с периодом на вопрос о списке продолжает list_events
+// с сохранением record_types. Короткий распознаваемый период без context
+// (например «до конца недели») возвращает HTTP 400 Problem с
+// code=dialogue_context_required; действие не угадывается.
 // Для on_delete и on_update AI возвращает intent только в заголовке
 // X-Task-Intent; в JSON этих ответов поля intent нет.
 // Подтверждение относится только к текущему показанному списку и его
 // операции. Вопрос с номером записи, время, отрицание или команда
 // другого действия не являются подтверждением удаления/изменения.
-// Существующие create_event, list_events и search_events продолжают
-// возвращать intent в JSON без обязательного X-Task-Intent.
+// create_event, list_events, search_events и chat возвращают intent в JSON без обязательного X-Task-Intent.
 // ready/on_delete с phase=find_candidates разрешает только поиск:
 // удаление возможно лишь после повторного запроса с подтверждением
 // пользователя и phase=delete_confirmed. AI сопоставляет выбранные

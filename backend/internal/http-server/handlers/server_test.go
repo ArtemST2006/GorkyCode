@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -153,4 +154,8 @@ func assertProblemResponse(t *testing.T, response *httptest.ResponseRecorder, co
 	if problem.Code != code || int(problem.Status) != response.Code {
 		t.Fatalf("unexpected problem: %+v", problem)
 	}
+}
+
+func (f fakeServices) ListAllTasks(ctx context.Context, userID uuid.UUID, query string, types []string, from, to *time.Time, limit, offset int) (api.TaskCollection, error) {
+	return api.TaskCollection{Items: []api.TaskItem{}}, nil
 }

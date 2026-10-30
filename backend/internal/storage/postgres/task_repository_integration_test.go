@@ -434,6 +434,58 @@ func TestUpdateTasksChecksSnapshotsAndCommitsAtomically(t *testing.T) {
 	}
 }
 
+func TestTaskProgressStatusIsRestrictedToTasksWithPostgres(t *testing.T) {
+	url := os.Getenv("POSTGRES_TEST_URL")
+	if url == "" {
+		t.Skip("set POSTGRES_TEST_URL for a migrated test database")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+	owner := createTaskTestUser(t, NewAuthRepository(pool), pool)
+	repo := NewTaskRepository(pool)
+	var taskID, meetingID uuid.UUID
+	for _, entry := range []struct {
+		typ string
+		id  *uuid.UUID
+	}{
+		{"task", &taskID}, {"meeting", &meetingID},
+	} {
+		if err := pool.QueryRow(ctx, `INSERT INTO tasks (user_id, type, title, date, status)
+			VALUES ($1, $2, 'Статус', '2026-10-30', 'active') RETURNING id`,
+			owner, entry.typ).Scan(entry.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	date := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
+	shown, err := repo.ListEvents(ctx, owner, date, date.AddDate(0, 0, 1), nil)
+	if err != nil || len(shown) != 2 {
+		t.Fatalf("shown=%+v, error=%v", shown, err)
+	}
+	progress := "in_progress"
+	updated, err := repo.UpdateTasks(ctx, owner, []uuid.UUID{taskID}, shown, model.TaskChanges{Status: &progress}, nil)
+	if err != nil || len(updated) != 1 || updated[0].Status != progress {
+		t.Fatalf("task progress update=%+v, error=%v", updated, err)
+	}
+	_, err = repo.UpdateTasks(ctx, owner, []uuid.UUID{meetingID}, shown, model.TaskChanges{Status: &progress}, nil)
+	if !errors.Is(err, model.ErrInvalidAction) {
+		t.Fatalf("meeting update error=%v, want invalid action", err)
+	}
+	for _, typ := range []string{"meeting", "reminder"} {
+		_, err := pool.Exec(ctx, `INSERT INTO tasks (user_id, type, title, date, status)
+			VALUES ($1, $2, 'Нельзя', '2026-10-30', 'in_progress')`, owner, typ)
+		if err == nil {
+			t.Fatalf("database accepted in_progress for %s", typ)
+		}
+	}
+}
+
 func createTaskTestUser(t *testing.T, auth *AuthRepository, pool *pgxpool.Pool) uuid.UUID {
 	t.Helper()
 	user := &model.User{Name: "Task test", Email: uuid.NewString() + "@example.com", PasswordHash: "test hash", Timezone: "Europe/Moscow"}

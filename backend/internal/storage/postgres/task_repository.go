@@ -65,6 +65,25 @@ func (r *TaskRepository) ListEvents(
 	return r.fetchTasks(ctx, q)
 }
 
+// ListEventsFiltered applies optional date, type and status filters.
+func (r *TaskRepository) ListEventsFiltered(ctx context.Context, userID uuid.UUID, from, to *time.Time, types, statuses []string) ([]model.Task, error) {
+	q := r.sb.Select("id", "user_id", "type", "title", "date", "to_char(time, 'HH24:MI')", "status", "created_at").
+		From("tasks").Where(sq.Eq{"user_id": userID}).OrderBy("date NULLS LAST", "time NULLS FIRST", "created_at", "id")
+	if from != nil {
+		q = q.Where(sq.Expr("date >= ?::date", from.Format(time.DateOnly)))
+	}
+	if to != nil {
+		q = q.Where(sq.Expr("date < ?::date", to.Format(time.DateOnly)))
+	}
+	if len(types) > 0 {
+		q = q.Where(sq.Eq{"type": types})
+	}
+	if len(statuses) > 0 {
+		q = q.Where(sq.Eq{"status": statuses})
+	}
+	return r.fetchTasks(ctx, q)
+}
+
 // SearchEvents finds titles containing the query without case sensitivity.
 // The date bounds are optional and exclude undated tasks only when provided.
 func (r *TaskRepository) SearchEvents(
@@ -244,7 +263,7 @@ func (r *TaskRepository) DeleteTasks(ctx context.Context, userID uuid.UUID, ids 
 		Delete("tasks").
 		Where(sq.Eq{"user_id": userID}).
 		Where(sq.Eq{"id": ids}).
-		Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at").
+		Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at, google_event_id").
 		ToSql()
 	if err != nil {
 		return nil, fmt.Errorf("build delete query: %w", err)
@@ -290,7 +309,8 @@ func (r *TaskRepository) DeleteTasks(ctx context.Context, userID uuid.UUID, ids 
 			&task.Date,
 			&task.Time,
 			&task.Status,
-			&task.CreatedAt); err != nil {
+			&task.CreatedAt,
+			&task.GoogleEventID); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("scan deleted task: %w", err)
 		}
@@ -373,6 +393,9 @@ func (r *TaskRepository) UpdateTasks(
 		if !shown || !sameTaskSnapshot(current[id], old) {
 			return nil, model.ErrStaleSelection
 		}
+		if changes.Status != nil && *changes.Status == "in_progress" && current[id].Type != "task" {
+			return nil, fmt.Errorf("%w: in_progress requires a task", model.ErrInvalidAction)
+		}
 	}
 	updated := make([]model.Task, 0, len(ids))
 	for _, id := range ids {
@@ -397,12 +420,12 @@ func (r *TaskRepository) UpdateTasks(
 		query, values, err := r.sb.Update("tasks").
 			Set("title", item.Title).Set("date", item.Date).Set("time", item.Time).
 			Set("status", item.Status).Where(sq.Eq{"id": id, "user_id": userID}).
-			Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at").ToSql()
+			Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at, google_event_id").ToSql()
 		if err != nil {
 			return nil, fmt.Errorf("build task update: %w", err)
 		}
 		var saved model.Task
-		if err := tx.QueryRow(ctx, query, values...).Scan(&saved.ID, &saved.UserID, &saved.Type, &saved.Title, &saved.Date, &saved.Time, &saved.Status, &saved.CreatedAt); err != nil {
+		if err := tx.QueryRow(ctx, query, values...).Scan(&saved.ID, &saved.UserID, &saved.Type, &saved.Title, &saved.Date, &saved.Time, &saved.Status, &saved.CreatedAt, &saved.GoogleEventID); err != nil {
 			return nil, fmt.Errorf("update task: %w", err)
 		}
 		if changes.Title != nil {

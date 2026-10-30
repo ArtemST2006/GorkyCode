@@ -73,7 +73,7 @@ func TestMeetingConflictsFind(t *testing.T) {
 			wantGoogle:   true,
 		},
 		{name: "free", finder: &fakeMeetingFinder{}, google: &fakeGoogleBusy{}, wantGoogle: true},
-		{name: "google failure does not block", finder: &fakeMeetingFinder{}, google: &fakeGoogleBusy{err: errors.New("timeout")}, wantGoogle: true},
+		{name: "google failure blocks creation", finder: &fakeMeetingFinder{}, google: &fakeGoogleBusy{err: errors.New("timeout")}, wantGoogle: true, wantErr: true},
 		{name: "without google", finder: &fakeMeetingFinder{}},
 		{name: "storage failure", finder: &fakeMeetingFinder{err: errors.New("database unavailable")}, google: &fakeGoogleBusy{}, wantErr: true},
 	} {
@@ -105,11 +105,11 @@ func TestMeetingConflictsFind(t *testing.T) {
 	}
 }
 
-func TestMeetingConflictQuestion(t *testing.T) {
-	if got := (MeetingConflict{Title: "Встреча с Иваном"}).Question(); got != "В это время уже есть встреча «Встреча с Иваном», всё равно поставить?" {
-		t.Fatalf("Question() = %q", got)
+func TestMeetingConflictMessage(t *testing.T) {
+	if got := (MeetingConflict{Title: "Встреча с Иваном"}).Message(); got != "Это время уже занято встречей «Встреча с Иваном». Выберите другое время." {
+		t.Fatalf("Message()=%q", got)
 	}
-	if got := (MeetingConflict{}).Question(); got != "В это время в Google Календаре уже есть событие, всё равно поставить?" {
-		t.Fatalf("Question() without title = %q", got)
+	if got := (MeetingConflict{}).Message(); got != "Это время уже занято в Google Календаре. Выберите другое время." {
+		t.Fatalf("Message()=%q", got)
 	}
 }

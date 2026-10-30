@@ -8,7 +8,7 @@ if [ ! -f "$MODEL_DIR/tokens.txt" ]; then
   echo "model not found, downloading from GitHub: $MODEL_URL"
 
   TMP="$(mktemp -d)"
-  wget -q --tries=3 -O "$TMP/model.tar.bz2" "$MODEL_URL"
+  wget --tries=3 -O "$TMP/model.tar.bz2" "$MODEL_URL"
   mkdir -p "$TMP/out"
   tar -xjf "$TMP/model.tar.bz2" -C "$TMP/out" --strip-components=1
 

@@ -98,6 +98,12 @@ func writeTaskResult(w http.ResponseWriter, r *http.Request, log *slog.Logger, r
 
 	var status int
 	switch result.Body.(type) {
+	case *api.TaskChatResponse:
+		if result.Intent != "chat" {
+			apierr.Write(w, r, apierr.TaskInternal())
+			return
+		}
+		status = http.StatusOK
 	case *api.TaskCancelledResponse:
 		status = http.StatusOK
 	case *api.TaskClarificationResponse:
@@ -142,7 +148,7 @@ func writeTaskResult(w http.ResponseWriter, r *http.Request, log *slog.Logger, r
 		apierr.Write(w, r, apierr.TaskInternal())
 		return
 	}
-	if result.Intent != "create_event" && result.Intent != "list_events" &&
+	if result.Intent != "chat" && result.Intent != "create_event" && result.Intent != "list_events" &&
 		result.Intent != "search_events" && result.Intent != "on_delete" && result.Intent != "on_update" {
 		log.ErrorContext(r.Context(), "Unexpected task intent", slog.String("intent", result.Intent))
 		apierr.Write(w, r, apierr.TaskInternal())
@@ -167,13 +173,18 @@ func validateFile(file *multipart.FileHeader) error {
 }
 
 func writeTaskError(w http.ResponseWriter, r *http.Request, err error) {
+	var meetingConflict *model.MeetingConflictError
 	switch {
+	case errors.As(err, &meetingConflict):
+		apierr.Write(w, r, apierr.MeetingConflict(meetingConflict.Detail, meetingConflict.UserID, meetingConflict.TaskID))
 	case errors.Is(err, model.ErrDraftNotFound), errors.Is(err, model.ErrUserNotFound):
 		apierr.Write(w, r, apierr.NotFound("Запрос или пользователь не найден."))
 	case errors.Is(err, model.ErrStaleSelection):
 		apierr.Write(w, r, apierr.Conflict("Выбранные записи устарели или больше недоступны."))
 	case errors.Is(err, model.ErrDialogueBusy):
 		apierr.Write(w, r, apierr.Conflict("Предыдущий запрос этого диалога ещё обрабатывается. Дождитесь ответа."))
+	case errors.Is(err, model.ErrDialogueContextRequired):
+		apierr.Write(w, r, apierr.InvalidRequest("Уточните просьбу целиком, например: «Покажи встречи до конца недели»."))
 	case errors.Is(err, model.ErrUnsupportedIntent):
 		apierr.Write(w, r, apierr.InvalidRequest("Пока можно создавать, искать, показывать, изменять и удалять записи."))
 	case errors.Is(err, model.ErrGatewayTimeout):

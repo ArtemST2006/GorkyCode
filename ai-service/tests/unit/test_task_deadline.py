@@ -11,10 +11,11 @@ USER_ID = "b80e93e1-9945-48e0-8460-3ee68bcfb402"
 TASK_ID = "7b612951-57ae-4ac4-a93c-42fa9c9e8359"
 
 
-def request(text: str, context: dict | None = None) -> JobRequest:
+def request(text: str, context: dict | None = None,
+            request_time: str = "2026-10-26T12:00:00+03:00") -> JobRequest:
     return JobRequest.model_validate({
         "user_id": USER_ID, "task_id": TASK_ID, "text": text,
-        "request_time": "2026-10-26T12:00:00+03:00",
+        "request_time": request_time,
         "timezone": "Europe/Moscow", "context": context or {},
     })
 
@@ -85,6 +86,27 @@ class TaskDeadlineTest(unittest.TestCase):
         self.assertIsNone(result.action.time)
         self.assertNotIn("23:59", result.message)
 
+    def test_relative_hours_complete_reminder_without_clarification(self):
+        result = normalize_task_deadline(
+            request("Напомни через 2 часа купить билеты"),
+            clarification("reminder", date=None),
+        )
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.action.record_type, "reminder")
+        self.assertEqual((result.action.date, result.action.time),
+                         ("2026-10-26", "14:00"))
+
+    def test_fractional_minutes_roll_date_forward_with_rounded_time(self):
+        result = normalize_task_deadline(
+            request("Напомни через 5 с половиной минут купить билеты",
+                    request_time="2026-10-26T23:54:40+03:00"),
+            clarification("reminder", date=None),
+        )
+        self.assertEqual((result.action.date, result.action.time),
+                         ("2026-10-27", "00:01"))
+        self.assertIn("00:01", result.message)
+
+
     def test_compact_explicit_hour_survives_deadline_normalization(self):
         decision = ModelDecision.model_validate({
             "status": "ready", "intent": "create_event", "message": "Готово.",
@@ -110,7 +132,6 @@ class TaskDeadlineTest(unittest.TestCase):
                 result = normalize_task_deadline(
                     request("Отчёт до конца недели, обсуждали " + date), decision)
                 self.assertIsNone(result.action.time)
-
 
 if __name__ == "__main__":
     unittest.main()

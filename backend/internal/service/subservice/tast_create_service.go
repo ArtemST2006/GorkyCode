@@ -34,11 +34,25 @@ type TaskCreate struct {
 	rep        TaskCreateRepository
 	embeddings EmbeddingStore
 	embedder   model.Embedder
+	reminders  ReminderSyncer
 }
 
 // NewTaskCreateService constructs a task creation service.
 func NewTaskCreateService(rep TaskCreateRepository, embeddings EmbeddingStore, embedder model.Embedder) *TaskCreate {
 	return &TaskCreate{rep: rep, embeddings: embeddings, embedder: embedder}
+}
+
+// ReminderSyncer keeps reminder notifications in step with task changes.
+// The subservice treats it as fire-and-forget: the scheduler reconciliation
+// scan re-derives missed moments from the tasks table on its own.
+type ReminderSyncer interface {
+	SyncTask(ctx context.Context, task model.Task) error
+}
+
+// WithReminderSyncer wires the reminder scheduling into Create.
+func (s *TaskCreate) WithReminderSyncer(sync ReminderSyncer) *TaskCreate {
+	s.reminders = sync
+	return s
 }
 
 // Create saves a task and returns the stored record.
@@ -58,6 +72,11 @@ func (s *TaskCreate) Create(ctx context.Context, cmd CreateTaskCommand) (*model.
 
 	if err := s.rep.CreateTask(ctx, task); err != nil {
 		return nil, err
+	}
+
+	// The reminder moments are best-effort per their own error logging.
+	if s.reminders != nil {
+		_ = s.reminders.SyncTask(ctx, *task)
 	}
 
 	s.embedTask(ctx, task)

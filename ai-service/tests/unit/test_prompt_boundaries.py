@@ -116,7 +116,8 @@ def test_clarification_history_and_calendar_anchors_are_preserved_as_data():
     assert payload["calendar_anchors"] == {
         "yesterday": "2026-10-29", "tomorrow": "2026-10-31",
         "day_after_tomorrow": "2026-11-01", "this_week_start": "2026-10-26",
-        "this_week_end": "2026-11-01", "next_week_start": "2026-11-02",
+        "this_week_end": "2026-11-01", "this_week_end_exclusive": "2026-11-02",
+        "next_week_start": "2026-11-02",
         "next_week_end": "2026-11-08", "next_week_end_exclusive": "2026-11-09",
     }
     assert request == before

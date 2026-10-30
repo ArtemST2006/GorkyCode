@@ -64,6 +64,7 @@ def build_messages(request: JobRequest, result_schema: dict) -> list[ChatMessage
             "day_after_tomorrow": shifted(2),
             "this_week_start": shifted(-today.weekday()),
             "this_week_end": shifted(6 - today.weekday()),
+            "this_week_end_exclusive": shifted(7 - today.weekday()),
             "next_week_start": shifted(7 - today.weekday()),
             "next_week_end": shifted(13 - today.weekday()),
             "next_week_end_exclusive": shifted(14 - today.weekday()),

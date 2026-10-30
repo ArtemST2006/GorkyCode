@@ -14,8 +14,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -83,7 +81,6 @@ type TaskProcess struct {
 	aiURL     string
 	narrate   bool
 	conflicts ConflictFinder
-	pending   PendingTaskStore
 }
 
 // NewTaskProcess constructs a task processor with the given dependencies.
@@ -119,8 +116,13 @@ func mapAIStatus(status int, body io.Reader) error {
 		var problem struct {
 			Code string `json:"code"`
 		}
-		if json.NewDecoder(io.LimitReader(body, 4096)).Decode(&problem) == nil && problem.Code == "unsupported_intent" {
-			return model.ErrUnsupportedIntent
+		if json.NewDecoder(io.LimitReader(body, 4096)).Decode(&problem) == nil {
+			switch problem.Code {
+			case "unsupported_intent":
+				return model.ErrUnsupportedIntent
+			case "dialogue_context_required":
+				return model.ErrDialogueContextRequired
+			}
 		}
 		return fmt.Errorf("%w: AI service returned status %d", model.ErrBadGateway, status)
 	case http.StatusServiceUnavailable:
@@ -129,6 +131,14 @@ func mapAIStatus(status int, body io.Reader) error {
 		return fmt.Errorf("%w: AI gateway returned status %d", model.ErrServiceUnavailable, status)
 	case http.StatusGatewayTimeout:
 		return fmt.Errorf("%w: AI service returned status %d", model.ErrGatewayTimeout, status)
+	case http.StatusInternalServerError:
+		var problem struct {
+			Code string `json:"code"`
+		}
+		if json.NewDecoder(io.LimitReader(body, 4096)).Decode(&problem) == nil && problem.Code == "model_invalid_output" {
+			return model.ErrModelInvalidOutput
+		}
+		return fmt.Errorf("%w: AI service returned status %d", model.ErrBadGateway, status)
 	default:
 		return fmt.Errorf("%w: AI service returned status %d", model.ErrBadGateway, status)
 	}
@@ -250,9 +260,49 @@ func (t *TaskProcess) getTaskContext(
 	if err != nil {
 		return taskContext, fmt.Errorf("get draft: %w", err)
 	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &fields) != nil || fields == nil {
+		return taskContext, fmt.Errorf("%w: invalid draft shape", model.ErrDraftNotFound)
+	}
+	messages := bytes.TrimSpace(fields["recent_messages"])
+	draft := bytes.TrimSpace(fields["draft"])
+	if len(messages) == 0 || messages[0] != '[' || len(draft) == 0 || draft[0] != '{' {
+		return taskContext, fmt.Errorf("%w: invalid draft shape", model.ErrDraftNotFound)
+	}
+	var history []ai.DialogueMessage
+	if json.Unmarshal(messages, &history) != nil || len(history) == 0 {
+		return taskContext, fmt.Errorf("%w: invalid dialogue history", model.ErrDraftNotFound)
+	}
+	for _, message := range history {
+		if (message.Role != ai.User && message.Role != ai.Assistant) || strings.TrimSpace(message.Text) == "" {
+			return taskContext, fmt.Errorf("%w: invalid dialogue message", model.ErrDraftNotFound)
+		}
+	}
+	if candidates, exists := fields["candidates"]; exists {
+		candidateJSON := bytes.TrimSpace(candidates)
+		if len(candidateJSON) == 0 || candidateJSON[0] != '[' {
+			return taskContext, fmt.Errorf("%w: invalid candidate list", model.ErrDraftNotFound)
+		}
+		var shown []struct {
+			Number int       `json:"number"`
+			ID     uuid.UUID `json:"id"`
+		}
+		if json.Unmarshal(candidateJSON, &shown) != nil {
+			return taskContext, fmt.Errorf("%w: invalid candidate list", model.ErrDraftNotFound)
+		}
+		seenNumbers := make(map[int]bool, len(shown))
+		seenIDs := make(map[uuid.UUID]bool, len(shown))
+		for _, candidate := range shown {
+			if candidate.Number < 1 || candidate.ID == uuid.Nil || seenNumbers[candidate.Number] || seenIDs[candidate.ID] {
+				return taskContext, fmt.Errorf("%w: invalid candidate list", model.ErrDraftNotFound)
+			}
+			seenNumbers[candidate.Number] = true
+			seenIDs[candidate.ID] = true
+		}
+	}
 
 	if err := json.Unmarshal([]byte(raw), &taskContext); err != nil {
-		return taskContext, fmt.Errorf("decode draft context: %w", err)
+		return taskContext, fmt.Errorf("%w: invalid draft context: %v", model.ErrDraftNotFound, err)
 	}
 
 	return taskContext, nil
@@ -322,6 +372,15 @@ func (t *TaskProcess) processAIResult(
 	result model.AiRes,
 	location *time.Location,
 ) (*model.TaskResult, error) {
+	return t.processAIResultAt(ctx, result, location, time.Now())
+}
+
+func (t *TaskProcess) processAIResultAt(
+	ctx context.Context,
+	result model.AiRes,
+	location *time.Location,
+	requestTime time.Time,
+) (*model.TaskResult, error) {
 	var message string
 	if err := json.Unmarshal(result.Message, &message); err != nil || strings.TrimSpace(message) == "" {
 		return nil, fmt.Errorf("%w: invalid AI message", model.ErrBadGateway)
@@ -330,6 +389,27 @@ func (t *TaskProcess) processAIResult(
 	switch result.Status {
 	case "ready":
 		switch result.Intent {
+		case "chat":
+			var chatContext struct {
+				RecentMessages json.RawMessage `json:"recent_messages"`
+			}
+			if err := json.Unmarshal(result.Context, &chatContext); err != nil {
+				return nil, fmt.Errorf("decode chat context: %w", err)
+			}
+			storedContext, err := json.Marshal(struct {
+				RecentMessages json.RawMessage `json:"recent_messages"`
+				Draft          map[string]any  `json:"draft"`
+			}{RecentMessages: chatContext.RecentMessages, Draft: map[string]any{}})
+			if err != nil {
+				return nil, fmt.Errorf("encode chat context: %w", err)
+			}
+			key := fmt.Sprintf("task_draft:%s:%s", result.UserID, result.TaskID)
+			if err := t.draft.PutDraft(ctx, key, string(storedContext)); err != nil {
+				return nil, fmt.Errorf("save chat context: %w", err)
+			}
+			return &model.TaskResult{Intent: "chat", Body: &api.TaskChatResponse{
+				UserId: result.UserID, TaskId: result.TaskID, Status: api.TaskChatResponseStatusOk, Message: message,
+			}}, nil
 		case "create_event":
 			if t.creator == nil {
 				return nil, errors.New("event creation handler is not configured")
@@ -339,12 +419,14 @@ func (t *TaskProcess) processAIResult(
 				return nil, fmt.Errorf("%w: %w", model.ErrBadGateway, err)
 			}
 
-			question, err := t.checkMeetingConflict(ctx, result, cmd, message)
-			if err != nil {
+			if err := t.checkMeetingConflict(ctx, cmd, result.TaskID); err != nil {
+				var conflict *model.MeetingConflictError
+				if errors.As(err, &conflict) {
+					if saveErr := t.saveMeetingConflictContext(ctx, result, cmd, conflict.Detail); saveErr != nil {
+						return nil, saveErr
+					}
+				}
 				return nil, err
-			}
-			if question != nil {
-				return question, nil
 			}
 			task, err := t.creator.Create(ctx, cmd)
 			if err != nil {
@@ -377,7 +459,7 @@ func (t *TaskProcess) processAIResult(
 			if t.reader == nil {
 				return nil, errors.New("event listing handler is not configured")
 			}
-			collection, err := t.reader.ListEvents(ctx, result.UserID, result.Action)
+			collection, err := t.listEventsWithWindow(ctx, result.UserID, result.Action, location, requestTime)
 			if err != nil {
 				return nil, fmt.Errorf("list events: %w", err)
 			}
@@ -692,25 +774,21 @@ func (t *TaskProcess) Process(
 	}
 	defer unlock()
 	if !newDialogue {
-		confirmed, err := t.confirmPending(ctx, userID, *taskID, text, location)
-		if err == nil && confirmed != nil {
-			t.narrateResult(ctx, confirmed, text, timezone)
-		}
-		if err != nil || confirmed != nil {
-			return confirmed, err
+		taskContext, err = t.getTaskContext(ctx, userID, taskID)
+		if errors.Is(err, model.ErrDraftNotFound) {
+			// A stale dialogue ID must not be reused for a new conversation.
+			id := uuid.New()
+			taskID = &id
+			newDialogue = true
+		} else if err != nil {
+			return nil, err
 		}
 	}
 	if newDialogue {
 		if err = taskContext.FromEmptyContext(ai.EmptyContext{}); err != nil {
 			return nil, fmt.Errorf("prepare empty context: %w", err)
 		}
-	} else {
-		taskContext, err = t.getTaskContext(ctx, userID, taskID)
-		if err != nil {
-			return nil, err
-		}
 	}
-
 	aiReq := prepareAIRequest(
 		userID,
 		*taskID,
@@ -722,24 +800,51 @@ func (t *TaskProcess) Process(
 
 	result, err := createReq(ctx, t.aiURL, aiReq)
 	if err != nil {
+		if errors.Is(err, model.ErrDialogueContextRequired) || errors.Is(err, model.ErrModelInvalidOutput) {
+			message := "Контекст разговора не сохранился. Повторите просьбу целиком, например: «Покажи встречи до конца недели»."
+			if errors.Is(err, model.ErrModelInvalidOutput) {
+				message = "Не удалось однозначно разобрать запрос. Уточните, что нужно сделать, или повторите его другими словами."
+			}
+			contextValue, encodeErr := json.Marshal(struct {
+				RecentMessages []ai.DialogueMessage `json:"recent_messages"`
+				Draft          map[string]any       `json:"draft"`
+			}{
+				RecentMessages: []ai.DialogueMessage{{Role: ai.User, Text: text}, {Role: ai.Assistant, Text: message}},
+				Draft:          map[string]any{},
+			})
+			if encodeErr != nil {
+				return nil, fmt.Errorf("encode fresh dialogue: %w", encodeErr)
+			}
+			key := fmt.Sprintf("task_draft:%s:%s", userID, *taskID)
+			if saveErr := t.draft.PutDraft(ctx, key, string(contextValue)); saveErr != nil {
+				return nil, fmt.Errorf("save fresh dialogue: %w", saveErr)
+			}
+			return &model.TaskResult{Intent: "chat", Body: &api.TaskClarificationResponse{
+				UserId: userID, TaskId: *taskID, Status: api.NeedsClarification, Message: message,
+			}}, nil
+		}
 		return nil, fmt.Errorf("create AI request: %w", err)
 	}
 
 	if err := utils.ValidateAIResult(result, aiReq); err != nil {
 		return nil, fmt.Errorf("%w: %w", model.ErrBadGateway, err)
 	}
-	if err := preserveSearchSubject(&result, text); err != nil {
-		return nil, fmt.Errorf("%w: preserve search subject: %w", model.ErrBadGateway, err)
-	}
-	processed, err := t.processAIResult(ctx, result, location)
+	processed, err := t.processAIResultAt(ctx, result, location, aiReq.RequestTime)
 	if err != nil {
 		return nil, err
 	}
 	t.narrateResult(ctx, processed, text, timezone)
-	// The candidate list must survive find_candidates. Every other successful
-	// ready result closes this dialogue; Redis expiry covers cleanup failures.
+	// A successful read or creation may be followed by a short follow-up. Keep
+	// its history under the same ID; a new request can still start a new topic.
 	switch processed.Body.(type) {
-	case *api.TaskCreatedResponse, *api.TaskCollectionResponse, *api.TasksDeletedResponse, *api.FrontendUpdated:
+	case *api.TaskCreatedResponse, *api.TaskCollectionResponse:
+		// Cache failure after a committed create must not turn success into an
+		// error that encourages the client to repeat the write.
+		_ = t.saveReadyHistory(ctx, result)
+	}
+	// Only completed destructive operations close the selection dialogue.
+	switch processed.Body.(type) {
+	case *api.TasksDeletedResponse, *api.FrontendUpdated:
 		_ = t.draft.DeleteDraft(ctx, fmt.Sprintf("task_draft:%s:%s", result.UserID, result.TaskID))
 		_ = t.draft.DeleteDraft(ctx, fmt.Sprintf("task_candidates:%s:%s", result.UserID, result.TaskID))
 		_ = t.draft.DeleteDraft(ctx, fmt.Sprintf("task_update_candidates:%s:%s", result.UserID, result.TaskID))
@@ -747,56 +852,21 @@ func (t *TaskProcess) Process(
 	return processed, nil
 }
 
-// AI can reduce "встреча с Таней" to just "встреча". Keep the subject
-// following "с/со" from the user's original text before querying storage.
-func preserveSearchSubject(result *model.AiRes, text string) error {
-	if result.Status != "ready" || result.Intent != "search_events" {
-		return nil
+func (t *TaskProcess) saveReadyHistory(ctx context.Context, result model.AiRes) error {
+	var ready ai.ReadyContext
+	if err := json.Unmarshal(result.Context, &ready); err != nil {
+		return fmt.Errorf("%w: decode ready context: %w", model.ErrBadGateway, err)
 	}
-	words := strings.Fields(text)
-	subject := ""
-	for i := 1; i < len(words); i++ {
-		previous := strings.ToLower(strings.Trim(words[i-1], ".,!?«»\"'"))
-		if previous != "с" && previous != "со" {
-			continue
-		}
-		candidate := strings.Trim(words[i], ".,!?«»\"'")
-		// «с понедельника» is a date bound, not a participant's name.
-		switch strings.ToLower(candidate) {
-		case "понедельника", "вторника", "среды", "четверга", "пятницы", "субботы", "воскресенья", "сегодня", "завтра", "послезавтра", "вчера", "утра", "вечера":
-			continue
-		}
-		first, _ := utf8.DecodeRuneInString(candidate)
-		if utf8.RuneCountInString(candidate) >= 3 && unicode.IsLetter(first) {
-			subject = candidate
-			break
-		}
-	}
-	if subject == "" {
-		return nil
-	}
-	var action ai.SearchEventsAction
-	if err := json.Unmarshal(result.Action, &action); err != nil {
-		return err
-	}
-	queryWords := strings.Fields(action.Query)
-	for i, word := range queryWords {
-		trimmed := strings.Trim(word, ".,!?«»\"'")
-		if strings.EqualFold(trimmed, subject) {
-			queryWords[i] = strings.Replace(word, trimmed, subject, 1)
-			action.Query = strings.Join(queryWords, " ")
-			return setSearchAction(result, action)
-		}
-	}
-	action.Query = strings.TrimSpace(action.Query + " с " + subject)
-	return setSearchAction(result, action)
-}
-
-func setSearchAction(result *model.AiRes, action ai.SearchEventsAction) error {
-	raw, err := json.Marshal(action)
+	raw, err := json.Marshal(struct {
+		RecentMessages []ai.DialogueMessage `json:"recent_messages"`
+		Draft          map[string]any       `json:"draft"`
+	}{RecentMessages: ready.RecentMessages, Draft: map[string]any{}})
 	if err != nil {
-		return err
+		return fmt.Errorf("encode ready context: %w", err)
 	}
-	result.Action = raw
+	key := fmt.Sprintf("task_draft:%s:%s", result.UserID, result.TaskID)
+	if err := t.draft.PutDraft(ctx, key, string(raw)); err != nil {
+		return fmt.Errorf("save ready context: %w", err)
+	}
 	return nil
 }

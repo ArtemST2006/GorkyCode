@@ -22,7 +22,7 @@ from app.services.context import explicit_selection_numbers
 _INTENTS = {"create_event", "list_events", "search_events", "on_delete", "on_update"}
 _ACTION_FIELDS = {
     "create_event": {"record_type", "title", "date", "time"},
-    "list_events": {"date_from", "date_to_exclusive", "record_types"},
+    "list_events": {"date_from", "date_to_exclusive", "record_types", "statuses", "upcoming_minutes"},
     "search_events": {"query", "date_from", "date_to_exclusive", "record_types"},
     "on_delete": {
         "phase", "title_query", "date_from", "date_to_exclusive",
@@ -36,7 +36,7 @@ _ACTION_FIELDS = {
 _DRAFT_FIELDS = {
     "record_type", "title", "date", "time", "query", "title_query",
     "date_from", "date_to_exclusive", "time_from", "time_to_exclusive",
-    "record_types", "changes",
+    "record_types", "changes", "statuses", "upcoming_minutes",
 }
 _CHANGE_FIELDS = {"title", "date", "time", "status"}
 MAX_GUARD_PAYLOAD_CHARS = 48_000

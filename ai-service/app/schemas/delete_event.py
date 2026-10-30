@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from app.schemas.base import ContractModel
-from app.schemas.common import ISODate, LocalTime, RecordType, RecordTypes, SearchQuery, UUIDString
+from app.schemas.common import ISODate, LocalTime, RecordType, RecordTypes, SearchQuery, TaskStatus, UUIDString
 from app.schemas.messages import RecentMessages
 
 
@@ -26,7 +26,13 @@ class DeleteCandidate(ContractModel):
     title: SearchQuery
     date: ISODate | None
     time: LocalTime | None
-    status: Literal["active", "completed"]
+    status: TaskStatus
+
+    @model_validator(mode="after")
+    def task_only_progress(self):
+        if self.status == "in_progress" and self.record_type != "task":
+            raise ValueError("Only tasks may be in progress")
+        return self
 
 
 class DeleteCandidateContext(ContractModel):

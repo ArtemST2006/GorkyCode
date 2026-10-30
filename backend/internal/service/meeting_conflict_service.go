@@ -27,12 +27,12 @@ type MeetingConflict struct {
 	Title string
 }
 
-// Question is the confirmation question for the user.
-func (c MeetingConflict) Question() string {
+// Message explains why the meeting was not created.
+func (c MeetingConflict) Message() string {
 	if c.Title == "" {
-		return "В это время в Google Календаре уже есть событие, всё равно поставить?"
+		return "Это время уже занято в Google Календаре. Выберите другое время."
 	}
-	return fmt.Sprintf("В это время уже есть встреча «%s», всё равно поставить?", c.Title)
+	return fmt.Sprintf("Это время уже занято встречей «%s». Выберите другое время.", c.Title)
 }
 
 // MeetingConflicts checks a new meeting against stored meetings and Google Calendar.
@@ -62,8 +62,8 @@ func NewMeetingConflicts(
 }
 
 // Find returns the first conflict of a meeting that starts at start, or nil.
-// start must be in the user's time zone. A failed Google check is only
-// logged: Google must not block creating meetings.
+// start must be in the user's time zone. A failed check of a connected
+// Google Calendar prevents creation because availability is unknown.
 func (s *MeetingConflicts) Find(ctx context.Context, userID uuid.UUID, start time.Time) (*MeetingConflict, error) {
 	end := start.Add(s.duration)
 
@@ -86,7 +86,7 @@ func (s *MeetingConflicts) Find(ctx context.Context, userID uuid.UUID, start tim
 			slog.String("user_id", userID.String()),
 			logger.Err(err),
 		)
-		return nil, nil
+		return nil, fmt.Errorf("%w: check google calendar availability: %w", model.ErrServiceUnavailable, err)
 	}
 	if busy {
 		return &MeetingConflict{}, nil

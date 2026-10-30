@@ -70,6 +70,37 @@ func TestValidateAIResult(t *testing.T) {
 			body: base + `"status":"ready","intent":"list_events","message":"Проверил события.","action":{"date_from":"2026-10-20","date_to_exclusive":"2026-10-21"},"context":{"recent_messages":[{"role":"user","text":"список"}],"draft":null}}`,
 		},
 		{
+			name: "chat has no action",
+			body: base + `"status":"ready","intent":"chat","message":"Привет!","action":null,"context":{"recent_messages":[{"role":"user","text":"Привет"},{"role":"assistant","text":"Привет!"}],"draft":null}}`,
+		},
+		{
+			name: "chat cannot create a task",
+			body: base + `"status":"ready","intent":"chat","message":"Привет!","action":{"record_type":"task","title":"Тест","date":"2026-10-30"},"context":{"recent_messages":[{"role":"user","text":"Привет"}],"draft":null}}`,
+			want: "chat action must be null",
+		},
+		{
+			name: "valid status-only list action",
+			body: base + `"status":"ready","intent":"list_events","message":"Проверил задачи.","action":{"record_types":["task"],"statuses":["active"]},"context":{"recent_messages":[{"role":"user","text":"активные задачи"}],"draft":null}}`,
+		},
+		{
+			name: "valid task progress list action",
+			body: base + `"status":"ready","intent":"list_events","message":"Проверил задачи в работе.","action":{"record_types":["task"],"statuses":["in_progress"]},"context":{"recent_messages":[{"role":"user","text":"задачи в работе"}],"draft":null}}`,
+		},
+		{
+			name: "valid model-filled time window",
+			body: base + `"status":"ready","intent":"list_events","message":"Проверил дела.","action":{"upcoming_minutes":60,"statuses":["active"]},"context":{"recent_messages":[{"role":"user","text":"дела в течение часа"}],"draft":null}}`,
+		},
+		{
+			name: "invalid model-filled time window",
+			body: base + `"status":"ready","intent":"list_events","message":"Проверил дела.","action":{"upcoming_minutes":0},"context":{"recent_messages":[{"role":"user","text":"дела в течение часа"}],"draft":null}}`,
+			want: "invalid AI action",
+		},
+		{
+			name: "invalid list status",
+			body: base + `"status":"ready","intent":"list_events","message":"Проверил задачи.","action":{"statuses":["pending"]},"context":{"recent_messages":[{"role":"user","text":"задачи"}],"draft":null}}`,
+			want: "invalid AI action",
+		},
+		{
 			name: "valid search action",
 			body: base + `"status":"ready","intent":"search_events","message":"Поиск завершён.","action":{"query":"Иван"},"context":{"recent_messages":[{"role":"user","text":"Иван"}],"draft":null}}`,
 		},

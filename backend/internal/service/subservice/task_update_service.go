@@ -28,13 +28,27 @@ type UpdateCandidates struct {
 }
 
 type TaskUpdate struct {
-	rep      TaskUpdateRepository
-	deleter  *TaskDelete
-	embedder model.Embedder
+	rep       TaskUpdateRepository
+	deleter   *TaskDelete
+	embedder  model.Embedder
+	calendar  CalendarSync
+	reminders ReminderSyncer
+}
+
+// WithReminderSyncer wires the reminder scheduling into UpdateConfirmed.
+func (s *TaskUpdate) WithReminderSyncer(sync ReminderSyncer) *TaskUpdate {
+	s.reminders = sync
+	return s
 }
 
 func NewTaskUpdateService(rep TaskUpdateRepository, deleter *TaskDelete, embedder model.Embedder) *TaskUpdate {
 	return &TaskUpdate{rep: rep, deleter: deleter, embedder: embedder}
+}
+
+// WithCalendarSync makes confirmed updates also move the records' calendar events.
+func (s *TaskUpdate) WithCalendarSync(calendar CalendarSync) *TaskUpdate {
+	s.calendar = calendar
+	return s
 }
 
 // FindCandidates reuses exactly the same owner-scoped search and numbering as
@@ -59,6 +73,25 @@ func (s *TaskUpdate) FindCandidates(ctx context.Context, userID uuid.UUID, actio
 	set, err := s.deleter.FindCandidates(ctx, userID, search)
 	if err != nil {
 		return UpdateCandidates{}, err
+	}
+	if changes.Status != nil && *changes.Status == api.TaskStatusInProgress {
+		filteredItems := make([]api.TaskDeleteCandidate, 0, len(set.Items))
+		filteredStored := make([]ai.DeleteCandidate, 0, len(set.Stored))
+		filteredTasks := make([]model.Task, 0, len(set.Tasks))
+		for i, item := range set.Tasks {
+			if item.Type != "task" {
+				continue
+			}
+			number := len(filteredItems) + 1
+			shown := set.Items[i]
+			shown.Number = number
+			stored := set.Stored[i]
+			stored.Number = number
+			filteredItems = append(filteredItems, shown)
+			filteredStored = append(filteredStored, stored)
+			filteredTasks = append(filteredTasks, item)
+		}
+		set.Items, set.Stored, set.Tasks = filteredItems, filteredStored, filteredTasks
 	}
 	stored := make([]ai.UpdateCandidate, 0, len(set.Stored))
 	for _, item := range set.Stored {
@@ -119,6 +152,13 @@ func (s *TaskUpdate) UpdateConfirmed(ctx context.Context, userID uuid.UUID, acti
 	if err != nil {
 		return nil, err
 	}
+	if command.Status != nil && *command.Status == "in_progress" {
+		for _, item := range saved {
+			if seen[item.ID] && item.Type != "task" {
+				return nil, fmt.Errorf("%w: in_progress requires a task", model.ErrInvalidAction)
+			}
+		}
+	}
 	var embedding *model.EmbeddingResult
 	if command.Title != nil {
 		if s.embedder == nil {
@@ -133,6 +173,16 @@ func (s *TaskUpdate) UpdateConfirmed(ctx context.Context, userID uuid.UUID, acti
 	tasks, err := s.rep.UpdateTasks(ctx, userID, confirmed.RecordIds, saved, command, embedding)
 	if err != nil {
 		return nil, fmt.Errorf("update tasks: %w", err)
+	}
+	if s.calendar != nil {
+		s.calendar.SyncUpdatedTasks(ctx, tasks)
+	}
+	// Changed records may fire at another moment: re-schedule future
+	// notifications for every updated task, best-effort.
+	if s.reminders != nil {
+		for _, task := range tasks {
+			_ = s.reminders.SyncTask(ctx, task)
+		}
 	}
 	byID := make(map[uuid.UUID]model.Task, len(tasks))
 	for _, task := range tasks {
@@ -175,7 +225,7 @@ func parseTaskChanges(changes api.UpdateChanges) (model.TaskChanges, error) {
 	}
 	if changes.Status != nil {
 		value := string(*changes.Status)
-		if value != "active" && value != "completed" {
+		if value != "active" && value != "in_progress" && value != "completed" {
 			return result, fmt.Errorf("%w: invalid updated status", model.ErrInvalidAction)
 		}
 		result.Status = &value
