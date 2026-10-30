@@ -14,11 +14,26 @@ import (
 
 type statusUpdateRepository struct {
 	called bool
+	tasks  []model.Task
 }
 
 func (r *statusUpdateRepository) UpdateTasks(_ context.Context, _ uuid.UUID, _ []uuid.UUID, _ []model.Task, _ model.TaskChanges, _ *model.EmbeddingResult) ([]model.Task, error) {
 	r.called = true
-	return nil, nil
+	return r.tasks, nil
+}
+
+type updateCalendarProbe struct{ updated []model.Task }
+
+func (*updateCalendarProbe) SyncDeletedTasks(context.Context, []model.Task) {}
+func (p *updateCalendarProbe) SyncUpdatedTasks(_ context.Context, tasks []model.Task) {
+	p.updated = tasks
+}
+
+type updateReminderProbe struct{ synced []model.Task }
+
+func (p *updateReminderProbe) SyncTask(_ context.Context, task model.Task) error {
+	p.synced = append(p.synced, task)
+	return nil
 }
 
 func TestTaskUpdateProgressFiltersMixedCandidates(t *testing.T) {
@@ -54,5 +69,26 @@ func TestTaskUpdateProgressRejectsNonTaskConfirmation(t *testing.T) {
 	_, err := service.UpdateConfirmed(t.Context(), userID, action, []model.Task{meeting}, api.UpdateChanges{Status: &status})
 	if !errors.Is(err, model.ErrInvalidAction) || repository.called {
 		t.Fatalf("error=%v, repository called=%v", err, repository.called)
+	}
+}
+
+func TestTaskUpdateKeepsCalendarAndReminderSync(t *testing.T) {
+	userID := uuid.New()
+	meeting := deleteTask(t, userID, "Встреча с командой")
+	repository := &statusUpdateRepository{tasks: []model.Task{meeting}}
+	calendar := &updateCalendarProbe{}
+	reminders := &updateReminderProbe{}
+	service := NewTaskUpdateService(repository, nil, nil).
+		WithCalendarSync(calendar).WithReminderSyncer(reminders)
+	status := api.TaskStatusCompleted
+	action := json.RawMessage(`{"phase":"update_confirmed","record_ids":["` + meeting.ID.String() + `"]}`)
+
+	items, err := service.UpdateConfirmed(t.Context(), userID, action, []model.Task{meeting}, api.UpdateChanges{Status: &status})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repository.called || len(items) != 1 || len(calendar.updated) != 1 || len(reminders.synced) != 1 ||
+		calendar.updated[0].ID != meeting.ID || reminders.synced[0].ID != meeting.ID {
+		t.Fatalf("update did not sync both integrations: items=%v calendar=%v reminders=%v", items, calendar.updated, reminders.synced)
 	}
 }

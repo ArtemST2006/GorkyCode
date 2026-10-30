@@ -17,6 +17,7 @@ type Repository struct {
 	*postgres.AuthRepository
 	*postgres.TaskRepository
 	*postgres.GoogleRepository
+	*postgres.NotificationRepository
 	*redis.SessionRepository
 	*redis.TaskProcess
 	*redis.OAuthStateRepository
@@ -25,12 +26,13 @@ type Repository struct {
 // NewRepository creates repositories over the shared PostgreSQL pool.
 func NewRepository(pool *pgxpool.Pool, redisClient *goredis.Client) *Repository {
 	return &Repository{
-		HealthRepository:     postgres.NewHealthRepository(pool),
-		AuthRepository:       postgres.NewAuthRepository(pool),
-		TaskRepository:       postgres.NewTaskRepository(pool),
-		GoogleRepository:     postgres.NewGoogleRepository(pool),
-		SessionRepository:    redis.NewSessionRepository(redisClient),
-		TaskProcess:          redis.NewTaskProcess(redisClient),
-		OAuthStateRepository: redis.NewOAuthStateRepository(redisClient),
+		HealthRepository:       postgres.NewHealthRepository(pool),
+		AuthRepository:         postgres.NewAuthRepository(pool),
+		TaskRepository:         postgres.NewTaskRepository(pool),
+		GoogleRepository:       postgres.NewGoogleRepository(pool),
+		NotificationRepository: postgres.NewNotificationRepository(pool),
+		SessionRepository:      redis.NewSessionRepository(redisClient),
+		TaskProcess:            redis.NewTaskProcess(redisClient),
+		OAuthStateRepository:   redis.NewOAuthStateRepository(redisClient),
 	}
 }

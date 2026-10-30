@@ -54,6 +54,9 @@ var (
 	ErrGoogleScopeMissing = errors.New("google calendar permission not granted")
 	// ErrPendingTaskNotFound is returned when no task waits for the user's confirmation.
 	ErrPendingTaskNotFound = errors.New("pending task not found")
+	// ErrNotificationNotFound is returned when a notification ID does not exist
+	// or belongs to another user.
+	ErrNotificationNotFound = errors.New("notification not found")
 )
 
 // MeetingConflictError reports occupied meeting time without inserting a record.

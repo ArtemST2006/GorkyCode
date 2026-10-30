@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -500,4 +501,8 @@ func TestValidateFile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func (f taskTestServices) ListAllTasks(ctx context.Context, userID uuid.UUID, query string, types []string, from, to *time.Time, limit, offset int) (api.TaskCollection, error) {
+	return api.TaskCollection{Items: []api.TaskItem{}}, nil
 }
