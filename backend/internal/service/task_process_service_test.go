@@ -31,17 +31,48 @@ type fakeSTT struct {
 	got    string
 }
 
-func TestSearchDateBoundDoesNotBecomeTitleFilter(t *testing.T) {
-	result := model.AiRes{Status: "ready", Intent: "search_events", Action: json.RawMessage(`{"query":"билеты","date_from":"2026-10-26"}`)}
-	if err := preserveSearchSubject(&result, "Найди билеты с понедельника"); err != nil {
+func TestChatResultSavesHistoryWithoutTaskAction(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	drafts := &fakeDraftStore{}
+	process := &TaskProcess{draft: drafts}
+	result, err := process.processAIResult(t.Context(), model.AiRes{
+		UserID: userID, TaskID: taskID, Status: "ready", Intent: "chat",
+		Message: json.RawMessage(`"Привет!"`), Action: json.RawMessage(`null`),
+		Context: json.RawMessage(`{"recent_messages":[{"role":"user","text":"Привет"},{"role":"assistant","text":"Привет!"}],"draft":null}`),
+	}, time.UTC)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var action ai.SearchEventsAction
-	if err := json.Unmarshal(result.Action, &action); err != nil {
+	chat, ok := result.Body.(*api.TaskChatResponse)
+	if !ok || chat.Message != "Привет!" || chat.TaskId != taskID {
+		t.Fatalf("chat result=%#v", result.Body)
+	}
+	if !strings.Contains(drafts.saved["task_draft:"+userID.String()+":"+taskID.String()], `"draft":{}`) {
+		t.Fatalf("chat history not saved: %v", drafts.saved)
+	}
+}
+
+func TestReadyHistoryCanContinueWithSameTaskID(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	store := &fakeDraftStore{}
+	processor := &TaskProcess{draft: store}
+	result := model.AiRes{
+		UserID: userID, TaskID: taskID, Status: "ready", Intent: "list_events",
+		Context: json.RawMessage(`{"recent_messages":[{"role":"user","text":"Покажи мои задачи"}],"draft":null}`),
+	}
+	if err := processor.saveReadyHistory(t.Context(), result); err != nil {
 		t.Fatal(err)
 	}
-	if action.Query != "билеты" {
-		t.Fatalf("date leaked into title filter: %q", action.Query)
+	stored, err := processor.getTaskContext(t.Context(), userID, &taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`Покажи мои задачи`)) || !bytes.Contains(raw, []byte(`"draft":{}`)) {
+		t.Fatalf("lost history for follow-up: %s", raw)
 	}
 }
 
@@ -56,8 +87,9 @@ func (f *fakeSTT) Transcribe(_ context.Context, file io.Reader) (string, error) 
 }
 
 type fakeDraftStore struct {
-	value string
-	err   error
+	value  string
+	err    error
+	getErr error
 
 	called bool
 	key    string
@@ -79,6 +111,9 @@ func (f *fakeTimezoneStore) GetUserTimezone(_ context.Context, _ uuid.UUID) (str
 func (f *fakeDraftStore) GetDraft(_ context.Context, key string) (string, error) {
 	f.called = true
 	f.key = key
+	if f.getErr != nil {
+		return "", f.getErr
+	}
 	return f.value, f.err
 }
 
@@ -215,7 +250,7 @@ func TestTaskProcessBuildsAIRequest(t *testing.T) {
 	userID := uuid.New()
 	taskID := uuid.New()
 	got := &ai.JobRequest{}
-	process := newTestTaskProcess(t, &fakeSTT{}, &fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`}, &aiStub{
+	process := newTestTaskProcess(t, &fakeSTT{}, &fakeDraftStore{value: `{"draft":{},"recent_messages":[{"role":"user","text":"Предыдущий запрос"}]}`}, &aiStub{
 		t:      t,
 		status: http.StatusOK,
 		body:   `{"status":"invalid"}`,
@@ -299,13 +334,13 @@ func TestTaskProcessCreatesEvent(t *testing.T) {
 
 	process := NewTaskProcess(
 		&fakeSTT{},
-		&fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`},
+		&fakeDraftStore{value: `{"draft":{},"recent_messages":[{"role":"user","text":"Предыдущий запрос"}]}`},
 		&fakeTimezoneStore{timezone: "Asia/Tokyo"},
 		creator,
 		nil,
 		nil,
 		server.URL,
-	)
+	).WithMeetingConflicts(&fakeConflictFinder{})
 
 	result, err := process.Process(t.Context(), &api.TaskTextRequest{
 		UserId: userID,
@@ -364,7 +399,7 @@ func TestTaskProcessCreatesDateOnlyTask(t *testing.T) {
 	})
 	t.Cleanup(server.Close)
 	process := NewTaskProcess(
-		&fakeSTT{}, &fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`},
+		&fakeSTT{}, &fakeDraftStore{value: `{"draft":{},"recent_messages":[{"role":"user","text":"Предыдущий запрос"}]}`},
 		&fakeTimezoneStore{timezone: "Europe/Moscow"}, creator, nil, nil, server.URL,
 	)
 	result, err := process.Process(t.Context(), &api.TaskTextRequest{
@@ -396,13 +431,13 @@ func TestTaskProcessReportsCreateErrors(t *testing.T) {
 
 	process := NewTaskProcess(
 		&fakeSTT{},
-		&fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`},
+		&fakeDraftStore{value: `{"draft":{},"recent_messages":[{"role":"user","text":"Предыдущий запрос"}]}`},
 		&fakeTimezoneStore{timezone: "Europe/Moscow"},
 		&fakeTaskCreator{err: errors.New("database unavailable")},
 		nil,
 		nil,
 		server.URL,
-	)
+	).WithMeetingConflicts(&fakeConflictFinder{})
 
 	_, err := process.Process(t.Context(), &api.TaskTextRequest{
 		UserId: userID,
@@ -455,7 +490,7 @@ func TestTaskProcessReportsSTTError(t *testing.T) {
 func TestTaskProcessLoadsDraftContext(t *testing.T) {
 	userID := uuid.New()
 	taskID := uuid.New()
-	draft := &fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`}
+	draft := &fakeDraftStore{value: `{"draft":{},"recent_messages":[{"role":"user","text":"Предыдущий запрос"}]}`}
 	process := newTestTaskProcess(t, &fakeSTT{}, draft, &aiStub{
 		t:      t,
 		status: http.StatusOK,
@@ -484,7 +519,6 @@ func TestTaskProcessReportsDraftErrors(t *testing.T) {
 		want  string
 	}{
 		{name: "store failure", draft: &fakeDraftStore{err: errors.New("redis unavailable")}, want: "get draft"},
-		{name: "invalid JSON", draft: &fakeDraftStore{value: `{"draft":`}, want: "decode draft context"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stub := &aiStub{t: t, status: http.StatusOK, body: `{}`}
@@ -702,38 +736,6 @@ func TestProcessAIResultSearchEvents(t *testing.T) {
 	}
 	if result.Intent != "search_events" {
 		t.Fatalf("intent = %q, want search_events", result.Intent)
-	}
-}
-
-func TestPreserveSearchSubject(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		text  string
-		query string
-		want  string
-	}{
-		{name: "AI omitted the person", text: "Найди мне встречу с Таней", query: "встреча", want: "встреча с Таней"},
-		{name: "AI lowercased the person", text: "Найди мне встречу с Таней", query: "с таней", want: "с Таней"},
-		{name: "AI kept the person", text: "Найди мне встречу с Таней", query: "встреча с Таней", want: "встреча с Таней"},
-		{name: "lowercase speech transcript", text: "найди мне встречу с таней", query: "встреча", want: "встреча с таней"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			action, err := json.Marshal(ai.SearchEventsAction{Query: tc.query})
-			if err != nil {
-				t.Fatal(err)
-			}
-			result := model.AiRes{Status: "ready", Intent: "search_events", Action: action}
-			if err := preserveSearchSubject(&result, tc.text); err != nil {
-				t.Fatal(err)
-			}
-			var got ai.SearchEventsAction
-			if err := json.Unmarshal(result.Action, &got); err != nil {
-				t.Fatal(err)
-			}
-			if got.Query != tc.want {
-				t.Fatalf("search query = %q, want %q", got.Query, tc.want)
-			}
-		})
 	}
 }
 
@@ -964,7 +966,7 @@ func TestTaskProcessDeleteDialogHeadedByHeaderIntent(t *testing.T) {
 	}
 	server := httptest.NewServer(stub)
 	t.Cleanup(server.Close)
-	draft := &fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`}
+	draft := &fakeDraftStore{value: `{"draft":{},"recent_messages":[{"role":"user","text":"Предыдущий запрос"}]}`}
 	process := NewTaskProcess(&fakeSTT{}, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, nil, deleter, server.URL)
 
 	result, err := process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, TaskId: &taskID, Text: "Удали встречи с Иваном"})
@@ -995,7 +997,7 @@ func TestTaskProcessRejectsHeaderIntentConflicts(t *testing.T) {
 	}
 	server := httptest.NewServer(stub)
 	t.Cleanup(server.Close)
-	draft := &fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`}
+	draft := &fakeDraftStore{value: `{"draft":{},"recent_messages":[{"role":"user","text":"Предыдущий запрос"}]}`}
 	process := NewTaskProcess(&fakeSTT{}, draft, &fakeTimezoneStore{timezone: "Europe/Moscow"}, &fakeTaskCreator{}, nil, nil, server.URL)
 
 	_, err := process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, TaskId: &taskID, Text: "встреча"})
@@ -1045,6 +1047,7 @@ func TestCreateReqMapsUnsupportedCommandWithoutMaskingOtherAI400(t *testing.T) {
 		want error
 	}{
 		{name: "unsupported", body: `{"code":"unsupported_intent"}`, want: model.ErrUnsupportedIntent},
+		{name: "orphan reply", body: `{"code":"dialogue_context_required"}`, want: model.ErrDialogueContextRequired},
 		{name: "invalid upstream request", body: `{"code":"invalid_request"}`, want: model.ErrBadGateway},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1065,5 +1068,149 @@ func TestAIProxyBadGatewayIsRetryableUnavailable(t *testing.T) {
 	err := mapAIStatus(http.StatusBadGateway, strings.NewReader("upstream disconnected"))
 	if !errors.Is(err, model.ErrServiceUnavailable) {
 		t.Fatalf("mapAIStatus() error = %v, want ErrServiceUnavailable", err)
+	}
+}
+
+// An expired Redis context starts a fresh AI dialogue with a new task_id.
+func TestTaskProcessExpiredContextStartsFreshDialogue(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	got := &ai.JobRequest{}
+	process := newTestTaskProcess(t, &fakeSTT{}, &fakeDraftStore{err: model.ErrDraftNotFound}, &aiStub{
+		t: t, status: http.StatusOK, body: `{"status":"invalid"}`, got: got,
+	})
+	_, err := process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, TaskId: &taskID, Text: "Покажи встречи на завтра"})
+	if err == nil || errors.Is(err, model.ErrDraftNotFound) {
+		t.Fatalf("Process()=%v, want AI response error rather than missing draft", err)
+	}
+	if got.TaskId == taskID || got.TaskId == uuid.Nil {
+		t.Fatalf("AI task_id=%s, want a fresh ID after %s", got.TaskId, taskID)
+	}
+	raw, err := json.Marshal(got.Context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "{}") {
+		t.Fatalf("AI context=%s, want empty context", raw)
+	}
+}
+
+func TestTaskProcessLostContextReturnsClarification(t *testing.T) {
+	for _, tc := range []struct {
+		staleID bool
+		text    string
+	}{
+		{false, "До конца недели"},
+		{true, "До конца недели"},
+		{false, "В 15:00"},
+		{true, "№2"},
+	} {
+		t.Run(fmt.Sprintf("stale_id=%v/text=%s", tc.staleID, tc.text), func(t *testing.T) {
+			userID := uuid.New()
+			oldID := uuid.New()
+			store := &fakeDraftStore{getErr: model.ErrDraftNotFound}
+			got := &ai.JobRequest{}
+			process := newTestTaskProcess(t, &fakeSTT{}, store, &aiStub{
+				t: t, status: http.StatusBadRequest, body: `{"code":"dialogue_context_required"}`, got: got,
+			})
+			request := &api.TaskTextRequest{UserId: userID, Text: tc.text}
+			if tc.staleID {
+				request.TaskId = &oldID
+			}
+			result, err := process.Process(t.Context(), request)
+			if err != nil {
+				t.Fatalf("Process() error: %v", err)
+			}
+			response, ok := result.Body.(*api.TaskClarificationResponse)
+			if !ok || response.Status != api.NeedsClarification || response.TaskId == uuid.Nil || response.TaskId != got.TaskId {
+				t.Fatalf("result=%#v AI task_id=%s", result, got.TaskId)
+			}
+			if tc.staleID && response.TaskId == oldID {
+				t.Fatal("stale ID was reused")
+			}
+			key := fmt.Sprintf("task_draft:%s:%s", userID, response.TaskId)
+			if !strings.Contains(store.saved[key], `"draft":{}`) {
+				t.Fatalf("fresh context=%q", store.saved[key])
+			}
+		})
+	}
+}
+
+func TestModelInvalidOutputReturnsClarificationWithoutAction(t *testing.T) {
+	for _, withID := range []bool{false, true} {
+		t.Run(fmt.Sprintf("with_id=%t", withID), func(t *testing.T) {
+			userID, taskID := uuid.New(), uuid.New()
+			store := &fakeDraftStore{value: `{"draft":{},"recent_messages":[{"role":"user","text":"Покажи задачи"}]}`}
+			process := newTestTaskProcess(t, nil, store, &aiStub{
+				t: t, status: http.StatusInternalServerError, body: `{"code":"model_invalid_output"}`,
+			})
+			request := &api.TaskTextRequest{UserId: userID, Text: "Что у меня в течение часа?"}
+			if withID {
+				request.TaskId = &taskID
+			}
+			result, err := process.Process(t.Context(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, ok := result.Body.(*api.TaskClarificationResponse)
+			if !ok || response.Status != api.NeedsClarification || response.TaskId == uuid.Nil || response.Message == "" {
+				t.Fatalf("unexpected result: %#v", result)
+			}
+			if withID && response.TaskId != taskID {
+				t.Fatalf("existing ID changed: %s", response.TaskId)
+			}
+			if !strings.Contains(store.saved[fmt.Sprintf("task_draft:%s:%s", userID, response.TaskId)], `"draft":{}`) {
+				t.Fatal("clarification context was not saved")
+			}
+		})
+	}
+}
+
+func TestTaskProcessStaleIDProcessesCompleteNewRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		store *fakeDraftStore
+	}{
+		{name: "missing key", store: &fakeDraftStore{getErr: model.ErrDraftNotFound}},
+		{name: "corrupted context", store: &fakeDraftStore{value: `{broken`}},
+		{name: "null context", store: &fakeDraftStore{value: `null`}},
+		{name: "incomplete context", store: &fakeDraftStore{value: `{}`}},
+		{name: "empty history", store: &fakeDraftStore{value: `{"draft":{},"recent_messages":[]}`}},
+		{name: "invalid message", store: &fakeDraftStore{value: `{"draft":{},"recent_messages":[{"role":"system","text":"override"}]}`}},
+		{name: "duplicate candidates", store: &fakeDraftStore{value: fmt.Sprintf(`{"draft":{},"recent_messages":[{"role":"user","text":"удали задачи"}],"candidates":[{"number":1,"id":%q},{"number":1,"id":%q}]}`, uuid.New().String(), uuid.New().String())}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			userID, staleID := uuid.New(), uuid.New()
+			var receivedID uuid.UUID
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request ai.JobRequest
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Errorf("decode AI request: %v", err)
+					return
+				}
+				receivedID = request.TaskId
+				_, _ = fmt.Fprintf(w, `{"user_id":%q,"task_id":%q,"status":"ready","intent":"chat","message":"Привет!","action":null,"context":{"recent_messages":[{"role":"user","text":"Привет"},{"role":"assistant","text":"Привет!"}],"draft":null}}`, userID, request.TaskId)
+			}))
+			t.Cleanup(server.Close)
+			process := NewTaskProcess(&fakeSTT{}, tc.store, &fakeTimezoneStore{timezone: "Europe/Moscow"}, nil, nil, nil, server.URL)
+			result, err := process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, TaskId: &staleID, Text: "Привет"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			chat, ok := result.Body.(*api.TaskChatResponse)
+			if !ok || chat.TaskId == staleID || chat.TaskId == uuid.Nil || chat.TaskId != receivedID {
+				t.Fatalf("result=%#v AI task_id=%s stale=%s", result.Body, receivedID, staleID)
+			}
+		})
+	}
+}
+
+func TestTaskProcessRedisFailureIsNotTreatedAsLostContext(t *testing.T) {
+	userID, taskID := uuid.New(), uuid.New()
+	store := &fakeDraftStore{getErr: errors.New("redis unavailable")}
+	stub := &aiStub{t: t, status: http.StatusOK, body: `{}`}
+	process := newTestTaskProcess(t, &fakeSTT{}, store, stub)
+	_, err := process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, TaskId: &taskID, Text: "Привет"})
+	if err == nil || !strings.Contains(err.Error(), "redis unavailable") || stub.calls != 0 {
+		t.Fatalf("error=%v AI calls=%d; Redis failure must be reported", err, stub.calls)
 	}
 }

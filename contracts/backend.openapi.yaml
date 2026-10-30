@@ -48,11 +48,28 @@ paths:
         передаёт AI-service текст, время запроса, часовой пояс пользователя и
         пустой context. Для ответа на уточнение клиент повторяет запрос с
         полученным task_id; backend загружает context из Redis.
+        Если task_id отсутствует, backend создаёт новый ID диалога. Если
+        переданный task_id не найден в Redis, backend создаёт новый ID и
+        разбирает текст как начало нового диалога. Короткий период без
+        контекста, например «до конца недели», возвращает 200
+        needs_clarification с новым task_id и просьбой повторить запрос
+        целиком; этот контекст сохраняется для следующей реплики. Ошибки
+        Повреждённый context Redis также начинает новый диалог. Если модель
+        дважды вернула ответ вне схемы, backend возвращает 200
+        needs_clarification без действий над записями. Недоступность AI,
+        Redis и базы данных остаётся ошибкой сервиса.
+        Запросы о ближайшем времени AI передаёт как list_events с
+        upcoming_minutes; backend применяет окно в часовом поясе пользователя.
         После успешной операции или поиска кандидатов backend вызывает
         POST /api/respond с фактическим data, intent, status, текущим text и
         timezone. AI формирует только message; данные и HTTP-статус сохраняются.
         При сбое генерации используется резервное сообщение без повтора операции.
-        Уточнения и отмена создания встречи не требуют этого вызова.
+        Уточнения не требуют этого вызова. Если время новой встречи
+        пересекается с существующей или занято в подключённом Google
+        Calendar, запись не создаётся: 409 Problem, code=meeting_conflict.
+        В ответе также возвращаются user_id и task_id; по этому task_id
+        можно указать новое время, потому что черновик встречи сохраняется в Redis.
+        Подтверждением обойти конфликт нельзя.
         Одновременные запросы с одним user_id и task_id не выполняются:
         пока первый обрабатывается, второй получает 409. Клиент ждёт ответ
         первого запроса и только затем отправляет следующую реплику.
@@ -139,8 +156,10 @@ paths:
             список для выбора, в том числе пустой; status=deleted подтверждает
             фактическое удаление всех выбранных записей. Для on_update
             status=update_candidates возвращает список и предлагаемые changes,
-            status=updated — обновлённые записи. После получения результата
-            backend запрашивает message через AI POST /api/respond.
+            status=updated — обновлённые записи. Для X-Task-Intent=chat
+            возвращается status=ok и message без обращения к БД. После
+            выполнения действий над записями backend запрашивает message
+            через AI POST /api/respond.
             При сбое генерации используется резервное сообщение.
           headers:
             X-Task-Intent:
@@ -148,28 +167,18 @@ paths:
               required: true
               schema:
                 type: string
-                enum: [create_event, list_events, search_events, on_delete, on_update]
+                enum: [create_event, list_events, search_events, on_delete, on_update, chat]
           content:
             application/json:
               schema:
                 oneOf:
                   - $ref: '#/components/schemas/TaskClarificationResponse'
                   - $ref: '#/components/schemas/TaskCollectionResponse'
-                  - $ref: '#/components/schemas/TaskCancelledResponse'
+                  - $ref: '#/components/schemas/TaskChatResponse'
                   - $ref: '#/components/schemas/TaskDeleteCandidatesResponse'
                   - $ref: '#/components/schemas/TasksDeletedResponse'
                   - $ref: '#/components/schemas/FrontendUpdateCandidates'
                   - $ref: '#/components/schemas/FrontendUpdated'
-                discriminator:
-                  propertyName: status
-                  mapping:
-                    needs_clarification: '#/components/schemas/TaskClarificationResponse'
-                    ok: '#/components/schemas/TaskCollectionResponse'
-                    candidates: '#/components/schemas/TaskDeleteCandidatesResponse'
-                    deleted: '#/components/schemas/TasksDeletedResponse'
-                    update_candidates: '#/components/schemas/FrontendUpdateCandidates'
-                    updated: '#/components/schemas/FrontendUpdated'
-                    cancelled: '#/components/schemas/TaskCancelledResponse'
               examples:
                 needsClarification:
                   summary: Время встречи ещё не указано
@@ -382,20 +391,6 @@ paths:
                           time: '18:00'
                           created_at: '2026-10-22T12:04:00+03:00'
                           status: active
-                meetingConflict:
-                  summary: Новая встреча пересекается с существующей
-                  value:
-                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
-                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
-                    status: needs_clarification
-                    message: В это время уже есть встреча «Встреча с Иваном», всё равно поставить?
-                meetingCancelled:
-                  summary: Пользователь отказался ставить пересекающуюся встречу
-                  value:
-                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
-                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
-                    status: cancelled
-                    message: Хорошо, встречу не ставлю.
         '201':
           description: |
             X-Task-Intent=create_event. Событие создано и сохранено;
@@ -489,7 +484,23 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: Занятое время встречи, занятый диалог или устаревший выбор.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                meetingConflict:
+                  summary: Встреча не создана из-за занятого времени
+                  value:
+                    type: https://gorkycode.example/problems/meeting-conflict
+                    title: Conflict
+                    status: 409
+                    code: meeting_conflict
+                    detail: Это время уже занято встречей «Встреча с Иваном». Выберите другое время.
+                    user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+                    task_id: 7b612951-57ae-4ac4-a93c-42fa9c9e8359
+                    instance: /api/task
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '500':
@@ -759,6 +770,25 @@ components:
           description: |
             WAV-аудио (.wav или .wave). Максимальный размер задаётся
             конфигурацией backend; другие аудиоформаты отклоняются.
+    TaskChatResponse:
+      type: object
+      additionalProperties: false
+      required: [user_id, task_id, status, message]
+      description: Ответ на обычную реплику; задачи и встречи не читаются и не меняются.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+          description: Передайте этот ID для продолжения разговора.
+        status:
+          type: string
+          enum: [ok]
+        message:
+          type: string
+          minLength: 1
     TaskClarificationResponse:
       type: object
       additionalProperties: false
@@ -886,17 +916,11 @@ components:
         data:
           $ref: '#/components/schemas/TaskCreatedData'
     TaskCancelledResponse:
+      deprecated: true
       type: object
       additionalProperties: false
       required: [user_id, task_id, status, message]
-      description: |
-        Ответ на вопрос о конфликте встреч, если пользователь отказался.
-        Когда новая встреча пересекается с активной встречей пользователя
-        или с занятым временем в подключённом Google Calendar, backend не
-        создаёт её сразу, а возвращает 200 TaskClarificationResponse с
-        вопросом. Клиент повторяет запрос с тем же task_id: ответ «да»
-        создаёт встречу (201), «нет» возвращает этот ответ, другой текст
-        повторяет вопрос. Неподтверждённая встреча хранится 10 минут.
+      description: Устаревший тип; пересекающаяся встреча теперь возвращает 409.
       properties:
         user_id:
           type: string
@@ -990,7 +1014,8 @@ components:
         агрегатор формирует обёртку ответа фронтенду и передаёт message от
         POST /api/respond; при ошибке генерации используется резервное сообщение.
         Если записей нет, items — пустой массив. Оба сервиса учитывают
-        записи со статусами active и completed. Задача без точного времени
+        задачи со статусами active, in_progress и completed; встречи и
+        напоминания со статусами active и completed. Задача без точного времени
         участвует в выборке по дате; отсутствие времени не заменяется
         фиктивным часом.
       properties:
@@ -1015,7 +1040,8 @@ components:
       description: |
         Представление записи tasks для клиента. Значения record_type на API
         совпадают с AI-контрактом и со значениями колонки tasks.type
-        в PostgreSQL (meeting, task, reminder).
+        в PostgreSQL (meeting, task, reminder). Статус in_progress допустим
+        только для task; meeting и reminder сохраняют active/completed.
       properties:
         id:
           type: string
@@ -1044,7 +1070,8 @@ components:
           format: date-time
         status:
           type: string
-          enum: [active, completed]
+          enum: [active, in_progress, completed]
+          description: in_progress допустим только для record_type=task.
     UUID:
       type: string
       format: uuid
@@ -1053,7 +1080,8 @@ components:
       enum: [task, reminder, meeting]
     TaskStatus:
       type: string
-      enum: [active, completed]
+      enum: [active, in_progress, completed]
+      description: in_progress допустим только для record_type=task.
     Date:
       type: string
       format: date
@@ -1072,7 +1100,8 @@ components:
         неизменяемые поля до поиска кандидатов. record_type, user_id, id и created_at
         неизменяемы. Если time задано для записи без date, changes обязано
         задать date. Дату без времени и время без даты можно сохранять только
-        если итоговая строка удовлетворяет ограничению БД.
+        если итоговая строка удовлетворяет ограничению БД. status=in_progress
+        разрешён только для задач; встречи и напоминания остаются active/completed.
       properties:
         title:
           type: string
@@ -1274,6 +1303,14 @@ components:
           type: string
         code:
           type: string
+        user_id:
+          type: string
+          format: uuid
+          description: Передаётся при code=meeting_conflict.
+        task_id:
+          type: string
+          format: uuid
+          description: ID диалога; передаётся при code=meeting_conflict.
   responses:
     TaskInternalError:
       description: |

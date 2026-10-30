@@ -22,13 +22,21 @@ ars_model:
 
 ai_service_url: "http://localhost:8090"
 
-semantic_search:
-  mode: exact
-  ef_search: 100
-  max_scan_tuples: 20000
-  candidates: 100
-  exact_threshold: 1500
-  ann_timeout: 500ms
+reminder:
+  scan_interval: 30s
+  sync_interval: 10m
+  claim_ttl: 2m
+  retention: 720h
+  horizon: 168h
 
 google:
   event_duration: 1h
+
+# Почта: без SMTP_HOST и EMAIL_FROM письма не отправляются.
+# email:
+#   host: smtp.example.com
+#   port: 587
+#   username: notifications@example.com
+#   password: secret
+#   from: notifications@example.com
+#   kinds: [reminder_due, task_due, meeting_start]

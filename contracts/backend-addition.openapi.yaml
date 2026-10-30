@@ -1,0 +1,274 @@
+openapi: 3.0.3
+info:
+  title: GorkyCode Backend — уведомления по WebSocket
+  version: 0.1.0
+  description: |
+    Дополнение к backend.openapi.yaml. Это проект контракта, а не описание
+    уже работающей реализации. OpenAPI описывает HTTP Upgrade, а протокол
+    сообщений WebSocket задан ниже в description и компонентах schemas.
+paths:
+  /api/v1/tasks:
+    get:
+      tags: [Tasks]
+      summary: Список задач пользователя (read-only)
+      operationId: listTasks
+      security:
+        - bearerAuth: []
+      description: |
+        Возвращает записи текущего пользователя в запрошенном диапазоне дат.
+        Быстрая read-ручка для фронта; не запускает AI-диалог.
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: Начало периода, включительно (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          description: Конец периода, исключительно (YYYY-MM-DD).
+          schema:
+            type: string
+            format: date
+        - name: type
+          in: query
+          required: false
+          style: form
+          explode: true
+          description: Фильтр record_type.
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [meeting, task, reminder]
+        - name: query
+          in: query
+          required: false
+          description: Подстрочный поиск по названию.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Находит записи пользователя.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  user_id:
+                    type: string
+                    format: uuid
+                  task_id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+        '400':
+          description: Некорректный запрос.
+        '401':
+          description: Токен missing/invalid.
+        '403':
+          description: user_id mismatch.
+        '500':
+          description: Ошибка хранилища.
+  /api/v1/notifications/ws:
+    get:
+      tags: [Notifications]
+      summary: Открыть WebSocket для уведомлений
+      operationId: connectNotifications
+      description: |
+        Клиент открывает ws:// или wss:// соединение с Upgrade: websocket.
+        После HTTP 101 клиент в течение 5 секунд посылает AuthMessage с
+        действующим access token из /api/v1/auth/sign-in. В браузере токен
+        передаётся первым сообщением, поскольку WebSocket API не позволяет
+        установить заголовок Authorization. До успешной авторизации сервер
+        не отправляет уведомлений. При успехе он посылает ReadyMessage.
+
+        Каждое сообщение — один UTF-8 JSON text frame. Binary frames не
+        поддерживаются. В одном соединении разрешён один пользователь;
+        user_id берётся только из токена. После ReadyMessage сервер посылает
+        сохранённые неподтверждённые уведомления пользователя, момент которых
+        уже наступил (scheduled_at не позже текущего времени), затем новые;
+        уведомления с будущим моментом посылаются в свой scheduled_at. Порядок отправки — по created_at и id; при повторном подключении
+        возможны дубликаты. Клиент устраняет их по notification.id и
+        подтверждает обработку AckMessage. Подтверждение относится только к
+        уведомлению этого пользователя и идемпотентно. Неподтверждённые
+        сообщения сохраняются до подтверждения; срок хранения — 30 дней.
+
+        После потери соединения клиент подключается и авторизуется снова.
+        Сервер не гарантирует доставку в реальном времени, пока клиент
+        отключён. WebSocket ping/pong используется для проверки соединения;
+        приложение не требует отдельного heartbeat-сообщения.
+
+        Сервер закрывает соединение кодом 4401 при неверном или истёкшем
+        токене, 4408 при отсутствии AuthMessage за 5 секунд, 1003 при binary
+        frame и 1009 при сообщении более 16 KiB. При некорректном JSON,
+        неизвестном type или чужом notification_id сервер отправляет
+        ErrorMessage; при повторяющихся ошибках может закрыть соединение
+        кодом 1008. Клиент переподключается после 1006/1012/1013 с паузой
+        и увеличением задержки. После 4401 требуется новый access token.
+
+        Поток сообщений клиента: AuthMessage, затем AckMessage.
+        Поток сервера: ReadyMessage, NotificationMessage, ErrorMessage.
+        Форматы и примеры приведены в components.schemas и x-websocket-messages.
+      responses:
+        '101':
+          description: Протокол переключён на WebSocket; дальнейший обмен описан выше.
+        '400':
+          description: Некорректный запрос на Upgrade.
+        '426':
+          description: Требуется Upgrade до WebSocket.
+      x-websocket-messages:
+        client:
+          - $ref: '#/components/schemas/AuthMessage'
+          - $ref: '#/components/schemas/AckMessage'
+        server:
+          - $ref: '#/components/schemas/ReadyMessage'
+          - $ref: '#/components/schemas/NotificationMessage'
+          - $ref: '#/components/schemas/ErrorMessage'
+components:
+  schemas:
+    AuthMessage:
+      type: object
+      additionalProperties: false
+      required: [type, token]
+      properties:
+        type:
+          type: string
+          enum: [auth]
+        token:
+          type: string
+          minLength: 1
+          description: Access token действующей Redis-сессии.
+      example:
+        type: auth
+        token: opaque-access-token
+    AckMessage:
+      type: object
+      additionalProperties: false
+      required: [type, notification_id]
+      properties:
+        type:
+          type: string
+          enum: [ack]
+        notification_id:
+          type: string
+          format: uuid
+      example:
+        type: ack
+        notification_id: 5396099f-7c74-4953-9629-a4b5229087ac
+    ReadyMessage:
+      type: object
+      additionalProperties: false
+      required: [type, user_id]
+      properties:
+        type:
+          type: string
+          enum: [ready]
+        user_id:
+          type: string
+          format: uuid
+      example:
+        type: ready
+        user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
+    NotificationMessage:
+      type: object
+      additionalProperties: false
+      required: [type, notification]
+      properties:
+        type:
+          type: string
+          enum: [notification]
+        notification:
+          $ref: '#/components/schemas/Notification'
+      example:
+        type: notification
+        notification:
+          id: 5396099f-7c74-4953-9629-a4b5229087ac
+          kind: meeting_start
+          task_id: 39183a1c-64a9-4f0d-8ab5-2e06e12fc9f0
+          title: Встреча с Иваном
+          message: Встреча «Встреча с Иваном» начинается сейчас.
+          scheduled_at: '2026-10-30T12:00:00Z'
+          created_at: '2026-10-30T12:00:01Z'
+    Notification:
+      type: object
+      additionalProperties: false
+      description: |
+        task_id — ID записи из data.event.id, а не ID диалога /api/task.
+        Время передаётся в RFC 3339 с часовым поясом. Для записи без
+        точного времени уведомление отправляется в 09:00 часового пояса
+        пользователя в день срока; если часовой пояс не задан — UTC.
+        На одну запись и один момент срабатывания создаётся не более одного
+        уведомления данного kind. При изменении срока будущий момент
+        пересчитывается; для удалённой записи уведомление не создаётся.
+      required: [id, kind, task_id, title, message, scheduled_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Стабильный ID уведомления для удаления дубликатов и ack.
+        kind:
+          type: string
+          enum: [task_due, reminder_due, meeting_start]
+        task_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+        message:
+          type: string
+          minLength: 1
+        scheduled_at:
+          type: string
+          format: date-time
+          description: Время наступления события.
+        created_at:
+          type: string
+          format: date-time
+          description: Время создания уведомления; может быть позже scheduled_at.
+    ErrorMessage:
+      type: object
+      additionalProperties: false
+      required: [type, code, message]
+      properties:
+        type:
+          type: string
+          enum: [error]
+        code:
+          type: string
+          enum: [invalid_message, unknown_notification]
+        message:
+          type: string
+      example:
+        type: error
+        code: unknown_notification
+        message: Уведомление не найдено.

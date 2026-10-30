@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/google/uuid"
 	api "gorkycode/backend/internal/generated"
 )
 
@@ -28,6 +29,14 @@ func MethodNotAllowed(detail string) api.Problem {
 // Conflict reports a conflicting request.
 func Conflict(detail string) api.Problem {
 	return newProblem(http.StatusConflict, "conflict", "conflict", "Conflict", detail)
+}
+
+// MeetingConflict reports occupied meeting time.
+func MeetingConflict(detail string, userID, taskID uuid.UUID) api.Problem {
+	p := newProblem(http.StatusConflict, "meeting_conflict", "meeting-conflict", "Conflict", detail)
+	p.UserId = &userID
+	p.TaskId = &taskID
+	return p
 }
 
 // Unavailable reports a temporarily unavailable dependency.

@@ -19,7 +19,7 @@ func ValidateAIResult(result model.AiRes, request *ai.JobRequest) error {
 	if result.Status != "ready" && result.Status != "needs_clarification" {
 		return fmt.Errorf("invalid AI status %s", result.Status)
 	}
-	if result.Intent != "create_event" && result.Intent != "list_events" &&
+	if result.Intent != "chat" && result.Intent != "create_event" && result.Intent != "list_events" &&
 		result.Intent != "search_events" && result.Intent != "on_delete" && result.Intent != "on_update" {
 		return fmt.Errorf("invalid intent %s", result.Intent)
 	}
@@ -61,6 +61,12 @@ func ValidateAIResult(result model.AiRes, request *ai.JobRequest) error {
 	var message string
 	if err := json.Unmarshal(result.Message, &message); err != nil || strings.TrimSpace(message) == "" || string(draft) != "null" {
 		return errors.New("invalid AI ready message or draft")
+	}
+	if result.Intent == "chat" {
+		if string(bytes.TrimSpace(result.Action)) != "null" {
+			return errors.New("chat action must be null")
+		}
+		return nil
 	}
 	var action map[string]json.RawMessage
 	if err := json.Unmarshal(result.Action, &action); err != nil || action == nil {
@@ -134,7 +140,7 @@ func validateReadyAction(intent string, action map[string]json.RawMessage) error
 	case "create_event":
 		allowed = map[string]bool{"record_type": true, "title": true, "date": true, "time": true}
 	case "list_events":
-		allowed = map[string]bool{"date_from": true, "date_to_exclusive": true, "record_types": true}
+		allowed = map[string]bool{"date_from": true, "date_to_exclusive": true, "record_types": true, "statuses": true, "upcoming_minutes": true}
 	case "search_events":
 		allowed = map[string]bool{"query": true, "date_from": true, "date_to_exclusive": true, "record_types": true}
 	}
@@ -205,13 +211,42 @@ func validateReadyAction(intent string, action map[string]json.RawMessage) error
 			return errors.New("missing or invalid time")
 		}
 	case "list_events":
-		from, err := checkDate("date_from")
-		if err != nil {
-			return err
+		if raw, present := action["upcoming_minutes"]; present {
+			var minutes int
+			if err := json.Unmarshal(raw, &minutes); err != nil || minutes < 1 || minutes > 10080 {
+				return errors.New("invalid upcoming_minutes")
+			}
 		}
-		to, err := checkDate("date_to_exclusive")
-		if err != nil || !from.Before(to) {
+		var from, to time.Time
+		if _, present := action["date_from"]; present {
+			var err error
+			from, err = checkDate("date_from")
+			if err != nil {
+				return err
+			}
+		}
+		if _, present := action["date_to_exclusive"]; present {
+			var err error
+			to, err = checkDate("date_to_exclusive")
+			if err != nil {
+				return err
+			}
+		}
+		if !from.IsZero() && !to.IsZero() && !from.Before(to) {
 			return errors.New("invalid date_to_exclusive")
+		}
+		if raw, present := action["statuses"]; present {
+			var values []string
+			if err := json.Unmarshal(raw, &values); err != nil || len(values) == 0 || len(values) > 3 {
+				return errors.New("invalid statuses")
+			}
+			seen := map[string]bool{}
+			for _, value := range values {
+				if (value != "active" && value != "in_progress" && value != "completed") || seen[value] {
+					return errors.New("invalid statuses")
+				}
+				seen[value] = true
+			}
 		}
 		return checkTypes()
 	case "search_events":
@@ -298,7 +333,7 @@ func validateUpdateChanges(raw json.RawMessage) error {
 			}
 		case "status":
 			status, err := actionString(fields, name)
-			if err != nil || (status != "active" && status != "completed") {
+			if err != nil || (status != "active" && status != "in_progress" && status != "completed") {
 				return errors.New("invalid update status")
 			}
 		default:

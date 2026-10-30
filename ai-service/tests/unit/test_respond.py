@@ -63,3 +63,25 @@ def test_provider_receives_display_fields_only_and_bounded_lists():
     assert len(sent["data"]["items"]) == 50
     assert sent["data"]["items"][0] == {"title": "Встреча"}
     assert "user_id" not in sent and "task_id" not in sent
+
+
+def test_respond_returns_plain_single_line_message():
+    raw = json.dumps({"message": (
+        "На эту неделю запланированы дела.\n📅 **Пятница, 30 октября**\n"
+        "• 12:00 — встреча с Таней. [Подробнее](https://example.test)"
+    )}, ensure_ascii=False)
+    client, gateway = client_for(raw)
+    response = client.post("/api/respond", json=payload())
+    assert response.status_code == 200
+    assert response.json()["message"] == (
+        "На эту неделю запланированы дела. Пятница, 30 октября "
+        "12:00 - встреча с Таней. Подробнее"
+    )
+    assert "одну строку" in gateway.messages[0]["content"]
+
+
+def test_respond_keeps_meaningful_symbols_in_record_titles():
+    client, _ = client_for('{"message":"Задачи C++ и C# добавлены."}')
+    response = client.post("/api/respond", json=payload())
+    assert response.status_code == 200
+    assert response.json()["message"] == "Задачи C++ и C# добавлены."

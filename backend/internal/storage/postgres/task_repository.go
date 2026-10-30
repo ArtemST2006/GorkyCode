@@ -3,9 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"gorkycode/backend/internal/config"
 	"gorkycode/backend/internal/model"
-	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -32,31 +30,16 @@ const (
 
 // TaskRepository reads user tasks from PostgreSQL.
 type TaskRepository struct {
-	pool   *pgxpool.Pool
-	sb     sq.StatementBuilderType
-	search config.SemanticSearch
-	log    *slog.Logger
-}
-
-// TaskRepositoryOption configures optional retrieval behavior.
-type TaskRepositoryOption func(*TaskRepository)
-
-// WithSemanticSearch is shared by the application and the benchmark.
-func WithSemanticSearch(cfg config.SemanticSearch, log *slog.Logger) TaskRepositoryOption {
-	return func(r *TaskRepository) { r.search, r.log = cfg, log }
+	pool *pgxpool.Pool
+	sb   sq.StatementBuilderType
 }
 
 // NewTaskRepository creates a task repository over a connection pool.
-func NewTaskRepository(pool *pgxpool.Pool, options ...TaskRepositoryOption) *TaskRepository {
-	r := &TaskRepository{
-		pool:   pool,
-		sb:     sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
-		search: config.DefaultSemanticSearch(),
+func NewTaskRepository(pool *pgxpool.Pool) *TaskRepository {
+	return &TaskRepository{
+		pool: pool,
+		sb:   sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
 	}
-	for _, option := range options {
-		option(r)
-	}
-	return r
 }
 
 // ListEvents returns the user's dated tasks with from <= date < to, ordered by
@@ -78,6 +61,25 @@ func (r *TaskRepository) ListEvents(
 		OrderBy("date", "time NULLS FIRST", "created_at", "id")
 	if len(types) > 0 {
 		q = q.Where(sq.Eq{"type": types})
+	}
+	return r.fetchTasks(ctx, q)
+}
+
+// ListEventsFiltered applies optional date, type and status filters.
+func (r *TaskRepository) ListEventsFiltered(ctx context.Context, userID uuid.UUID, from, to *time.Time, types, statuses []string) ([]model.Task, error) {
+	q := r.sb.Select("id", "user_id", "type", "title", "date", "to_char(time, 'HH24:MI')", "status", "created_at").
+		From("tasks").Where(sq.Eq{"user_id": userID}).OrderBy("date NULLS LAST", "time NULLS FIRST", "created_at", "id")
+	if from != nil {
+		q = q.Where(sq.Expr("date >= ?::date", from.Format(time.DateOnly)))
+	}
+	if to != nil {
+		q = q.Where(sq.Expr("date < ?::date", to.Format(time.DateOnly)))
+	}
+	if len(types) > 0 {
+		q = q.Where(sq.Eq{"type": types})
+	}
+	if len(statuses) > 0 {
+		q = q.Where(sq.Eq{"status": statuses})
 	}
 	return r.fetchTasks(ctx, q)
 }
@@ -133,6 +135,81 @@ func (r *TaskRepository) StoreEmbedding(ctx context.Context, taskID uuid.UUID, r
 		return fmt.Errorf("store embedding: %w", err)
 	}
 	return nil
+}
+
+// FindSemantic returns the owner's tasks whose stored embedding of the given
+// model version is closest to the query vector and matches every filter the
+// same way FindCandidates does. The result is ordered by cosine distance.
+func (r *TaskRepository) FindSemantic(
+	ctx context.Context,
+	userID uuid.UUID,
+	query []float32,
+	modelName, version string,
+	dateFrom, dateTo *time.Time,
+	timeFrom, timeTo *string,
+	types []string,
+) ([]model.Task, error) {
+	if !validVector(query) {
+		return nil, fmt.Errorf("invalid query embedding")
+	}
+	// The vector is interpolated directly: vectorLiteral() produces digits,
+	// dots and commas only, so the string is injection-safe.
+	distance := fmt.Sprintf("(e.embedding <=> '%s'::vector)", vectorLiteral(query))
+	q := r.sb.
+		Select("t.id", "t.user_id", "t.type", "t.title", "t.date", "to_char(t.time, 'HH24:MI') AS time_text", "t.status", "t.created_at", distance+" AS distance").
+		From("tasks AS t").
+		Join("task_embeddings AS e ON e.task_id = t.id").
+		Where(sq.Eq{"t.user_id": userID, "e.model": modelName, "e.model_version": version}).
+		// The index needs distance as the only inner sort key.
+		OrderBy(distance).
+		Limit(semanticLimit)
+	if dateFrom != nil {
+		q = q.Where(sq.Expr("t.date >= ?::date", dateFrom.Format(time.DateOnly)))
+	}
+	if dateTo != nil {
+		q = q.Where(sq.Expr("t.date < ?::date", dateTo.Format(time.DateOnly)))
+	}
+	if timeFrom != nil {
+		q = q.Where(sq.Expr("t.time >= ?::time", *timeFrom))
+	}
+	if timeTo != nil {
+		q = q.Where(sq.Expr("t.time < ?::time", *timeTo))
+	}
+	if len(types) > 0 {
+		q = q.Where(sq.Eq{"t.type": types})
+	}
+	innerSQL, args, err := q.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build semantic query: %w", err)
+	}
+	querySQL := fmt.Sprintf(`WITH ranked AS MATERIALIZED (%s)
+		SELECT id, user_id, type, title, date, time_text, status, created_at
+		FROM ranked
+		WHERE distance <= %v AND distance <= (SELECT MIN(distance) + %v FROM ranked)
+		ORDER BY distance, date, time_text NULLS FIRST, created_at, id`, innerSQL, semanticMaxCosineDistance, semanticMaxDistanceFromBest)
+
+	// Iterative scanning can continue past other users' or incompatible vectors.
+	// Keep settings local so they never leak into another pooled request.
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin semantic search: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, "SET LOCAL hnsw.ef_search = 100; SET LOCAL hnsw.iterative_scan = strict_order"); err != nil {
+		return nil, fmt.Errorf("configure semantic search: %w", err)
+	}
+	rows, err := tx.Query(ctx, querySQL, args...)
+	if err != nil {
+		return nil, fmt.Errorf("select semantic tasks: %w", err)
+	}
+	tasks, err := scanTasks(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit semantic search: %w", err)
+	}
+	return tasks, nil
 }
 
 func validVector(vector []float32) bool {
@@ -208,7 +285,7 @@ func (r *TaskRepository) DeleteTasks(ctx context.Context, userID uuid.UUID, ids 
 		Delete("tasks").
 		Where(sq.Eq{"user_id": userID}).
 		Where(sq.Eq{"id": ids}).
-		Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at").
+		Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at, google_event_id").
 		ToSql()
 	if err != nil {
 		return nil, fmt.Errorf("build delete query: %w", err)
@@ -254,7 +331,8 @@ func (r *TaskRepository) DeleteTasks(ctx context.Context, userID uuid.UUID, ids 
 			&task.Date,
 			&task.Time,
 			&task.Status,
-			&task.CreatedAt); err != nil {
+			&task.CreatedAt,
+			&task.GoogleEventID); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("scan deleted task: %w", err)
 		}
@@ -337,6 +415,9 @@ func (r *TaskRepository) UpdateTasks(
 		if !shown || !sameTaskSnapshot(current[id], old) {
 			return nil, model.ErrStaleSelection
 		}
+		if changes.Status != nil && *changes.Status == "in_progress" && current[id].Type != "task" {
+			return nil, fmt.Errorf("%w: in_progress requires a task", model.ErrInvalidAction)
+		}
 	}
 	updated := make([]model.Task, 0, len(ids))
 	for _, id := range ids {
@@ -361,12 +442,12 @@ func (r *TaskRepository) UpdateTasks(
 		query, values, err := r.sb.Update("tasks").
 			Set("title", item.Title).Set("date", item.Date).Set("time", item.Time).
 			Set("status", item.Status).Where(sq.Eq{"id": id, "user_id": userID}).
-			Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at").ToSql()
+			Suffix("RETURNING id, user_id, type, title, date, to_char(time, 'HH24:MI'), status, created_at, google_event_id").ToSql()
 		if err != nil {
 			return nil, fmt.Errorf("build task update: %w", err)
 		}
 		var saved model.Task
-		if err := tx.QueryRow(ctx, query, values...).Scan(&saved.ID, &saved.UserID, &saved.Type, &saved.Title, &saved.Date, &saved.Time, &saved.Status, &saved.CreatedAt); err != nil {
+		if err := tx.QueryRow(ctx, query, values...).Scan(&saved.ID, &saved.UserID, &saved.Type, &saved.Title, &saved.Date, &saved.Time, &saved.Status, &saved.CreatedAt, &saved.GoogleEventID); err != nil {
 			return nil, fmt.Errorf("update task: %w", err)
 		}
 		if changes.Title != nil {
@@ -474,12 +555,15 @@ func (r *TaskRepository) fetchTasksSQL(ctx context.Context, query string, args .
 	if err != nil {
 		return nil, fmt.Errorf("select tasks: %w", err)
 	}
-	defer rows.Close()
+	return scanTasks(rows)
+}
 
+func scanTasks(rows pgx.Rows) ([]model.Task, error) {
+	defer rows.Close()
 	tasks := make([]model.Task, 0)
 	for rows.Next() {
 		var task model.Task
-		if err = rows.Scan(
+		if err := rows.Scan(
 			&task.ID,
 			&task.UserID,
 			&task.Type,
@@ -493,7 +577,7 @@ func (r *TaskRepository) fetchTasksSQL(ctx context.Context, query string, args .
 		}
 		tasks = append(tasks, task)
 	}
-	if err = rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read tasks: %w", err)
 	}
 

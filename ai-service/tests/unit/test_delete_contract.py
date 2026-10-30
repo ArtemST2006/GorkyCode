@@ -4,6 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -13,7 +14,7 @@ from app.api.routes.jobs import router as jobs_router
 from app.core.config import Settings
 from app.core.errors import InvalidModelOutput, ServiceError
 from app.llm.schemas import ModelDecision
-from app.schemas.delete_event import DeleteFindCandidatesAction
+from app.schemas.delete_event import DeleteCandidate, DeleteFindCandidatesAction
 from app.schemas.job import (
     DeleteConfirmedResponse,
     DeleteFindCandidatesResponse,
@@ -85,6 +86,14 @@ CANDIDATE_CONTEXT = {
     "draft": {"title_query": "Иван", "date_from": "2026-10-23"},
     "candidates": [candidate(1, FIRST_ID), candidate(5, FIFTH_ID)],
 }
+
+
+def test_delete_candidate_progress_status_is_task_only():
+    values = candidate(1, FIRST_ID) | {"record_type": "task", "status": "in_progress"}
+    assert DeleteCandidate.model_validate(values).status == "in_progress"
+    for record_type in ("meeting", "reminder"):
+        with pytest.raises(ValidationError):
+            DeleteCandidate.model_validate(values | {"record_type": record_type})
 
 
 class DeleteContractTest(unittest.TestCase):

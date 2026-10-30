@@ -274,3 +274,7 @@ func TestGoogleDisconnect(t *testing.T) {
 		t.Fatalf("body = %q, user = %s", response.Body, calendar.userID)
 	}
 }
+
+func (f googleTestServices) ListAllTasks(ctx context.Context, userID uuid.UUID, query string, types []string, from, to *time.Time, limit, offset int) (api.TaskCollection, error) {
+	return api.TaskCollection{Items: []api.TaskItem{}}, nil
+}

@@ -101,8 +101,13 @@ class ReadySearchEvents(ReadyBase):
     action: SearchEventsAction
 
 
+class ReadyChat(ReadyBase):
+    intent: Literal["chat"]
+    action: None
+
+
 ReadyResponse = Annotated[
-    Union[ReadyCreateEvent, ReadyListEvents, ReadySearchEvents], Field(discriminator="intent")
+    Union[ReadyCreateEvent, ReadyListEvents, ReadySearchEvents, ReadyChat], Field(discriminator="intent")
 ]
 
 
