@@ -2,9 +2,9 @@
 set -eu
 
 MODEL_DIR="${MODEL_PATH:-/app/model/asr-model}"
-MODEL_URL="${MODEL_URL:-https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ru-2024-09-18.tar.bz2}"
+MODEL_URL="${MODEL_URL:-https://github.com/salute-developers/GigaAM/tree/main/gigaam}"
 
-if [ ! -f "$MODEL_DIR/tokens.txt" ]; then
+if [ ! -f "$MODEL_DIR/model.int8.onnx" ] && [ ! -f "$MODEL_DIR/model.onnx" ]; then
   echo "model not found, downloading from GitHub: $MODEL_URL"
 
   TMP="$(mktemp -d)"
