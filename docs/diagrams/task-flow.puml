@@ -1,8 +1,8 @@
 @startuml task-flow
-!title Поток обработки POST /api/task
+title Поток обработки POST /api/task
 
 skinparam sequenceMessageAlign center
-autonumber "<b>0>"
+autonumber
 
 actor "Клиент" as C
 participant "Backend (Go)" as B

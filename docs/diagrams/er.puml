@@ -1,5 +1,5 @@
 @startuml er
-!title ER-диаграмма PostgreSQL (по миграциям backend/migrations)
+title ER-диаграмма PostgreSQL (по миграциям backend/migrations)
 
 entity users {
   * id : UUID <<PK, default gen_random_uuid()>>

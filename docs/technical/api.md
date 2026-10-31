@@ -17,20 +17,18 @@
 
 ## 2. Эндпоинты backend
 
-| Метод и путь | Назначение |
-|---|---|
-| GET /health | Работает ли процесс |
-| GET /ready | Готовность; 503, если PostgreSQL недоступен |
-| POST /api/task | Основная ручка: текст (JSON) или WAV (multipart) |
-| POST /api/v1/auth/sign-up | Регистрация, возвращает пользователя и токен |
-| POST /api/v1/auth/sign-in | Вход |
-| POST /api/v1/auth/sign-out | Завершение сессии токена |
-| GET /api/v1/tasks | Список записей без AI-диалога: период (to исключается), типы, подстрока, limit до 500 |
-| GET /api/v1/integrations/google | Статус подключения календаря |
-| POST /api/v1/integrations/google/connect | Адрес страницы согласия Google, state живёт 10 минут |
-| GET /api/v1/integrations/google/callback | OAuth callback; всегда 302, адрес возврата только из конфигурации |
-| DELETE /api/v1/integrations/google | Отключение календаря, идемпотентно |
-| GET /api/v1/notifications/ws | WebSocket уведомлений |
+- GET /health — работает ли процесс.
+- GET /ready — готовность; 503, если PostgreSQL недоступен.
+- POST /api/task — основная ручка: текст (JSON) или WAV (multipart).
+- POST /api/v1/auth/sign-up — регистрация, возвращает пользователя и токен.
+- POST /api/v1/auth/sign-in — вход.
+- POST /api/v1/auth/sign-out — завершение сессии токена.
+- GET /api/v1/tasks — список записей без AI-диалога: период (to исключается), типы, подстрока, limit до 500.
+- GET /api/v1/integrations/google — статус подключения календаря.
+- POST /api/v1/integrations/google/connect — адрес страницы согласия Google, state живёт 10 минут.
+- GET /api/v1/integrations/google/callback — OAuth callback; всегда 302, адрес возврата только из конфигурации.
+- DELETE /api/v1/integrations/google — отключение календаря, идемпотентно.
+- GET /api/v1/notifications/ws — WebSocket уведомлений.
 
 ## 3. POST /api/task
 

@@ -1,5 +1,5 @@
 @startuml notifications
-!title Планирование и доставка напоминаний
+title Планирование и доставка напоминаний
 
 participant "Scheduler\n(скан 30s, sync 10m,\nhorizon 7d)" as S
 database "PostgreSQL\ntasks / notifications" as PG

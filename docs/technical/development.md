@@ -77,32 +77,28 @@ make -C backend migrate-down              # откатить последнюю
 
 Основные переменные backend/.env:
 
-| Переменная | По умолчанию | Назначение |
-|---|---|---|
-| HTTP_ADDR | :8080 | адрес HTTP |
-| DATABASE_URL | postgres://gorkycode:…@localhost:5432/gorkycode | база |
-| REDIS_URL | redis://localhost:6380/0 | Redis |
-| AI_SERVICE_URL | http://localhost:8090 | ai-service |
-| AUTH_SESSION_TTL | 24h | срок сессии |
-| MODEL_PATH | model/asr-model | ASR-модель |
-| REMINDER_OFFSETS | 72h,24h,3h,10m | опережения уведомлений |
-| REMINDER_MIN_ADVANCE_LEAD | 5h | минимальный горизонт опережения |
-| REMINDER_RETENTION | 720h | хранение неподтверждённых уведомлений |
-| SMTP_HOST, EMAIL_FROM | пусто | без них email выключен |
-| GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET | пусто | без них календарь выключен |
-| GOOGLE_EVENT_DURATION | 1h | длительность для проверки конфликтов |
+- HTTP_ADDR = :8080 — адрес HTTP.
+- DATABASE_URL = postgres://gorkycode:…@localhost:5432/gorkycode — база.
+- REDIS_URL = redis://localhost:6380/0.
+- AI_SERVICE_URL = http://localhost:8090.
+- AUTH_SESSION_TTL = 24h — срок сессии.
+- MODEL_PATH = model/asr-model — каталог ASR-модели.
+- REMINDER_OFFSETS = 72h,24h,3h,10m — опережения уведомлений.
+- REMINDER_MIN_ADVANCE_LEAD = 5h — минимальный горизонт опережения.
+- REMINDER_RETENTION = 720h — хранение неподтверждённых уведомлений.
+- SMTP_HOST и EMAIL_FROM — пустые по умолчанию; без них email выключен.
+- GOOGLE_CLIENT_ID и GOOGLE_CLIENT_SECRET — пустые по умолчанию; без них календарь выключен.
+- GOOGLE_EVENT_DURATION = 1h — длительность для проверки конфликтов.
 
 Основные переменные ai-service/.env:
 
-| Переменная | По умолчанию | Назначение |
-|---|---|---|
-| CLOUDRU_API_KEY | — | ключ Foundation Models, обязателен |
-| CLOUDRU_MODEL | см. .env.example | модель GigaChat |
-| CLOUDRU_TIMEOUT_SECONDS | 60 | таймаут вызова |
-| JOB_TIMEOUT_SECONDS | 150 | общий срок /api/job |
-| CLOUDRU_MAX_RETRIES | 0 (в примере 1) | транспортные повторы, 0–3 |
-| EMBEDDING_MODEL_PATH | models/multilingual-e5-small | веса E5 (в Docker /opt/embedding-model) |
-| EMBEDDING_NUM_THREADS / EMBEDDING_MAX_WORKERS | 2 / 1 | CPU-пул |
+- CLOUDRU_API_KEY — ключ Foundation Models, обязателен.
+- CLOUDRU_MODEL — модель GigaChat; значение см. в .env.example.
+- CLOUDRU_TIMEOUT_SECONDS = 60 — таймаут вызова.
+- JOB_TIMEOUT_SECONDS = 150 — общий срок /api/job.
+- CLOUDRU_MAX_RETRIES = 0 (в .env.example — 1) — транспортные повторы, 0–3.
+- EMBEDDING_MODEL_PATH = models/multilingual-e5-small — веса E5 (в Docker /opt/embedding-model).
+- EMBEDDING_NUM_THREADS = 2, EMBEDDING_MAX_WORKERS = 1 — CPU-пул.
 
 ## 7. Структура репозитория
 

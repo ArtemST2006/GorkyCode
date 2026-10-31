@@ -1,18 +1,14 @@
 @startuml architecture
-!title Компоненты и развёртывание GorkyCode (docker-compose)
+title Компоненты и развёртывание GorkyCode (docker-compose)
 
 skinparam componentStyle rectangle
 
 actor "Пользователь\n(браузер)" as User
-
-component "Frontend\n(Nuxt, собранная статика)\nисходники вне репозитория" as FE
-component "Nginx" as NG {
-  port "8088 public" as P8088
-  port "8091 internal" as P8091
-}
+component "Frontend\n(Nuxt, собранная статика;\nисходники вне репозитория)" as FE
+component "Nginx\nпорт 8088 публичный\nпорт 8091 внутренний (к ai-service)" as NG
 component "Backend\nGo 1.26 / chi" as BE {
   [HTTP API\n/health /ready /api/task\n/api/v1/*]
-  [STT sherpa-onnx\n(локально, без внешних сервисов)]
+  [STT sherpa-onnx]
   [Scheduler напоминаний]
   [WebSocket-хаб\n/api/v1/notifications/ws]
   [Email-воркер]
@@ -29,17 +25,14 @@ component "Mailpit\n(dev SMTP)" as MP
 cloud "Cloud.ru\nFoundation Models" as FM
 cloud "Google Calendar API\nOAuth / freebusy / events" as GC
 
-User --> P8088 : https
-P8088 --> FE : статика
-P8088 --> BE : /api/** (proxy_read_timeout 240s;\nWS: 3600s, upgrade)
-BE --> P8091 : AI_SERVICE_URL
-P8091 --> AI : proxy
-
-BE --> PG : SQL (3s query timeout)
+User --> NG : https
+NG --> FE : статика
+NG --> BE : /api/**\n(proxy_read_timeout 240s;\nWS: 3600s, upgrade)
+BE --> AI : /api/job, /api/respond,\n/api/embed (через Nginx:8091)
+BE --> PG : SQL (таймаут 3 с)
 BE --> RD : сессии, контекст диалога (24h),\nOAuth state (10m), кандидаты
-BE --> FM : via AI /api/job / /api/respond
 AI --> FM : OpenAI-совместимый API\n60s timeout, 1 исправляющая попытка
-BE --> GC : 3s timeout/вызов\n(только создание встреч)
+BE --> GC : таймаут 3 с на вызов\n(только создание встреч)
 BE --> MP : SMTP (EMAIL_KINDS), 45s
 
 note bottom of PG

@@ -4,14 +4,12 @@
 
 ## 1. Состав
 
-| Сервис | Образ | Порты |
-|---|---|---|
-| nginx | nginx:stable-alpine | 8088 публичный; 127.0.0.1:8091 внутренний к ai-service |
-| backend | сборка ./backend | 127.0.0.1:8080; ASR-модель в volume asr_model |
-| ai-service | сборка ./ai-service | 127.0.0.1:8090; healthcheck /health |
-| postgres | pgvector/pgvector:0.8.7-pg16-bookworm | 127.0.0.1:5432; volume postgres_data |
-| redis | redis:7-alpine | 127.0.0.1:6380 |
-| mailpit | axllent/mailpit | 8025 (UI), 127.0.0.1:1025 (SMTP) |
+- nginx — образ nginx:stable-alpine; порт 8088 публичный, 127.0.0.1:8091 — внутренний к ai-service.
+- backend — сборка ./backend; порт 127.0.0.1:8080; ASR-модель в volume asr_model.
+- ai-service — сборка ./ai-service; порт 127.0.0.1:8090; healthcheck /health.
+- postgres — образ pgvector/pgvector:0.8.7-pg16-bookworm; порт 127.0.0.1:5432; volume postgres_data.
+- redis — образ redis:7-alpine; порт 127.0.0.1:6380.
+- mailpit — образ axllent/mailpit; порт 8025 (UI) и 127.0.0.1:1025 (SMTP).
 
 ## 2. Требования к окружению
 
