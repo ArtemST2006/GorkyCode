@@ -4,7 +4,7 @@ set -eu
 MODEL_DIR="${MODEL_PATH:-/app/model/asr-model}"
 MODEL_URL="${MODEL_URL:-https://github.com/salute-developers/GigaAM/tree/main/gigaam}"
 
-if [ ! -f "$MODEL_DIR/model.int8.onnx" ] && [ ! -f "$MODEL_DIR/model.onnx" ]; then
+if [ ! -f "$MODEL_DIR/tokens.txt" ]; then
   echo "model not found, downloading from GitHub: $MODEL_URL"
 
   TMP="$(mktemp -d)"

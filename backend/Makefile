@@ -8,7 +8,7 @@ OAPI_CODEGEN ?= oapi-codegen
 GOOSE_BIN ?= goose
 
 # Настройки для модели
-MODEL_URL ?= https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16.tar.bz2
+MODEL_URL ?= https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ru-2024-09-18.tar.bz2
 MODEL_DIR ?= model/asr-model
 MODEL_ARCHIVE ?= model/sherpa-onnx-zipformer-ru-2024-09-18.tar.bz2
 
