@@ -37,7 +37,7 @@
 Секреты (ключ Cloud.ru, Google OAuth, SMTP, пароль PostgreSQL) хранятся в
 командной папке Google Drive: https://drive.google.com/drive/folders/1xkUTSNy3ACi5QHWxzOTvSkzE8KtkrzWs.
 В репозиторий они не попадают: `.env` в `.gitignore`, значения переносятся
-вручную. Доступ к папке ограничен участниками команды.
+вручную.
 
 ## Что реализовано
 

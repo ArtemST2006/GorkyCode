@@ -1,6 +1,6 @@
 # Архитектура
 
-Принятые решения и их обоснования - в [ADR](adr.md). Диаграммы - Structurizr DSL в [diagrams](../diagrams/) (вставить содержимое файла в редактор playground.structurizr.com/dsl): architecture.dsl - четыре вида: SystemContext, Containers, компоненты backend и ai-service; task-flow.dsl - поток запроса; notifications.dsl - уведомления; database.dsl - схема данных.
+Принятые решения и их обоснования - в [ADR](adr.md). Диаграммы - Structurizr DSL в [diagrams](../diagrams/): architecture.dsl - четыре вида: SystemContext, Containers, компоненты backend и ai-service; task-flow.dsl - поток запроса; notifications.dsl - уведомления; database.dsl - схема данных.
 
 ## 1. Компоненты
 

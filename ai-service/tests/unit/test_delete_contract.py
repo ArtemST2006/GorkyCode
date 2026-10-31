@@ -118,8 +118,12 @@ class DeleteContractTest(unittest.TestCase):
         self.assertEqual(explicit_selection_numbers("Удали первую и пятую", shown), [1, 5])
         self.assertEqual(explicit_selection_numbers("Удали №5 и №1", shown), [5, 1])
         self.assertEqual(explicit_selection_numbers("удали все показанные", shown), [1, 5])
+        self.assertEqual(explicit_selection_numbers("1,5", shown), [1, 5])
+        self.assertEqual(explicit_selection_numbers("1, 5", shown), [1, 5])
+        self.assertEqual(explicit_selection_numbers("№1, №5", shown), [1, 5])
         self.assertIsNone(explicit_selection_numbers("не удаляй первую", shown))
         self.assertIsNone(explicit_selection_numbers("удали задачу 1 ноября", shown))
+        self.assertIsNone(explicit_selection_numbers("1.5", shown))
 
     def test_http_header_only_for_delete(self):
         class FakeService:
@@ -207,6 +211,18 @@ class DeleteContractTest(unittest.TestCase):
         self.assertEqual(body["context"]["recent_messages"][-1]["text"], "Удали №5 и №1")
         JOB_RESPONSE_ADAPTER.validate_python(body)
 
+    def test_comma_separated_numbers_confirm_delete(self):
+        result = build_job_response(
+            request("1,5", CANDIDATE_CONTEXT),
+            decision(
+                message="Удаляю выбранные записи.",
+                action={"phase": "delete_confirmed", "selected_numbers": [1, 5]},
+            ),
+        )
+        self.assertIsInstance(result, DeleteConfirmedResponse)
+        self.assertEqual(result.action.task_ids, [FIRST_ID, FIFTH_ID])
+        JOB_RESPONSE_ADAPTER.validate_python(result.model_dump(mode="json", exclude_unset=True))
+
     def test_selection_requires_shown_candidates(self):
         selection = decision(action={"phase": "delete_confirmed", "selected_numbers": [1]})
         for current, changed in [({}, False), (CANDIDATE_CONTEXT, True)]:
@@ -290,6 +306,18 @@ class DeleteJobServiceTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsInstance(result, DeleteConfirmedResponse)
         self.assertEqual(result.action.task_ids, [FIRST_ID])
+
+    async def test_comma_separated_selection_uses_saved_candidates_without_model(self):
+        class UnusedGateway:
+            async def complete(self, _messages):
+                raise AssertionError("Explicit selection should not call the model")
+
+        gateway = UnusedGateway()
+        result = await JobService(Settings(job_timeout_seconds=5), gateway).process(
+            request("1,5", CANDIDATE_CONTEXT)
+        )
+        self.assertIsInstance(result, DeleteConfirmedResponse)
+        self.assertEqual(result.action.task_ids, [FIRST_ID, FIFTH_ID])
 
     async def test_spoken_update_selection_uses_saved_candidates_without_model(self):
         class UnusedGateway:
