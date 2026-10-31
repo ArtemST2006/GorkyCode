@@ -29,7 +29,7 @@
 
 Прочее:
 
-- Диаграммы Structurizr DSL (diagrams/): architecture, task-flow, notifications, database — вставить содержимое файла в редактор playground.structurizr.com/dsl.
+- Диаграммы Structurizr DSL (diagrams/): architecture (SystemContext, Containers, компоненты backend и ai-service), task-flow, notifications, database — вставить содержимое файла в редактор playground.structurizr.com/dsl.
 - [Проверочный набор диалогов](dialogue-scenarios.md) и Postman-коллекции (postman/).
 - Отчёт по бенчмаркам распознавания речи: technical/ASR_BENCHMARK_REPORT.pdf.
 

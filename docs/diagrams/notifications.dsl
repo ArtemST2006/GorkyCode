@@ -4,46 +4,34 @@ workspace {
 
     gorky = softwareSystem "GorkyCode" "Голосовой ассистент для задач, напоминаний и встреч" {
       be = container "Backend" "Планировщик напоминаний, WebSocket-хаб, email-воркер" "Go 1.26 / chi" {
-        scheduler = component "Scheduler" "Синхронизация и создание моментов уведомлений; скан 30s, sync 10m, horizon 7d" "Go goroutine"
-        hub = component "WebSocket-хаб" "Доставка уведомлений и обработка ack на /api/v1/notifications/ws" "Go goroutine"
-        emailer = component "Email-воркер" "Отправка писем по EMAIL_KINDS" "Go goroutine"
+        scheduler = component "Scheduler" "Моменты уведомлений; скан 30s, sync 10m" "Go goroutine"
+        hub = component "WebSocket-хаб" "Доставка и ack" "Go goroutine"
+        emailer = component "Email-воркер" "Письма по EMAIL_KINDS" "Go goroutine"
       }
       pg = container "PostgreSQL" "tasks, notifications" "PostgreSQL 16"
       rd = container "Redis" "Сессии авторизации" "Redis 7"
     }
 
-    scheduler -> pg "Читает активные записи с датой (horizon 168h, batch 100)" "TCP"
-    scheduler -> pg "UPSERT notifications: точное время события и опережения 72h/24h/3h/10m (уникальность task_id+kind+due_at)" "TCP"
-    scheduler -> pg "Забирает наступившие pending (claim TTL 2m)" "TCP"
-    scheduler -> hub "dispatch(notification)" "in-process"
-    hub -> user "notification: kind, title, message, scheduled_at (RFC 3339)" "WSS"
-    user -> hub "ack (идемпотентен)" "WSS"
-    hub -> pg "status = delivered" "TCP"
-    scheduler -> emailer "notification, если kind входит в EMAIL_KINDS и SMTP настроен" "in-process"
-    emailer -> pg "email_sent_at" "TCP"
-    user -> hub "Переподключение: WS connect + auth с токеном (в течение 5s)" "WSS"
-    hub -> rd "Проверяет сессию по токену" "TCP"
-    hub -> user "ready (user_id)" "WSS"
-    hub -> pg "Неподтверждённые с наступившим моментом, затем новые; порядок created_at, id" "TCP"
-    hub -> user "notification ×N (возможны дубликаты — клиент дедуплицирует по notification.id)" "WSS"
+    scheduler -> pg "1: sync — записи, UPSERT моментов, claim" "TCP"
+    scheduler -> hub "2: dispatch(notification)" "in-process"
+    hub -> user "3: notification; 10: ready; 12: notification ×N" "WSS"
+    user -> hub "4: ack; 8: reconnect + auth (≤5s)" "WSS"
+    hub -> pg "5: delivered; 11: досылка pending (created_at)" "TCP"
+    scheduler -> emailer "6: notification (EMAIL_KINDS)" "in-process"
+    emailer -> pg "7: email_sent_at" "TCP"
+    hub -> rd "9: сессия по токену" "TCP"
   }
 
   views {
     dynamic be "Notifications" "Планирование и доставка напоминаний" {
-      scheduler -> pg "Читает активные записи с датой (horizon 168h, batch 100)" "TCP"
-      scheduler -> pg "UPSERT notifications: точное время события и опережения 72h/24h/3h/10m (уникальность task_id+kind+due_at)" "TCP"
-      scheduler -> pg "Забирает наступившие pending (claim TTL 2m)" "TCP"
-      scheduler -> hub "dispatch(notification)" "in-process"
-      hub -> user "notification: kind, title, message, scheduled_at (RFC 3339)" "WSS"
-      user -> hub "ack (идемпотентен)" "WSS"
-      hub -> pg "status = delivered" "TCP"
-      scheduler -> emailer "notification, если kind входит в EMAIL_KINDS и SMTP настроен" "in-process"
-      emailer -> pg "email_sent_at" "TCP"
-      user -> hub "Переподключение: WS connect + auth с токеном (в течение 5s)" "WSS"
-      hub -> rd "Проверяет сессию по токену" "TCP"
-      hub -> user "ready (user_id)" "WSS"
-      hub -> pg "Неподтверждённые с наступившим моментом, затем новые; порядок created_at, id" "TCP"
-      hub -> user "notification ×N (возможны дубликаты — клиент дедуплицирует по notification.id)" "WSS"
+      scheduler -> pg "1: sync — записи, UPSERT моментов, claim"
+      scheduler -> hub "2: dispatch(notification)"
+      hub -> user "3: notification; 10: ready; 12: notification ×N"
+      user -> hub "4: ack; 8: reconnect + auth (≤5s)"
+      hub -> pg "5: delivered; 11: досылка pending"
+      scheduler -> emailer "6: notification (EMAIL_KINDS)"
+      emailer -> pg "7: email_sent_at"
+      hub -> rd "9: сессия по токену"
     }
 
     styles {

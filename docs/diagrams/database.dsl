@@ -8,11 +8,11 @@ workspace {
       nt = container "notifications" "Уведомления: kind (task_due/reminder_due/meeting_start), due_at, status" "таблица"
     }
 
-    tasks -> users "FK user_id, ON DELETE CASCADE; индекс (user_id, date, time)"
-    emb -> tasks "FK task_id, ON DELETE CASCADE; CHECK vector_norm > 0"
-    nt -> users "FK user_id, ON DELETE CASCADE"
-    nt -> tasks "FK task_id, ON DELETE CASCADE; UNIQUE (task_id, kind, due_at)"
-    gi -> users "FK user_id, ON DELETE CASCADE; одно подключение на пользователя"
+    tasks -> users "FK user_id (CASCADE)"
+    emb -> tasks "FK task_id (CASCADE)"
+    nt -> users "FK user_id (CASCADE)"
+    nt -> tasks "FK task_id (CASCADE); UNIQUE (task_id, kind, due_at)"
+    gi -> users "FK user_id (CASCADE)"
   }
 
   views {
