@@ -29,14 +29,13 @@
 
 Прочее:
 
-- [Открытые вопросы](open-questions.md) — нерешённые вопросы OQ.
 - Диаграммы PlantUML (diagrams/): architecture, task-flow, notifications, er.
 - [Проверочный набор диалогов](dialogue-scenarios.md) и Postman-коллекции (postman/).
+- Отчёт по бенчмаркам распознавания речи: technical/ASR_BENCHMARK_REPORT.pdf.
 
 ## Как поддерживать
 
 1. Изменение API — сначала YAML в contracts/, затем раздел API.
 2. Новое архитектурное решение — новый ADR; смена решения — новый ADR, старый помечается Superseded.
 3. Новое правило — Business Rules с новым BR-ID и связанное требование в PRD.
-4. Нерешённый вопрос — в open-questions.md; решённый — удалить из списка и отразить факт в документе.
-5. Идентификаторы FR, NFR, US, UC, BR, ADR, OQ сквозные: ссылаться на них, не пересказывать.
+4. Идентификаторы FR, NFR, US, UC, BR, ADR сквозные: ссылаться на них, не пересказывать.
