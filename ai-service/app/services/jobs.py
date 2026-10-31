@@ -13,11 +13,17 @@ from app.llm.protocols import ModelGateway
 from app.llm.schemas import ModelDecision
 from app.schemas.delete_event import DeleteCandidateContext
 from app.schemas.job import JobRequest, JobResponse
-from app.schemas.update_event import UpdateCandidateContext
+from app.schemas.update_event import UpdateCandidateContext, UpdateFindCandidatesAction
 from app.services.context import build_job_response, explicit_selection_numbers
-from app.services.task_deadline import normalize_task_deadline
 from app.services.list_period import is_orphan_reply
 from app.services.status_update_recovery import recover_task_status_update
+from app.services.task_deadline import normalize_task_deadline
+
+
+_CANDIDATE_FILTERS = (
+    "title_query", "date_from", "date_to_exclusive", "time_from",
+    "time_to_exclusive", "record_types",
+)
 
 
 class JobService:
@@ -86,6 +92,14 @@ class JobService:
                     expected = getattr(getattr(status_update_recovery.action, "changes", None), "status", None)
                     changes = getattr(decision.action, "changes", None) or getattr(decision.draft, "changes", None)
                     actual = getattr(changes, "status", None)
+                    if expected is not None and actual != expected and isinstance(decision.action, UpdateFindCandidatesAction):
+                        # Keep the model's search traits, but never let an explicit
+                        # task status request silently update the wrong status.
+                        corrected = decision.model_dump(mode="json")
+                        corrected["action"]["record_types"] = ["task"]
+                        corrected["action"]["changes"] = {"status": expected}
+                        decision = ModelDecision.model_validate(corrected)
+                        return self._response(request, decision, "status_update_correction")
                     if decision.intent != "on_update" or (expected is not None and actual != expected):
                         return self._response(request, status_update_recovery, "status_update_recovery")
                 if decision.status == "unsupported":
@@ -99,6 +113,15 @@ class JobService:
             except (ValidationError, InvalidModelOutput) as exc:
                 if status_update_recovery is not None:
                     return self._response(request, status_update_recovery, "status_update_recovery")
+                errors = (
+                    [{"location": list(e["loc"]), "type": e["type"]} for e in exc.errors()[:12]]
+                    if isinstance(exc, ValidationError)
+                    else [{"type": "invalid_completion"}]
+                )
+                logger.warning(
+                    "job_invalid_model_output task_id=%s attempt=%d errors=%s",
+                    request.task_id, attempt + 1, json.dumps(errors),
+                )
                 if attempt == 1:
                     raise ServiceError(
                         500,
@@ -107,11 +130,6 @@ class JobService:
                         "The model could not produce a response matching the service contract.",
                     ) from None
                 # Only locations/types are sent back, never provider exception text.
-                errors = (
-                    [{"location": list(e["loc"]), "type": e["type"]} for e in exc.errors()[:12]]
-                    if isinstance(exc, ValidationError)
-                    else [{"type": "invalid_completion"}]
-                )
                 messages = messages + [
                     {
                         "role": "user",
@@ -133,4 +151,20 @@ class JobService:
             for name in ("action", "draft"):
                 if isinstance(value.get(name), dict):
                     value[name] = {key: item for key, item in value[name].items() if item is not None}
+        elif value.get("intent") in ("on_update", "on_delete"):
+            action = value.get("action")
+            if isinstance(action, dict) and action.get("phase") == "find_candidates":
+                # Public candidate actions require every filter, including unknown
+                # values. The model may omit null fields even when asked for them.
+                for name in _CANDIDATE_FILTERS:
+                    action.setdefault(name, None)
+            if value.get("intent") == "on_update":
+                # UpdateChanges is a patch: explicit nulls are not changes.
+                # Keep validation strict if no actual change remains.
+                for candidate in (action, value.get("draft")):
+                    if isinstance(candidate, dict) and isinstance(candidate.get("changes"), dict):
+                        candidate["changes"] = {
+                            name: item for name, item in candidate["changes"].items()
+                            if item is not None
+                        }
         return value

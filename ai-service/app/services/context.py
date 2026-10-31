@@ -53,10 +53,10 @@ _OPERATION_WORDS = {
 def explicit_selection_numbers(text: str, shown: set[int], intent: str = "on_delete") -> list[int] | None:
     """Recognize an unambiguous selection from the displayed numbered list."""
     normalized = text.casefold().replace("ё", "е")
-    # Do not discard question marks, signs or date/time separators: doing so
-    # can turn a question or a timestamp into a destructive confirmation.
+    # Commas separate candidate numbers ("1,2,3"); a dot between digits is
+    # not a list separator. Keep question marks and time/date punctuation out.
     if (not shown or not re.fullmatch(r"[а-яa-z0-9\s№,.!]+", normalized)
-            or re.search(r"\d[.,]\d", normalized)):
+            or re.search(r"\d\.\d", normalized)):
         return None
     tokens = re.findall(r"№\s*\d+|\d+|[а-яa-z]+", normalized)
     allowed = _SELECTION_WORDS | _OPERATION_WORDS.get(intent, set())

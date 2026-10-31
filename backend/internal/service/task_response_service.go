@@ -24,6 +24,11 @@ func (t *TaskProcess) narrateResult(ctx context.Context, result *model.TaskResul
 	if !t.narrate || result == nil {
 		return
 	}
+	// Updated records already have a message built from the committed rows.
+	// Rewording it from the user's request can falsely claim another status.
+	if _, updated := result.Body.(*api.FrontendUpdated); updated {
+		return
+	}
 	var envelope struct {
 		UserID uuid.UUID       `json:"user_id"`
 		TaskID uuid.UUID       `json:"task_id"`
