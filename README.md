@@ -82,7 +82,11 @@ Backend принимает WAV, распознаёт речь локальной
 
 Nginx раздаёт frontend и направляет запросы. Backend на Go отвечает за API, авторизацию, голос и операции с данными; AI-сервис на FastAPI разбирает запросы, строит эмбеддинги и формулирует ответы. PostgreSQL хранит записи, Redis — временное состояние.
 
-Схема архитектуры отображена здесь: ![Архитектура GorkyCode](docs/media/image.png)
+Диаграммы генерируются из Structurizr DSL (docs/diagrams/*.dsl). Контейнерный уровень:
+
+![Архитектура GorkyCode](docs/media/architecture-containers.png)
+
+Остальные виды и версии для просмотра: контекст (docs/media/architecture-context.png), компоненты backend и ai-service (docs/media/architecture-backend.png, docs/media/architecture-ai.png), поток запроса (docs/media/task-flow.png), уведомления (docs/media/notifications.png), схема данных (docs/media/database-schema.png). Интерактивная версия со всеми видами - docs/diagrams/site/index.html (открыть в браузере); исходники диаграмм правятся в DSL и вставляются в playground.structurizr.com.
 
 ### Путь запроса
 

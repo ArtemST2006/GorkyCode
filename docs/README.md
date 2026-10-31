@@ -30,6 +30,8 @@
 Прочее:
 
 - Диаграммы Structurizr DSL (diagrams/): architecture (SystemContext, Containers, компоненты backend и ai-service), task-flow, notifications, database - вставить содержимое файла в редактор playground.structurizr.com/dsl.
+- Скриншоты диаграмм: docs/media/architecture-*.png, task-flow.png, notifications.png, database-schema.png.
+- Интерактивная версия (pan/zoom, переключение видов): diagrams/site/index.html - открыть локально в браузере; пересобирается командой structurizr export -format static.
 - [Проверочный набор диалогов](dialogue-scenarios.md) и Postman-коллекции (postman/).
 - Отчёт по бенчмаркам распознавания речи: technical/ASR_BENCHMARK_REPORT.pdf.
 
