@@ -53,8 +53,11 @@ _OPERATION_WORDS = {
 def explicit_selection_numbers(text: str, shown: set[int], intent: str = "on_delete") -> list[int] | None:
     """Recognize an unambiguous selection from the displayed numbered list."""
     normalized = text.casefold().replace("ё", "е")
-    # Commas separate candidate numbers ("1,2,3"); a dot between digits is
-    # not a list separator. Keep question marks and time/date punctuation out.
+    # Do not discard question marks, signs or date/time separators: doing so
+    # can turn a question or a timestamp into a destructive confirmation.
+    # Only dot-separated digits are ambiguous (a version such as "1.5" could be
+    # read as candidates 1 and 5); comma-separated lists like "1,2,3" are an
+    # explicit choice and must be confirmed.
     if (not shown or not re.fullmatch(r"[а-яa-z0-9\s№,.!]+", normalized)
             or re.search(r"\d\.\d", normalized)):
         return None

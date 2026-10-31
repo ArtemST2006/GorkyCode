@@ -31,7 +31,7 @@ services:
       DATABASE_URL: "postgres://${POSTGRES_USER:-gorkycode}:${POSTGRES_PASSWORD:-local_dev_only}@postgres:5432/${POSTGRES_DB:-gorkycode}?sslmode=disable"
       REDIS_URL: "redis://redis:6379/0"
       MODEL_PATH: "/app/model/asr-model"
-      MODEL_URL: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ru-2024-09-18.tar.bz2"
+      MODEL_URL: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16.tar.bz2"
       GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
       GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
       GOOGLE_REDIRECT_URL: "${GOOGLE_REDIRECT_URL:-http://localhost:8088/api/v1/integrations/google/callback}"
