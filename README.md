@@ -34,6 +34,11 @@
 скопируйте корневой `.env.example` в `.env`; при изменении порта PostgreSQL обновите
 `DATABASE_URL` в `backend/.env`. Остановка: `docker-compose down`.
 
+Секреты (ключ Cloud.ru, Google OAuth, SMTP, пароль PostgreSQL) хранятся в
+командной папке Google Drive: https://drive.google.com/drive/folders/1xkUTSNy3ACi5QHWxzOTvSkzE8KtkrzWs.
+В репозиторий они не попадают: `.env` в `.gitignore`, значения переносятся
+вручную. Доступ к папке ограничен участниками команды.
+
 ## Что реализовано
 
 ### Работа с естественным языком
