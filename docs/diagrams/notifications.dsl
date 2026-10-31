@@ -12,7 +12,7 @@ workspace {
       rd = container "Redis" "Сессии авторизации" "Redis 7"
     }
 
-    scheduler -> pg "1: sync — записи, UPSERT моментов, claim" "TCP"
+    scheduler -> pg "1: sync - записи, UPSERT моментов, claim" "TCP"
     scheduler -> hub "2: dispatch(notification)" "in-process"
     hub -> user "3: notification; 10: ready; 12: notification ×N" "WSS"
     user -> hub "4: ack; 8: reconnect + auth (≤5s)" "WSS"
@@ -24,7 +24,7 @@ workspace {
 
   views {
     dynamic be "Notifications" "Планирование и доставка напоминаний" {
-      scheduler -> pg "1: sync — записи, UPSERT моментов, claim"
+      scheduler -> pg "1: sync - записи, UPSERT моментов, claim"
       scheduler -> hub "2: dispatch(notification)"
       hub -> user "3: notification; 10: ready; 12: notification ×N"
       user -> hub "4: ack; 8: reconnect + auth (≤5s)"

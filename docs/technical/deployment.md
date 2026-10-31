@@ -1,23 +1,22 @@
 # Deployment
 
-Развёртывание — docker-compose: локальная разработка и демо. Отдельных прод-манифестов и CI/CD нет (OQ-10, OQ-11). Есть демонстрационный стенд через туннель cloudflared (адрес зашит в собранный frontend), процесс его обновления не документирован (OQ-19).
 
 ## 1. Состав
 
-- nginx — образ nginx:stable-alpine; порт 8088 публичный, 127.0.0.1:8091 — внутренний к ai-service.
-- backend — сборка ./backend; порт 127.0.0.1:8080; ASR-модель в volume asr_model.
-- ai-service — сборка ./ai-service; порт 127.0.0.1:8090; healthcheck /health.
-- postgres — образ pgvector/pgvector:0.8.7-pg16-bookworm; порт 127.0.0.1:5432; volume postgres_data.
-- redis — образ redis:7-alpine; порт 127.0.0.1:6380.
-- mailpit — образ axllent/mailpit; порт 8025 (UI) и 127.0.0.1:1025 (SMTP).
+- nginx - образ nginx:stable-alpine; порт 8088 публичный, 127.0.0.1:8091 - внутренний к ai-service.
+- backend - сборка ./backend; порт 127.0.0.1:8080; ASR-модель в volume asr_model.
+- ai-service - сборка ./ai-service; порт 127.0.0.1:8090; healthcheck /health.
+- postgres - образ pgvector/pgvector:0.8.7-pg16-bookworm; порт 127.0.0.1:5432; volume postgres_data.
+- redis - образ redis:7-alpine; порт 127.0.0.1:6380.
+- mailpit - образ axllent/mailpit; порт 8025 (UI) и 127.0.0.1:1025 (SMTP).
 
 ## 2. Требования к окружению
 
 - Docker Engine и Compose v2.
 - Установленный goose для миграций.
-- Ключ Cloud.ru (CLOUDRU_API_KEY) — обязателен для разбора запросов.
-- Google-креды — опциональны: без них интеграция отвечает 503 google_disabled.
-- Python 3.10+ на хосте — только для launcher-скриптов ai-service вне Docker.
+- Ключ Cloud.ru (CLOUDRU_API_KEY) - обязателен для разбора запросов.
+- Google-креды - опциональны: без них интеграция отвечает 503 google_disabled.
+- Python 3.10+ на хосте - только для launcher-скриптов ai-service вне Docker.
 
 ## 3. Первый запуск
 
@@ -48,10 +47,10 @@ docker-compose up -d --build
 
 ## 4. Конфигурация
 
-- Корневой .env — порты и креды PostgreSQL.
-- backend/.env — БД, Redis, адрес ai-service, AUTH_SESSION_TTL, REMINDER_*, SMTP_*, GOOGLE_*.
-- ai-service/.env — ключ Cloud.ru, модель, таймауты, параметры E5.
-- Полные списки с дефолтами — в .env.example каждого сервиса и в [development](development.md).
+- Корневой .env - порты и креды PostgreSQL.
+- backend/.env - БД, Redis, адрес ai-service, AUTH_SESSION_TTL, REMINDER_*, SMTP_*, GOOGLE_*.
+- ai-service/.env - ключ Cloud.ru, модель, таймауты, параметры E5.
+- Полные списки с дефолтами - в .env.example каждого сервиса и в [development](development.md).
 - Смена порта PostgreSQL требует обновить DATABASE_URL в backend/.env.
 
 ## 5. Миграции
@@ -76,4 +75,4 @@ ASR-модель и E5-веса лежат в volume и не скачивают�
 
 ## 7. TLS и публичный доступ
 
-Compose терминирует только HTTP на 8088. Демо-стенд использует туннель cloudflared. Пароли передаются открытым текстом по HTTP — для постоянного стенда нужен TLS перед Nginx
+Compose терминирует только HTTP на 8088. Демо-стенд использует туннель cloudflared. Пароли передаются открытым текстом по HTTP - для постоянного стенда нужен TLS перед Nginx

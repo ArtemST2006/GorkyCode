@@ -1,4 +1,4 @@
-# GorkyCode — WebSocket уведомления через Postman
+# GorkyCode - WebSocket уведомления через Postman
 
 ## URL
 - `wss://surplus-findings-dollars-tension.trycloudflare.com/api/v1/notifications/ws`
@@ -30,7 +30,7 @@
     "kind": "meeting_start",
     "task_id": "39183a1c-64a9-4f0d-8ab5-2e06e12fc9f0",
     "title": "Встреча с Иваном",
-    "message": "Встреча «Встреча с Иваном» начинается сейчас.",
+    "message": "Встреча "Встреча с Иваном" начинается сейчас.",
     "scheduled_at": "2026-10-30T12:00:00Z",
     "created_at": "2026-10-30T12:00:01Z"
   }
@@ -49,10 +49,10 @@
 Создайте встречу/задачу/напоминание с близким временем (например, через минуту), подождите срабатывания, проверьте приход `NotificationMessage` и `AckMessage`.
 
 ## Коды ошибок WebSocket
-- `4401` — неверный/истёкший токен
-- `4408` — нет `AuthMessage` за 5 секунд
-- `1003` — binary frame
-- `1009` — сообщение больше 16 KiB
-- `1008` — повторяющиеся protocol errors
+- `4401` - неверный/истёкший токен
+- `4408` - нет `AuthMessage` за 5 секунд
+- `1003` - binary frame
+- `1009` - сообщение больше 16 KiB
+- `1008` - повторяющиеся protocol errors
 - `ErrorMessage` с `code`: `invalid_message` или `unknown_notification`
 EOF

@@ -18,10 +18,10 @@ workspace {
     be -> ai "4: /api/job; 8: /api/embed; 11: /api/respond" "HTTP"
     ai -> fm "5: chat.completions (схема действия)" "HTTPS"
     fm -> ai "6: ready {action} или needs_clarification" "HTTPS"
-    ai -> be "9: embedding 384d; 12: message (сбой — резервный текст)" "HTTP"
+    ai -> be "9: embedding 384d; 12: message (сбой - резервный текст)" "HTTP"
     be -> pg "7: операция; 10: task_embeddings" "TCP"
     be -> ng "14: 201 при создании, иначе 200; data + X-Task-Intent" "HTTP"
-    ng -> user "15: ответ; после шага 6 — вопрос уточнения" "HTTPS"
+    ng -> user "15: ответ; после шага 6 - вопрос уточнения" "HTTPS"
   }
 
   views {
@@ -32,10 +32,10 @@ workspace {
       be -> ai "4: /api/job; 8: /api/embed; 11: /api/respond"
       ai -> fm "5: chat.completions (схема действия)"
       fm -> ai "6: ready {action} или needs_clarification"
-      ai -> be "9: embedding 384d; 12: message (сбой — резервный текст)"
+      ai -> be "9: embedding 384d; 12: message (сбой - резервный текст)"
       be -> pg "7: операция; 10: task_embeddings"
       be -> ng "14: 201 при создании, иначе 200; data + X-Task-Intent"
-      ng -> user "15: ответ; после шага 6 — вопрос уточнения"
+      ng -> user "15: ответ; после шага 6 - вопрос уточнения"
     }
 
     styles {
