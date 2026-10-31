@@ -44,7 +44,7 @@
 Подключения Google Calendar, одно на пользователя.
 
 - user_id - UUID, первичный ключ, внешний ключ на users с каскадным удалением.
-- refresh_token - TEXT; хранится в открытом виде (OQ-16).
+- refresh_token - TEXT; хранится в открытом виде.
 - access_token - TEXT, по умолчанию пустой.
 - token_expiry - TIMESTAMPTZ.
 - calendar_id - TEXT, по умолчанию primary.

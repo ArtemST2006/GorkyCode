@@ -12,6 +12,7 @@
 - [Use Cases](product/use-cases.md) - основные сценарии с потоками и ошибками.
 - [Business Rules](product/business-rules.md) - правила BR.
 - [Glossary](product/glossary.md) - термины предметной области.
+- Материалы PM - CustDev, Story Map, ограничения ФЗ-152/149, экономика: [Dokumentatsia_PM_khakaton.docx](product/Dokumentatsia_PM_khakaton.docx).
 
 Архитектура (architecture/):
 
