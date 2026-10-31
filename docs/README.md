@@ -29,7 +29,7 @@
 
 Прочее:
 
-- Диаграммы PlantUML (diagrams/): architecture, task-flow, notifications, er. Architecture.dsl — та же архитектура для Structurizr Playground (вставить содержимое в редактор playground.structurizr.com).
+- Диаграммы Structurizr DSL (diagrams/): architecture, task-flow, notifications, database — вставить содержимое файла в редактор playground.structurizr.com/dsl.
 - [Проверочный набор диалогов](dialogue-scenarios.md) и Postman-коллекции (postman/).
 - Отчёт по бенчмаркам распознавания речи: technical/ASR_BENCHMARK_REPORT.pdf.
 

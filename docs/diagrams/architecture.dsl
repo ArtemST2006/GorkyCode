@@ -2,15 +2,15 @@ workspace {
   model {
     user = person "Пользователь" "Работает с ассистентом через браузер"
 
-    gorky = softwareSystem "GorkyCode" "Голосовой ассистент для задач, напоминаний и встреч"
-
-    fe = container gorky "Frontend" "Nuxt, собранная статика; исходники вне репозитория" "SPA"
-    ng = container gorky "Nginx" "Единая точка входа: порт 8088 публичный, 8091 внутренний к ai-service" "nginx"
-    be = container gorky "Backend" "HTTP API, авторизация, распознавание речи, бизнес-правила, планировщик напоминаний, WebSocket-хаб, email" "Go 1.26 / chi"
-    ai = container gorky "AI-service" "Разбор запроса через LLM, формулировка ответа, E5-эмбеддинги" "Python 3.12 / FastAPI"
-    pg = container gorky "PostgreSQL" "Записи, пользователи, векторы, подключения Google, уведомления" "PostgreSQL 16 + pgvector"
-    rd = container gorky "Redis" "Контекст диалога (24h), сессии (24h), OAuth state (10m), кандидаты" "Redis 7"
-    mp = container gorky "Mailpit" "Dev-SMTP с веб-интерфейсом" "Mailpit"
+    gorky = softwareSystem "GorkyCode" "Голосовой ассистент для задач, напоминаний и встреч" {
+      fe = container "Frontend" "Nuxt, собранная статика; исходники вне репозитория" "SPA"
+      ng = container "Nginx" "Единая точка входа: порт 8088 публичный, 8091 внутренний к ai-service" "nginx"
+      be = container "Backend" "HTTP API, авторизация, распознавание речи, бизнес-правила, планировщик напоминаний, WebSocket-хаб, email" "Go 1.26 / chi"
+      ai = container "AI-service" "Разбор запроса через LLM, формулировка ответа, E5-эмбеддинги" "Python 3.12 / FastAPI"
+      pg = container "PostgreSQL" "Записи, пользователи, векторы, подключения Google, уведомления" "PostgreSQL 16 + pgvector"
+      rd = container "Redis" "Контекст диалога (24h), сессии (24h), OAuth state (10m), кандидаты" "Redis 7"
+      mp = container "Mailpit" "Dev-SMTP с веб-интерфейсом" "Mailpit"
+    }
 
     fm = softwareSystem "Cloud.ru Foundation Models" "LLM GigaChat, OpenAI-совместимый API"
     gc = softwareSystem "Google Calendar API" "OAuth, freebusy, создание событий"

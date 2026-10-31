@@ -1,6 +1,6 @@
 # Архитектура
 
-Принятые решения и их обоснования — в [ADR](adr.md). Диаграммы — [PlantUML](../diagrams/): компоненты (architecture.puml), поток запроса (task-flow.puml), уведомления (notifications.puml), схема данных (er.puml).
+Принятые решения и их обоснования — в [ADR](adr.md). Диаграммы — Structurizr DSL в [diagrams](../diagrams/) (вставить содержимое файла в редактор playground.structurizr.com/dsl): компоненты (architecture.dsl), поток запроса (task-flow.dsl), уведомления (notifications.dsl), схема данных (database.dsl).
 
 ## 1. Компоненты
 

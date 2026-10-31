@@ -1,6 +1,6 @@
 # База данных
 
-Диаграмма — diagrams/er.puml.
+Диаграмма таблиц и внешних ключей — diagrams/database.dsl (Structurizr Playground); поля и индексы описаны ниже.
 
 ## 1. users
 
