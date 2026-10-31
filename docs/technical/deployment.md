@@ -52,6 +52,7 @@ docker-compose up -d --build
 - ai-service/.env - ключ Cloud.ru, модель, таймауты, параметры E5.
 - Полные списки с дефолтами - в .env.example каждого сервиса и в [development](development.md).
 - Смена порта PostgreSQL требует обновить DATABASE_URL в backend/.env.
+- Секреты (CLOUDRU_API_KEY, GOOGLE_CLIENT_SECRET, SMTP_PASSWORD, пароль PostgreSQL) хранятся в командной папке Google Drive: https://drive.google.com/drive/folders/1xkUTSNy3ACi5QHWxzOTvSkzE8KtkrzWs. В репозиторий они не попадают: .env в .gitignore, значения переносятся в .env вручную при настройке окружения. Доступ к папке должен быть ограничен участниками команды; хранение секретов в Drive вместо менеджера секретов - осознанный компромисс текущего этапа.
 
 ## 5. Миграции
 
