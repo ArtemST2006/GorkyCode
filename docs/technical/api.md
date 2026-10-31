@@ -7,7 +7,6 @@
 - contracts/ai.openapi.yaml — внутренний API ai-service, вызывает только backend.
 - contracts/on-update.proposal.openapi.yaml — архив, не используется.
 
-Ниже — сводка и правила, которые не видны из схем напрямую.
 
 ## 1. Общие правила
 
@@ -15,7 +14,6 @@
 - user_id в теле запроса обязан совпадать с владельцем сессии, иначе 403.
 - Ошибки возвращаются в формате Problem Details (RFC 9457) с полем code: unauthorized, forbidden, invalid_credentials, meeting_conflict, google_disabled и другие.
 - Лимит тела запроса — 20 MiB, синхронизирован с Nginx.
-- Rate limiting не реализован, хотя контракт описывает ответ 429 (OQ-13).
 
 ## 2. Эндпоинты backend
 

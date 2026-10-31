@@ -1,6 +1,6 @@
 # База данных
 
-PostgreSQL 16 с расширением pgvector (образ pgvector/pgvector:0.8.7-pg16-bookworm). Схема создаётся миграциями goose из backend/migrations (make -C backend migrate). Диаграмма — diagrams/er.puml.
+Диаграмма — diagrams/er.puml.
 
 ## 1. users
 
@@ -38,7 +38,6 @@ PostgreSQL 16 с расширением pgvector (образ pgvector/pgvector:0
 - model, model_version — TEXT: версия модели; сравнивать можно только векторы одной версии.
 - created_at — TIMESTAMPTZ.
 
-Смена версии модели требует пересчёта всех векторов.
 
 ## 4. google_integrations
 
@@ -73,14 +72,10 @@ PostgreSQL 16 с расширением pgvector (образ pgvector/pgvector:0
 - (user_id, created_at) WHERE status = pending — досылка при переподключении по порядку создания.
 - (created_at) — очистка старых записей.
 
-## 6. Redis (не PostgreSQL, но часть состояния)
+## 6. Redis
 
 - Контекст диалога /api/task: пара (user_id, task_id), черновики, кандидаты, история до 20 сообщений. TTL 24 часа, продлевается.
 - Сессии авторизации: opaque token → user. TTL по AUTH_SESSION_TTL, 24 часа.
 - OAuth state Google: state → user_id. TTL 10 минут.
 
-Redis не хранит бизнес-данные: после его потери пользователи перелогиниваются, диалоги начинаются заново, записи PostgreSQL не затрагиваются.
 
-## 7. Резервное копирование
-
-Механизм бэкапов не настроен, данные живут в docker volume postgres_data (OQ-12). Минимальный ручной вариант — pg_dump и pg_restore.

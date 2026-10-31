@@ -76,17 +76,6 @@ docker-compose up -d
 
 ASR-модель и E5-веса лежат в volume и не скачиваются повторно.
 
-## 7. Backup и восстановление
+## 7. TLS и публичный доступ
 
-Механизм бэкапов не настроен (OQ-12). Ручной вариант:
-
-```
-docker-compose exec postgres pg_dump -U gorkycode gorkycode > backup.sql
-docker-compose exec -T postgres psql -U gorkycode gorkycode < backup.sql
-```
-
-Redis в бэкапе не нуждается: сессии и контекст восстанавливаются перелогином.
-
-## 8. TLS и публичный доступ
-
-Compose терминирует только HTTP на 8088. Демо-стенд использует туннель cloudflared. Пароли передаются открытым текстом по HTTP — для постоянного стенда нужен TLS перед Nginx (OQ-11).
+Compose терминирует только HTTP на 8088. Демо-стенд использует туннель cloudflared. Пароли передаются открытым текстом по HTTP — для постоянного стенда нужен TLS перед Nginx

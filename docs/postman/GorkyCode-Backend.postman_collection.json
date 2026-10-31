@@ -1,0 +1,1378 @@
+{
+  "info": {
+    "name": "GorkyCode Backend — full cycle",
+    "description": "Полный цикл проверки backend по OpenAPI contracts. Базовый URL настраивается переменной base_url. Рекомендуемый порядок: запуск коллекции через Collection Runner сверху вниз. Postman импортирует этот файл как коллекцию v2.1.",
+    "_postman_id": "73e8f1bc-6711-4195-8077-d5893a63af58",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "0. Service",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health",
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Проверка, что процесс backend жив."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('service ok', () => { const j = pm.response.json(); pm.expect(j.service).to.eql('backend'); pm.expect(j.status).to.eql('ok'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/ready",
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Проверка готовности (PostgreSQL)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200 or 503', () => pm.expect([200,503]).to.include(pm.response.code));",
+                  "pm.test('valid health response', () => { const j = pm.response.json(); pm.expect(j).to.have.property('service'); pm.expect(j).to.have.property('status'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "Sign up (create user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/sign-up",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Postman Test\",\"email\":\"{{email}}\",\"password\":\"{{password}}\",\"timezone\":\"{{timezone}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Регистрация. В pre-request генерируется уникальный email; токен сохраняется в collection variables."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const email = `postman_${Date.now()}@example.com`;",
+                  "pm.collectionVariables.set('email', email);",
+                  "pm.collectionVariables.set('password', 'SuperSecretPassword123!');",
+                  "pm.collectionVariables.set('timezone', 'Europe/Moscow');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('save token and user_id', () => { const j = pm.response.json(); pm.collectionVariables.set('token', j.access_token); pm.collectionVariables.set('user_id', j.user.id); pm.expect(j.token_type).to.eql('Bearer'); pm.expect(j.expires_in).to.be.above(0); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign in (valid)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/sign-in",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{email}}\",\"password\":\"{{password}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Вход по email/password. Обновляет токен."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('refresh token', () => { const j = pm.response.json(); pm.collectionVariables.set('token', j.access_token); pm.collectionVariables.set('user_id', j.user.id); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign in (invalid credentials)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/sign-in",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\":\"{{email}}\",\"password\":\"WrongPassword123456789\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Неверный пароль -> 401 invalid_credentials (без раскрытия, существует ли email)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));",
+                  "pm.test('code invalid_credentials', () => { const j = pm.response.json(); pm.expect(j.code).to.eql('invalid_credentials'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign up (duplicate email)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/v1/auth/sign-up",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Postman Test\",\"email\":\"{{email}}\",\"password\":\"{{password}}\",\"timezone\":\"{{timezone}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Повторная регистрация того же email -> 409 Conflict."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 409', () => pm.response.to.have.status(409));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Google Calendar status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/v1/integrations/google",
+            "description": "Статус интеграции Google Calendar текущего пользователя."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200 or 503', () => pm.expect([200,503]).to.include(pm.response.code));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Google connect (start OAuth)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/v1/integrations/google/connect",
+            "description": "Создаёт одноразовый state и возвращает URL согласия Google."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200 or 503', () => pm.expect([200,503]).to.include(pm.response.code));",
+                  "pm.test('auth_url present if 200', () => { if (pm.response.code === 200) { const j = pm.response.json(); pm.expect(j).to.have.property('auth_url'); pm.collectionVariables.set('google_auth_url', j.auth_url); } });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Google disconnect",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{base_url}}/api/v1/integrations/google",
+            "description": "Отключение Google Calendar (идемпотентно)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 204 or 503', () => pm.expect([204,503]).to.include(pm.response.code));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Tasks - Create",
+      "item": [
+        {
+          "name": "Create meeting tomorrow 15:00",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Назначь встречу с Иваном завтра в 15:00\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Создание встречи. Сохраняет task_id (диалог) и event_id (строка tasks)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('X-Task-Intent create_event', () => pm.expect(pm.response.headers.get('X-Task-Intent')).to.eql('create_event'));",
+                  "pm.test('save ids', () => { const j = pm.response.json(); pm.collectionVariables.set('task_id', j.task_id); pm.collectionVariables.set('event_id', j.data.event.id); pm.collectionVariables.set('meeting_title', j.data.event.title); pm.expect(j.data.event.record_type).to.eql('meeting'); pm.expect(j.data.event.time).to.eql('15:00'); pm.expect(j.status).to.eql('ok'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create task without exact time",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Поставь задачу купить билеты до конца недели\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Задача со сроком без точного времени."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('task has no time', () => { const j = pm.response.json(); const e = j.data.event; pm.expect(e.record_type).to.eql('task'); if (e.time) { pm.expect(e.time).to.not.exist; } });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create reminder",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Напомни позвонить маме завтра в 19:00\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Создание напоминания."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('reminder', () => { const j = pm.response.json(); pm.expect(j.data.event.record_type).to.eql('reminder'); pm.expect(j.data.event.time).to.eql('19:00'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Chat (no DB changes)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Привет\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Обычная реплика (chat), записи не читаются и не меняются."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('X-Task-Intent chat', () => pm.expect(pm.response.headers.get('X-Task-Intent')).to.eql('chat'));",
+                  "pm.test('has message', () => pm.expect(pm.response.json().message.length).to.be.above(0));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Process audio command (multipart)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "user_id",
+                  "value": "{{user_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "",
+                  "value": ""
+                }
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}"
+                }
+              ]
+            },
+            "description": "Голосовая команда WAV. В Postman выберите WAV-файл в поле file. Пустой src нужно заменить вручную."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('is defined response', () => pm.response.code);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Clarifications",
+      "item": [
+        {
+          "name": "Clarification step 1 (missing time)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Назначь встречу с Анной завтра\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Диалог: время не указано -> needs_clarification, task_id сохраняется."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('needs clarification', () => { const j = pm.response.json(); pm.expect(j.status).to.eql('needs_clarification'); pm.expect(j.message.length).to.be.above(0); pm.collectionVariables.set('clarify_task_id', j.task_id); });",
+                  "pm.test('X-Task-Intent create_event', () => pm.expect(pm.response.headers.get('X-Task-Intent')).to.eql('create_event'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Clarification step 2 (answer with time)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"task_id\":\"{{clarify_task_id}}\",\"text\":\"В 17:00\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ответ на уточняющий вопрос с тем же task_id -> создание 201."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('meeting created 17:00', () => { const j = pm.response.json(); pm.expect(j.data.event.time).to.eql('17:00'); pm.expect(j.data.event.title).to.include('Анной'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Tasks - View",
+      "item": [
+        {
+          "name": "List events tomorrow (process)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Покажи мои события на завтра\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Список событий через AI-диалог."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('X-Task-Intent list_events', () => pm.expect(pm.response.headers.get('X-Task-Intent')).to.eql('list_events'));",
+                  "pm.test('items array', () => { const j = pm.response.json(); pm.expect(j.data.items).to.be.an('array'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search events by person",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Найди встречи с Иваном\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Поиск событий по признакам."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('X-Task-Intent search_events', () => pm.expect(pm.response.headers.get('X-Task-Intent')).to.eql('search_events'));",
+                  "pm.test('items array', () => pm.expect(pm.response.json().data.items).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read tasks (date/type filters)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/v1/tasks?from=2026-10-30&to=2026-11-07&type=task,meeting,reminder&limit=200&offset=0",
+            "description": "Быстрое read-only API для списка задач (без AI)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('ok collection', () => { const j = pm.response.json(); pm.expect(j.status).to.eql('ok'); pm.expect(j.data.items).to.be.an('array'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read tasks (query title)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/v1/tasks?query=Иван&limit=50",
+            "description": "Поиск по подстроке названия."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('filtered', () => pm.expect(pm.response.json().data.items).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read tasks (empty range)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/v1/tasks?from=2030-01-01&to=2030-01-02",
+            "description": "Пустой диапазон -> items []."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('empty items', () => pm.expect(pm.response.json().data.items).to.have.lengthOf(0));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Tasks - Update",
+      "item": [
+        {
+          "name": "Update find candidates (mark completed)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Отметь встречу с Иваном завтра как завершённую\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "on_update: поиск кандидатов и предлагаемые changes, изменения ещё не записаны."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('update_candidates', () => { const j = pm.response.json(); pm.expect(j.status).to.eql('update_candidates'); pm.collectionVariables.set('update_task_id', j.task_id); pm.expect(j.data.candidates).to.be.an('array'); pm.expect(j.data.changes).to.be.an('object'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update confirm (choose #1)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"task_id\":\"{{update_task_id}}\",\"text\":\"Выбери №1\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Подтверждение изменения выбранных записей по номерам."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('updated', () => { const j = pm.response.json(); pm.expect(j.status).to.eql('updated'); pm.expect(j.data.updated_events).to.be.an('array').that.is.not.empty; });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update verify via read",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/v1/tasks?query=Иван",
+            "description": "Проверка, что статус Ивана изменился на completed (через read)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Tasks - Delete",
+      "item": [
+        {
+          "name": "Delete find candidates",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Удали встречу с Анной завтра\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "on_delete: поиск кандидатов на удаление (номера стабильны в диалоге)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('candidates', () => { const j = pm.response.json(); pm.expect(j.status).to.eql('candidates'); pm.collectionVariables.set('delete_task_id', j.task_id); pm.expect(j.data.candidates).to.be.an('array'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete candidates empty case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Удали встречу с НесуществующимЧеловеком\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Нет совпадений -> пустой candidates, можно уточнить с тем же task_id."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('candidates empty', () => { const j = pm.response.json(); pm.expect(j.status).to.eql('candidates'); pm.expect(j.data.candidates).to.have.lengthOf(0); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete confirm selected (reuse delete_task_id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"task_id\":\"{{delete_task_id}}\",\"text\":\"Удали №1\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Подтверждение удаления выбранных номеров."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('deleted', () => { const j = pm.response.json(); pm.expect(j.status).to.eql('deleted'); pm.expect(j.data.deleted_events).to.be.an('array').that.is.not.empty; });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Conflicts",
+      "item": [
+        {
+          "name": "Conflict: create duplicate time (expect 409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Назначь встречу с Петром завтра в 15:00\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Создание встречи на занятое время -> 409 meeting_conflict, черновик остаётся в Redis по task_id."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test('meeting_conflict', () => { const j = pm.response.json(); pm.expect(j.code).to.eql('meeting_conflict'); pm.expect(j).to.have.property('task_id'); pm.expect(j).to.have.property('user_id'); pm.collectionVariables.set('conflict_task_id', j.task_id); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Conflict resolve: choose 16:00 (same task_id)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"task_id\":\"{{conflict_task_id}}\",\"text\":\"В 16:00\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Повтор с тем же task_id и новым временем -> 201."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('new meeting 16:00', () => { const j = pm.response.json(); pm.expect(j.data.event.time).to.eql('16:00'); pm.expect(j.data.event.title).to.include('Петр'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Concurrency guard note",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health",
+            "description": "Одновременные запросы с одинаковым user_id+task_id: второй получает 409 (Conflict). Проверять вручную двумя параллельными runner'ами."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "8. Notifications",
+      "item": [
+        {
+          "name": "WebSocket upgrade (manual messages)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/v1/notifications/ws",
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "WebSocket (ручной шаг в Postman):\n1) Создайте WebSocket Request с URL: wss://{{base_url}}/api/v1/notifications/ws\n   (или ws://... если без TLS).\n2) Подключитесь (должен придти HTTP 101).\n3) Отправьте первым сообщением (в течение 5 сек):\n   {\"type\":\"auth\",\"token\":\"{{token}}\"}\n4) Ожидайте сервер: {\"type\":\"ready\",\"user_id\":\"{{user_id}}\"}\n   затем NotificationMessage с неподтверждёнными/новыми уведомлениями.\n5) Подтвердите обработку:\n   {\"type\":\"ack\",\"notification_id\":\"<id из notification>\"}\n6) Проверьте идемпотентность повторного ack (без ошибки).\n\nКоды закрытия: 4401 неверный/истёкший токен, 4408 нет auth за 5с,\n1003 binary frame, 1009 >16KiB. ErroCode invalid_message/unknown_notification.\n\nТриггер уведомления: создайте встречу/задачу с близким временем (backend создаёт notification на meeting_start/task_due/reminder_due)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('manual ws step', () => true);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Notification triggers (create near-time reminder)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Напомни позвонить коллеге через 2 минуты\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Создаёт reminder с близким временем, чтобы проверить уведомление по WebSocket."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List tasks (read backend state after ops)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/v1/tasks?from=2026-10-30&to=2026-11-07",
+            "description": "Проверка состояния записей после тестов."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "9. Errors & Edge Cases",
+      "item": [
+        {
+          "name": "Unauthorized (no token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Покажи события\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Запрос без Bearer-токена -> 401 unauthorized."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));",
+                  "pm.test('code unauthorized', () => pm.expect(pm.response.json().code).to.eql('unauthorized'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Forbidden (user_id mismatch)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"00000000-0000-0000-0000-000000000000\",\"text\":\"Покажи события\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "user_id не совпадает с владельцем сессии -> 403 forbidden."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 403', () => pm.response.to.have.status(403));",
+                  "pm.test('code forbidden', () => pm.expect(pm.response.json().code).to.eql('forbidden'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bad request (invalid JSON)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\"",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Некорректный JSON -> 400."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bad request (invalid type filter)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/v1/tasks?type=foo",
+            "description": "Некорректный фильтр type -> 400."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sign out",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{base_url}}/api/v1/auth/sign-out",
+            "description": "Завершает сессию, к которой привязан токен."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Token after sign-out (expect 401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/api/task",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"user_id\":\"{{user_id}}\",\"text\":\"Покажи события\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Повторный запрос со старым токеном после sign-out -> 401."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid login after sign-out not needed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health",
+            "description": "Токен более не активен; для новых тестов повторите Sign up."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://surplus-findings-dollars-tension.trycloudflare.com",
+      "type": "string"
+    },
+    {
+      "key": "email",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "timezone",
+      "value": "Europe/Moscow",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "task_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "event_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "clarify_task_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "update_task_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "delete_task_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "conflict_task_id",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

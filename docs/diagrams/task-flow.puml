@@ -13,7 +13,7 @@ database "Redis" as R
 C -> B: POST /api/task\n{text | WAV} + Bearer
 B -> B: сессия из Redis;\nuser_id == владелец сессии
 alt WAV
-  B -> B: STT GigaAM v3 (16kHz, ≤20 MiB)
+  B -> B: локальный STT sherpa-onnx (16 kHz, ≤20 MiB)
 end
 B -> R: контекст по (user_id, task_id)\n(нет/испорчен → новый диалог)
 B -> A: POST /api/job {text, request_time, timezone, context}

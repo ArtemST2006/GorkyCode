@@ -12,7 +12,7 @@ component "Nginx" as NG {
 }
 component "Backend\nGo 1.26 / chi" as BE {
   [HTTP API\n/health /ready /api/task\n/api/v1/*]
-  [STT sherpa-onnx\nGigaAM v3 CTC int8]
+  [STT sherpa-onnx\n(локально, без внешних сервисов)]
   [Scheduler напоминаний]
   [WebSocket-хаб\n/api/v1/notifications/ws]
   [Email-воркер]
