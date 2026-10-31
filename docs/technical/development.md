@@ -6,7 +6,7 @@
 
 - Go 1.26.7+ и компилятор C (clang/gcc) с поддержкой CGO - backend и sherpa-onnx.
 - goose - миграции; golangci-lint - линтер.
-- Docker Engine и Compose v2 - PostgreSQL, Redis, Mailpit, полный запуск.
+- Docker Engine и Compose v2 - PostgreSQL, Redis, полный запуск.
 - Python 3.12 - ai-service на хосте (в Docker достаточно 3.10+).
 
 ## 2. Запуск
@@ -24,7 +24,7 @@ make -C backend migrate
 ### Backend без Docker
 
 ```
-docker-compose up -d postgres redis mailpit
+docker-compose up -d postgres redis
 cd backend
 cp .env.example .env
 make download-model    # ASR-модель в model/asr-model

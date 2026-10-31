@@ -27,7 +27,6 @@ workspace {
 
       pg = container "PostgreSQL" "Записи, векторы, уведомления" "PostgreSQL 16 + pgvector"
       rd = container "Redis" "Контекст (24h), сессии, OAuth state" "Redis 7"
-      mp = container "Mailpit" "Dev-SMTP" "Mailpit"
     }
 
     fm = softwareSystem "Cloud.ru Foundation Models" "LLM GigaChat"
@@ -51,7 +50,6 @@ workspace {
     be -> rd "Сессии, контекст, state" "TCP"
     ai -> fm "HTTPS, таймаут 60s"
     be -> gc "Создание встреч, freebusy" "HTTPS"
-    be -> mp "SMTP, 45s"
   }
 
   views {

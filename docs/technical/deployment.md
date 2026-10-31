@@ -8,7 +8,6 @@
 - ai-service - сборка ./ai-service; порт 127.0.0.1:8090; healthcheck /health.
 - postgres - образ pgvector/pgvector:0.8.7-pg16-bookworm; порт 127.0.0.1:5432; volume postgres_data.
 - redis - образ redis:7-alpine; порт 127.0.0.1:6380.
-- mailpit - образ axllent/mailpit; порт 8025 (UI) и 127.0.0.1:1025 (SMTP).
 
 ## 2. Требования к окружению
 

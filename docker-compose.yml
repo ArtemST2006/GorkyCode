@@ -96,19 +96,6 @@ services:
       timeout: 3s
       retries: 10
 
-  mailpit:
-    image: axllent/mailpit:latest
-    restart: unless-stopped
-    ports:
-      - "0.0.0.0:${MAILPIT_WEB_PORT:-8025}:8025"
-      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
-    environment:
-      MP_SMTP_BIND_ADDR: 0.0.0.0:1025
-      MP_UI_BIND_ADDR: 0.0.0.0:8025
-    volumes:
-      - mailpit_data:/data
-
 volumes:
   postgres_data:
   asr_model:
-  mailpit_data:
