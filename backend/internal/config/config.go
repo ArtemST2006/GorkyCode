@@ -71,6 +71,7 @@ type Google struct {
 	RedirectURL      string        `yaml:"redirect_url" env:"GOOGLE_REDIRECT_URL"`
 	FrontendRedirect string        `yaml:"frontend_redirect" env:"GOOGLE_FRONTEND_REDIRECT"`
 	EventDuration    time.Duration `yaml:"event_duration" env:"GOOGLE_EVENT_DURATION" env-default:"1h"`
+	CheckBusy        bool          `yaml:"check_busy" env:"GOOGLE_CHECK_BUSY" env-default:"false"`
 }
 
 // Enabled reports whether Google Calendar credentials are configured.

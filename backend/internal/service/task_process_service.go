@@ -598,12 +598,8 @@ func (t *TaskProcess) processUpdateResult(ctx context.Context, result model.AiRe
 		if err != nil {
 			return nil, err
 		}
-		var message string
-		if err := json.Unmarshal(result.Message, &message); err != nil {
-			return nil, fmt.Errorf("%w: decode update message: %w", model.ErrBadGateway, err)
-		}
 		body := &api.FrontendUpdated{
-			Message: message,
+			Message: updatedEventsMessage(items, saved.Changes),
 			Status:  "updated", TaskId: result.TaskID, UserId: result.UserID,
 		}
 		body.Data.UpdatedEvents = items
@@ -611,6 +607,41 @@ func (t *TaskProcess) processUpdateResult(ctx context.Context, result model.AiRe
 	default:
 		return nil, fmt.Errorf("%w: unknown update phase %q", model.ErrBadGateway, envelope.Phase)
 	}
+}
+
+// updatedEventsMessage describes only the records returned by the database.
+// The model's wording may describe the requested status instead of the status
+// that was actually saved, so it must not be used after an update.
+func updatedEventsMessage(items []api.TaskItem, changes api.UpdateChanges) string {
+	if len(items) == 0 {
+		return "Записи не изменены."
+	}
+	message := fmt.Sprintf("Обновлено записей: %d.", len(items))
+	if len(items) == 1 {
+		prefix := "Обновлена запись"
+		switch items[0].RecordType {
+		case api.TaskItemRecordTypeTask:
+			prefix = "Обновлена задача"
+		case api.TaskItemRecordTypeMeeting:
+			prefix = "Обновлена встреча"
+		case api.TaskItemRecordTypeReminder:
+			prefix = "Обновлено напоминание"
+		}
+		message = fmt.Sprintf("%s «%s».", prefix, items[0].Title)
+	}
+	if changes.Status != nil {
+		status := string(items[0].Status)
+		switch status {
+		case "active":
+			status = "активен"
+		case "in_progress":
+			status = "в работе"
+		case "completed":
+			status = "завершён"
+		}
+		message += fmt.Sprintf(" Статус: «%s».", status)
+	}
+	return message
 }
 
 func updateCandidatesMessage(count int) string {
@@ -805,20 +836,23 @@ func (t *TaskProcess) Process(
 			if errors.Is(err, model.ErrModelInvalidOutput) {
 				message = "Не удалось однозначно разобрать запрос. Уточните, что нужно сделать, или повторите его другими словами."
 			}
-			contextValue, encodeErr := json.Marshal(struct {
-				RecentMessages []ai.DialogueMessage `json:"recent_messages"`
-				Draft          map[string]any       `json:"draft"`
-			}{
-				RecentMessages: []ai.DialogueMessage{{Role: ai.User, Text: text}, {Role: ai.Assistant, Text: message}},
-				Draft:          map[string]any{},
-			})
-			if encodeErr != nil {
-				return nil, fmt.Errorf("encode fresh dialogue: %w", encodeErr)
+			if newDialogue {
+				contextValue, encodeErr := json.Marshal(struct {
+					RecentMessages []ai.DialogueMessage `json:"recent_messages"`
+					Draft          map[string]any       `json:"draft"`
+				}{
+					RecentMessages: []ai.DialogueMessage{{Role: ai.User, Text: text}, {Role: ai.Assistant, Text: message}},
+					Draft:          map[string]any{},
+				})
+				if encodeErr != nil {
+					return nil, fmt.Errorf("encode fresh dialogue: %w", encodeErr)
+				}
+				key := fmt.Sprintf("task_draft:%s:%s", userID, *taskID)
+				if saveErr := t.draft.PutDraft(ctx, key, string(contextValue)); saveErr != nil {
+					return nil, fmt.Errorf("save fresh dialogue: %w", saveErr)
+				}
 			}
-			key := fmt.Sprintf("task_draft:%s:%s", userID, *taskID)
-			if saveErr := t.draft.PutDraft(ctx, key, string(contextValue)); saveErr != nil {
-				return nil, fmt.Errorf("save fresh dialogue: %w", saveErr)
-			}
+			// A failed model response must not erase a valid pending draft or its candidates.
 			return &model.TaskResult{Intent: "chat", Body: &api.TaskClarificationResponse{
 				UserId: userID, TaskId: *taskID, Status: api.NeedsClarification, Message: message,
 			}}, nil

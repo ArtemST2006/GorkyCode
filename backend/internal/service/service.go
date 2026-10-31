@@ -70,7 +70,9 @@ func New(
 	var googleBusy GoogleBusyChecker
 	if calendar.Enabled() {
 		creator = NewCalendarSyncingCreator(taskCreate, calendar, log)
-		googleBusy = calendar
+		if googleCfg.CheckBusy {
+			googleBusy = calendar
+		}
 		taskDelete.WithCalendarSync(calendar)
 		taskUpdate.WithCalendarSync(calendar)
 	}

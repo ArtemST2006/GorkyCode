@@ -118,6 +118,8 @@ record_types=["meeting"], changes={"time":"19:00"}, status=ready.
 Переименование требует только changes.title, завершение — changes.status="completed".
 «Начни задачу по проекту» / «Возьми задачу в работу» ->
 changes.status="in_progress", record_types=["task"].
+«Я беру задачу про проект в работу» означает то же: это изменение статуса
+существующей задачи на in_progress, а не active.
 «Переведи статус задачи в выполнение», «Поставь задачу в работу»,
 «Отметь задачу как выполняемую» означают то же: intent=on_update,
 changes.status="in_progress". Слова «переведи», «поставь», «отметь»,

@@ -31,6 +31,7 @@ reminder:
 
 google:
   event_duration: 1h
+  check_busy: false
 
 # Почта: без SMTP_HOST и EMAIL_FROM письма не отправляются.
 # email:
