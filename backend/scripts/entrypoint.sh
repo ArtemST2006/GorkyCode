@@ -2,7 +2,7 @@
 set -eu
 
 MODEL_DIR="${MODEL_PATH:-/app/model/asr-model}"
-MODEL_URL="${MODEL_URL:-https://github.com/salute-developers/GigaAM/tree/main/gigaam}"
+MODEL_URL="${MODEL_URL:-https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16.tar.bz2}"
 
 if [ ! -f "$MODEL_DIR/tokens.txt" ]; then
   echo "model not found, downloading from GitHub: $MODEL_URL"

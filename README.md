@@ -42,7 +42,7 @@
 | Точка входа | Nginx (`nginx:stable-alpine`): раздаёт frontend, проксирует API и WebSocket, внутренний прокси к ai-service |
 | Frontend | Nuxt 4 (SPA), Vuetify, TypeScript, SASS. Здесь, в `frontend/public/`, лежит только собранная статика; исходники — в отдельном репозитории [yegorweb/GorkyCodeFrontend](https://github.com/yegorweb/GorkyCodeFrontend) (сборка `nuxt generate`) |
 | Backend | Go 1.26 (`go 1.26.7`), chi, pgx, go-redis, oapi-codegen, argon2id, Google Calendar API |
-| Распознавание речи | sherpa-onnx на CPU. Модель по умолчанию — Zipformer RU (`sherpa-onnx-zipformer-ru-2024-09-18`), поддерживается и GigaAM v3 NeMo CTC |
+| Распознавание речи | sherpa-onnx на CPU. Модель по умолчанию — GigaAM v3 NeMo CTC (`sherpa-onnx-nemo-ctc-giga-am-v3-russian-2025-12-16`), поддерживается и Zipformer RU (transducer) |
 | AI-сервис | Python 3.12, FastAPI, Cloud.ru Foundation Models (GigaChat) через OpenAI-совместимый клиент, локальный эмбеддер `intfloat/multilingual-e5-small` (384 измерения) |
 | Данные | PostgreSQL 16 + pgvector (`pgvector/pgvector:0.8.7-pg16-bookworm`), миграции goose; Redis 7 |
 | Контракты и запуск | OpenAPI 3 в `contracts/`, Docker Compose |
