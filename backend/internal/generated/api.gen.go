@@ -710,12 +710,6 @@ type TasksDeletedResponse struct {
 // TasksDeletedResponseStatus defines model for TasksDeletedResponse.Status.
 type TasksDeletedResponseStatus string
 
-// TranscriptionResponse defines model for TranscriptionResponse.
-type TranscriptionResponse struct {
-	// Text Распознанная речь без пробелов по краям.
-	Text string `json:"text"`
-}
-
 // UUID defines model for UUID.
 type UUID = openapi_types.UUID
 
@@ -809,12 +803,6 @@ type GoogleCallbackParams struct {
 	Error *string `form:"error,omitempty" json:"error,omitempty"`
 }
 
-// TranscribeAudioMultipartBody defines parameters for TranscribeAudio.
-type TranscribeAudioMultipartBody struct {
-	// File Непустой WAV-файл с расширением .wav или .wave.
-	File openapi_types.File `json:"file"`
-}
-
 // ProcessTaskJSONRequestBody defines body for ProcessTask for application/json ContentType.
 type ProcessTaskJSONRequestBody = TaskTextRequest
 
@@ -826,9 +814,6 @@ type AuthSignInJSONRequestBody = SignInRequest
 
 // AuthSignUpJSONRequestBody defines body for AuthSignUp for application/json ContentType.
 type AuthSignUpJSONRequestBody = SignUpRequest
-
-// TranscribeAudioMultipartRequestBody defines body for TranscribeAudio for multipart/form-data ContentType.
-type TranscribeAudioMultipartRequestBody TranscribeAudioMultipartBody
 
 // AsTaskClarificationResponse returns the union data inside the ProcessTask200JSONResponseBody as a TaskClarificationResponse
 func (t ProcessTask200JSONResponseBody) AsTaskClarificationResponse() (TaskClarificationResponse, error) {
@@ -1048,9 +1033,6 @@ type ServerInterface interface {
 	// GoogleConnect Начать подключение Google Calendar
 	// (POST /api/v1/integrations/google/connect)
 	GoogleConnect(w http.ResponseWriter, r *http.Request)
-	// TranscribeAudio Расшифровать голосовую запись
-	// (POST /api/v1/transcriptions)
-	TranscribeAudio(w http.ResponseWriter, r *http.Request)
 	// Health Liveness
 	// (GET /health)
 	Health(w http.ResponseWriter, r *http.Request)
@@ -1108,12 +1090,6 @@ func (_ Unimplemented) GoogleCallback(w http.ResponseWriter, r *http.Request, pa
 // GoogleConnect Начать подключение Google Calendar
 // (POST /api/v1/integrations/google/connect)
 func (_ Unimplemented) GoogleConnect(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// TranscribeAudio Расшифровать голосовую запись
-// (POST /api/v1/transcriptions)
-func (_ Unimplemented) TranscribeAudio(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1295,20 +1271,6 @@ func (siw *ServerInterfaceWrapper) GoogleConnect(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
-// TranscribeAudio operation middleware
-func (siw *ServerInterfaceWrapper) TranscribeAudio(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.TranscribeAudio(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // Health operation middleware
 func (siw *ServerInterfaceWrapper) Health(w http.ResponseWriter, r *http.Request) {
 
@@ -1458,9 +1420,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/task", wrapper.ProcessTask)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/api/v1/transcriptions", wrapper.TranscribeAudio)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/auth/sign-up", wrapper.AuthSignUp)

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 
-	api "gorkycode/backend/internal/generated"
 	"gorkycode/backend/internal/http-server/apierr"
 	"gorkycode/backend/internal/lib/logger"
 )
@@ -81,7 +80,9 @@ func (s *Server) TranscribeAudio(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, r, apierr.UnrecognizableAudio())
 		return
 	}
-	if err := writeJSON(w, http.StatusOK, api.TranscriptionResponse{Text: text}); err != nil {
+	if err := writeJSON(w, http.StatusOK, struct {
+		Text string `json:"text"`
+	}{Text: text}); err != nil {
 		s.log.ErrorContext(r.Context(), "write transcription", slog.Any("error", err))
 	}
 }

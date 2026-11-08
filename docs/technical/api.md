@@ -2,8 +2,8 @@
 
 Контракты OpenAPI задают схемы и поведение полностью:
 
-- contracts/backend.openapi.yaml - публичный API (из него генерируется серверный код).
-- contracts/backend-addition.openapi.yaml - WebSocket-уведомления и GET /api/v1/tasks.
+- contracts/backend.openapi.yaml - основной публичный API (из него генерируется серверный код).
+- contracts/backend-addition.openapi.yaml - дополнительные маршруты: расшифровка аудио, список задач и WebSocket-уведомления. Они регистрируются отдельно от сгенерированного роутера.
 - contracts/ai.openapi.yaml - внутренний API ai-service, вызывает только backend.
 - contracts/on-update.proposal.openapi.yaml - архив, не используется.
 

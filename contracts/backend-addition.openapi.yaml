@@ -1,12 +1,104 @@
 openapi: 3.0.3
 info:
-  title: GorkyCode Backend — уведомления по WebSocket
-  version: 0.1.0
+  title: GorkyCode Backend — дополнительные маршруты
+  version: 0.2.0
   description: |
-    Дополнение к backend.openapi.yaml. Это проект контракта, а не описание
-    уже работающей реализации. OpenAPI описывает HTTP Upgrade, а протокол
-    сообщений WebSocket задан ниже в description и компонентах schemas.
+    Дополнение к backend.openapi.yaml: расшифровка аудио, список задач и
+    уведомления. Эти маршруты зарегистрированы в backend отдельно от
+    сгенерированного HTTP-роутера. Для WebSocket OpenAPI описывает HTTP Upgrade,
+    а формат сообщений указан ниже.
 paths:
+  /api/v1/transcriptions:
+    post:
+      tags: [Audio]
+      summary: Превратить WAV-запись в текст
+      operationId: transcribeAudio
+      security:
+        - bearerAuth: []
+      description: |
+        Отправьте один непустой WAV-файл в поле file. Ответ содержит только
+        распознанный текст. Запрос не создаёт задачу, встречу или напоминание,
+        не продолжает диалог и не отправляет сообщение через WebSocket.
+        user_id и task_id здесь не передаются: пользователь определяется по
+        Bearer-токену. Полный размер HTTP-запроса не должен превышать 20 MiB.
+
+        Для голосовой команды фронтенд сначала показывает полученный текст в
+        поле ввода. После подтверждения или правки пользователь отправляет его
+        в POST /api/task как обычный JSON с user_id и text. Если это ответ на
+        уточнение, к запросу /api/task добавляется task_id текущего диалога.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Непустой файл .wav или .wave с содержимым RIFF/WAVE.
+            encoding:
+              file:
+                contentType: audio/wav, audio/x-wav
+      responses:
+        '200':
+          description: Текст распознан. Команда ещё не выполнена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptionResponse'
+              example:
+                text: Поставь напоминание через два часа
+        '400':
+          description: Нет файла, есть лишние поля или файл не является WAV (code=invalid_request).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Нет действующей сессии (code=unauthorized).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Запрос больше 20 MiB (code=payload_too_large).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: WAV принят, но речь не распознана (code=unrecognizable_audio).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          description: Внутренняя ошибка (code=internal_error).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '502':
+          description: Ошибка распознавания (code=bad_gateway).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Распознавание временно недоступно (code=service_unavailable).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '504':
+          description: Распознавание не уложилось во время (code=gateway_timeout).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/tasks:
     get:
       tags: [Tasks]
@@ -154,7 +246,39 @@ paths:
           - $ref: '#/components/schemas/NotificationMessage'
           - $ref: '#/components/schemas/ErrorMessage'
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Access token из sign-up или sign-in.
   schemas:
+    TranscriptionResponse:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: Распознанный текст без пробелов по краям.
+    Problem:
+      type: object
+      description: Ошибка application/problem+json (RFC 9457).
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        instance:
+          type: string
     AuthMessage:
       type: object
       additionalProperties: false

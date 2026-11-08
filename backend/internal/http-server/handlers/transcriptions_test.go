@@ -12,9 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-
-	api "gorkycode/backend/internal/generated"
 )
 
 type fakeTranscriber struct {
@@ -44,7 +43,9 @@ func transcriptionRequest(t *testing.T, filename string, audio []byte) *http.Req
 func transcriptionRouter(auth *fakeAuthService, process *fakeTaskProcess, rec *fakeTranscriber) http.Handler {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	server := NewServer(log, taskTestServices{fakeAuthService: auth, fakeTaskProcess: process}, WithAudioTranscriber(rec))
-	return api.Handler(server)
+	router := chi.NewRouter()
+	router.Post("/api/v1/transcriptions", server.TranscribeAudio)
+	return router
 }
 
 func TestTranscriptionReturnsTextWithoutProcessingTask(t *testing.T) {
@@ -56,7 +57,9 @@ func TestTranscriptionReturnsTextWithoutProcessingTask(t *testing.T) {
 	if w.Code != http.StatusOK || !rec.called || process.called {
 		t.Fatalf("status=%d, transcribed=%v, task processed=%v, body=%s", w.Code, rec.called, process.called, w.Body.String())
 	}
-	var body api.TranscriptionResponse
+	var body struct {
+		Text string `json:"text"`
+	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Text != "Поставь напоминание" {
 		t.Fatalf("response=%+v, err=%v", body, err)
 	}

@@ -119,6 +119,7 @@ func run() error {
 
 	router.Get("/api/v1/notifications/ws", hub.Handle)
 	router.Get("/api/v1/tasks", handler.ListTasks)
+	router.Post("/api/v1/transcriptions", handler.TranscribeAudio)
 	api.HandlerWithOptions(handler, api.ChiServerOptions{BaseRouter: router})
 	srv := &http.Server{
 		Addr:              cfg.HTTPServer.Address,
