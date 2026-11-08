@@ -401,9 +401,11 @@ func TestProcessTaskAudioSuccess(t *testing.T) {
 	userID := uuid.New()
 	taskID := uuid.New()
 	process := &fakeTaskProcess{result: &api.TaskClarificationResponse{}, intent: "create_event"}
+	requestID := uuid.New()
 	request, contentType := newMultipartTaskRequest(t, map[string]string{
-		"user_id": userID.String(),
-		"task_id": taskID.String(),
+		"user_id":    userID.String(),
+		"task_id":    taskID.String(),
+		"request_id": requestID.String(),
 	}, "voice.wav", []byte("audio-bytes"), true)
 	request.Header.Set("Content-Type", contentType)
 	request.Header.Set("Authorization", "Bearer test-token")
@@ -427,6 +429,9 @@ func TestProcessTaskAudioSuccess(t *testing.T) {
 	}
 	if audioReq.TaskId == nil || *audioReq.TaskId != taskID {
 		t.Fatalf("task_id = %v, want %s", audioReq.TaskId, taskID)
+	}
+	if audioReq.RequestId == nil || *audioReq.RequestId != requestID {
+		t.Fatalf("request_id = %v, want %s", audioReq.RequestId, requestID)
 	}
 
 	file, err := audioReq.File.Reader()
@@ -456,6 +461,7 @@ func TestProcessTaskRejectsInvalidMultipart(t *testing.T) {
 		{name: "missing user_id", filename: "voice.wav", withFile: true},
 		{name: "invalid user_id", fields: map[string]string{"user_id": "not-a-uuid"}, filename: "voice.wav", withFile: true},
 		{name: "invalid task_id", fields: map[string]string{"user_id": userID, "task_id": "not-a-uuid"}, filename: "voice.wav", withFile: true},
+		{name: "invalid request_id", fields: map[string]string{"user_id": userID, "request_id": "not-a-uuid"}, filename: "voice.wav", withFile: true},
 		{name: "missing file", fields: map[string]string{"user_id": userID}},
 		{name: "unsupported extension", fields: map[string]string{"user_id": userID}, filename: "voice.mp3", withFile: true},
 	} {

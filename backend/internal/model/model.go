@@ -133,3 +133,13 @@ type TaskResult struct {
 
 // TaskRequest is a parsed text or audio task request.
 type TaskRequest any
+
+// Transcription is the recognized text of a voice command. It reaches the
+// user's WebSocket clients before the AI reply is ready.
+type Transcription struct {
+	UserID    uuid.UUID
+	TaskID    uuid.UUID
+	RequestID *uuid.UUID
+	Text      string
+	CreatedAt time.Time
+}

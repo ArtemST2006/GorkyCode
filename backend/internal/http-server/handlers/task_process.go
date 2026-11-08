@@ -33,8 +33,8 @@ func parseTaskAudioRequest(r *http.Request) (*api.TaskAudioRequest, error) {
 		return nil, errors.New("missing multipart body")
 	}
 	for name, values := range r.MultipartForm.Value {
-		if (name != "user_id" && name != "task_id") || len(values) != 1 {
-			return nil, errors.New("expected unique user_id/task_id fields and exactly one file")
+		if (name != "user_id" && name != "task_id" && name != "request_id") || len(values) != 1 {
+			return nil, errors.New("expected unique user_id/task_id/request_id fields and exactly one file")
 		}
 	}
 	if len(r.MultipartForm.File) != 1 || len(r.MultipartForm.File["file"]) != 1 {
@@ -67,6 +67,18 @@ func parseTaskAudioRequest(r *http.Request) (*api.TaskAudioRequest, error) {
 			return nil, errors.New("invalid 'task_id'")
 		}
 		req.TaskId = &taskID
+	}
+
+	if values := r.MultipartForm.Value["request_id"]; len(values) == 1 {
+		rawRequest := values[0]
+		requestID, err := uuid.Parse(rawRequest)
+		if err != nil {
+			return nil, fmt.Errorf("invalid 'request_id': %w", err)
+		}
+		if requestID == uuid.Nil {
+			return nil, errors.New("invalid 'request_id'")
+		}
+		req.RequestId = &requestID
 	}
 
 	if r.MultipartForm == nil || len(r.MultipartForm.File["file"]) == 0 {
