@@ -1158,8 +1158,13 @@ func TestModelInvalidOutputReturnsClarificationWithoutAction(t *testing.T) {
 			if withID && response.TaskId != taskID {
 				t.Fatalf("existing ID changed: %s", response.TaskId)
 			}
-			if !strings.Contains(store.saved[fmt.Sprintf("task_draft:%s:%s", userID, response.TaskId)], `"draft":{}`) {
-				t.Fatal("clarification context was not saved")
+			key := fmt.Sprintf("task_draft:%s:%s", userID, response.TaskId)
+			if withID {
+				if saved, written := store.saved[key]; written {
+					t.Fatalf("existing context was overwritten: %q", saved)
+				}
+			} else if !strings.Contains(store.saved[key], `"draft":{}`) {
+				t.Fatalf("fresh context was not saved: %q", store.saved[key])
 			}
 		})
 	}

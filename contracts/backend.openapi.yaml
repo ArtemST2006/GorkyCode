@@ -511,6 +511,65 @@ paths:
           $ref: '#/components/responses/Unavailable'
         '504':
           $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/transcriptions:
+    post:
+      tags: [Audio]
+      summary: Расшифровать голосовую запись
+      operationId: transcribeAudio
+      security:
+        - bearerAuth: []
+      description: |
+        Принимает один непустой WAV-файл и возвращает распознанный текст.
+        Токен определяет пользователя; user_id, task_id и request_id не нужны.
+        Ручка не создаёт диалог или запись, не вызывает AI-service и не
+        отправляет событие WebSocket. Клиент может подставить text в поле ввода
+        и затем отправить его обычным JSON-запросом в POST /api/task.
+        Максимальный размер всего HTTP-тела — 20 MiB.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Непустой WAV-файл с расширением .wav или .wave.
+            encoding:
+              file:
+                contentType: audio/wav, audio/x-wav
+      responses:
+        '200':
+          description: Речь распознана; текст не сохранён и не исполнен как команда.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptionResponse'
+              example:
+                text: Поставь напоминание через два часа
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/SessionRequired'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          description: Речь в записи не распознана; code=unrecognizable_audio.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          $ref: '#/components/responses/TaskInternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
   /api/v1/auth/sign-up:
     post:
       tags: [Auth]
@@ -731,6 +790,15 @@ components:
       scheme: bearer
       description: Access token, полученный из sign-up или sign-in.
   schemas:
+    TranscriptionResponse:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          description: Распознанная речь без пробелов по краям.
     TaskTextRequest:
       type: object
       additionalProperties: false

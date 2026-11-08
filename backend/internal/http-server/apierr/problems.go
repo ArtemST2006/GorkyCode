@@ -65,6 +65,16 @@ func PayloadTooLarge() api.Problem {
 	return newProblem(http.StatusRequestEntityTooLarge, "payload_too_large", "payload-too-large", "Payload too large", "WAV-файл слишком большой.")
 }
 
+// UnrecognizableAudio reports an otherwise valid recording with no speech.
+func UnrecognizableAudio() api.Problem {
+	return newProblem(http.StatusUnprocessableEntity, "unrecognizable_audio", "unrecognizable-audio", "Unprocessable audio", "Речь в записи не распознана.")
+}
+
+// TranscriptionFailed hides recognizer details while describing the failed operation.
+func TranscriptionFailed() api.Problem {
+	return newProblem(http.StatusBadGateway, "bad_gateway", "bad-gateway", "Bad gateway", "Не удалось распознать аудио.")
+}
+
 // BadGateway reports an invalid response from STT or AI-service.
 func BadGateway() api.Problem {
 	return newProblem(http.StatusBadGateway, "bad_gateway", "bad-gateway", "Bad gateway", "Ошибка обработки команды.")

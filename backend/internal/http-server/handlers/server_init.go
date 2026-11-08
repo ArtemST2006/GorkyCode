@@ -2,6 +2,8 @@
 package handlers
 
 import (
+	"context"
+	"io"
 	"log/slog"
 
 	api "gorkycode/backend/internal/generated"
@@ -22,10 +24,16 @@ type Services interface {
 type Server struct {
 	api.Unimplemented
 
-	log      *slog.Logger
-	services Services
+	log         *slog.Logger
+	services    Services
+	transcriber AudioTranscriber
 	// googleRedirect is where the Google OAuth callback sends the browser.
 	googleRedirect string
+}
+
+// AudioTranscriber recognizes speech without executing a task command.
+type AudioTranscriber interface {
+	Transcribe(context.Context, io.Reader) (string, error)
 }
 
 // Option configures optional Server settings.
@@ -35,6 +43,11 @@ type Option func(*Server)
 // callback redirects to. It comes only from configuration.
 func WithGoogleFrontendRedirect(rawURL string) Option {
 	return func(s *Server) { s.googleRedirect = rawURL }
+}
+
+// WithAudioTranscriber enables the standalone audio transcription endpoint.
+func WithAudioTranscriber(rec AudioTranscriber) Option {
+	return func(s *Server) { s.transcriber = rec }
 }
 
 var _ api.ServerInterface = (*Server)(nil)

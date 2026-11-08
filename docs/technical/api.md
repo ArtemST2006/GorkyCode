@@ -20,6 +20,7 @@
 - GET /health - работает ли процесс.
 - GET /ready - готовность; 503, если PostgreSQL недоступен.
 - POST /api/task - основная ручка: текст (JSON) или WAV (multipart).
+- POST /api/v1/transcriptions - расшифровка WAV без выполнения команды.
 - POST /api/v1/auth/sign-up - регистрация, возвращает пользователя и токен.
 - POST /api/v1/auth/sign-in - вход.
 - POST /api/v1/auth/sign-out - завершение сессии токена.
@@ -31,6 +32,12 @@
 - GET /api/v1/notifications/ws - WebSocket уведомлений.
 
 ## 3. POST /api/task
+
+Для нового голосового ввода сначала отправьте WAV в POST /api/v1/transcriptions с Bearer-токеном и одним multipart-полем file. Ответ `{"text":"..."}` можно показать в поле ввода, дать пользователю исправить его и затем отправить как обычный JSON `POST /api/task` с `user_id` и `text` (и с `task_id`, если это ответ на уточнение). Расшифровка сама по себе ничего не создаёт, не сохраняет и не вызывает AI. Пустая запись или неверный WAV дают 400, речь без распознанного текста — 422. Лимит тела — 20 MiB.
+
+Пример: `curl -H "Authorization: Bearer <token>" -F "file=@voice.wav;type=audio/wav" http://localhost:8088/api/v1/transcriptions`. Успешный ответ: `{"text":"Поставь напоминание через два часа"}`.
+
+Старый multipart-вариант POST /api/task продолжает работать для существующих клиентов.
 
 - Ровно один источник команды: text в JSON или WAV-файл в multipart. task_id передаётся только для продолжения диалога.
 - task_id - идентификатор диалога. Если он не найден в Redis или испорчен, начинается новый диалог. Короткая реплика без контекста возвращает 200 needs_clarification с просьбой повторить запрос целиком.
