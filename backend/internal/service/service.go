@@ -56,6 +56,7 @@ func New(
 	googleCfg config.Google,
 	googleClient GoogleCalendarClient,
 	reminders subservice.ReminderSyncer,
+	transcriptions TranscriptionPublisher,
 	log *slog.Logger,
 ) *Services {
 	embedder := NewAIEmbedder(aiServiceURL)
@@ -80,7 +81,7 @@ func New(
 	return &Services{
 		HealthService:   NewHealthService(repo, queryTimeout),
 		AuthService:     NewAuthService(repo, repo, queryTimeout, sessionTTL),
-		TaskProcess:     NewTaskProcess(rec, repo, repo, creator, eventReader, taskDelete, aiServiceURL, taskUpdate).WithMeetingConflicts(conflicts).WithResultNarration(),
+		TaskProcess:     NewTaskProcess(rec, repo, repo, creator, eventReader, taskDelete, aiServiceURL, taskUpdate).WithMeetingConflicts(conflicts).WithResultNarration().WithTranscriptionPublisher(transcriptions),
 		TaskCreate:      taskCreate,
 		TaskDelete:      taskDelete,
 		TaskUpdate:      taskUpdate,

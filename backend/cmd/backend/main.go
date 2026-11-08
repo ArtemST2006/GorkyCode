@@ -105,7 +105,7 @@ func run() error {
 	}
 
 	services := service.New(repo, cfg.Database.QueryTimeout, cfg.Auth.SessionTTL, rec, cfg.AIServiceURL,
-		cfg.Google, googleClient, reminders, log)
+		cfg.Google, googleClient, reminders, hub, log)
 	handler := handlers.NewServer(log, services, handlers.WithGoogleFrontendRedirect(cfg.Google.FrontendRedirect))
 	router := chi.NewRouter()
 	router.NotFound(func(w http.ResponseWriter, r *http.Request) {

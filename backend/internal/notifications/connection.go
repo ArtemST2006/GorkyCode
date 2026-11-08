@@ -10,13 +10,14 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// outbound is one queued server frame: a notification or an error answer or
-// the ready confirmation.
+// outbound is one queued server frame: a notification, a live transcription,
+// an error answer or the ready confirmation.
 type outbound struct {
-	notification *model.Notification
-	code         string
-	message      string
-	readyUserID  uuid.UUID
+	notification  *model.Notification
+	transcription *model.Transcription
+	code          string
+	message       string
+	readyUserID   uuid.UUID
 }
 
 // connection is one authenticated client and its outbound mailbox. Every
@@ -71,6 +72,18 @@ func (c *connection) enqueueNotification(n model.Notification) bool {
 		c.mu.Unlock()
 		c.sendControl(closeSlowQueue, "slow connection")
 		_ = c.ws.Close()
+		return false
+	}
+}
+
+// enqueueTranscription offers the live event without blocking. false means the
+// mailbox is full: the frame is dropped, because the event is not stored and
+// cannot be resent.
+func (c *connection) enqueueTranscription(t model.Transcription) bool {
+	select {
+	case c.mail <- outbound{transcription: &t}:
+		return true
+	default:
 		return false
 	}
 }
@@ -146,6 +159,15 @@ func (c *connection) writeOutbound(msg outbound) error {
 		payload = notificationMessage{
 			Type:         msgNotification,
 			Notification: toPayload(*msg.notification),
+		}
+	case msg.transcription != nil:
+		payload = transcriptionMessage{
+			Type:      msgTranscription,
+			UserID:    msg.transcription.UserID,
+			TaskID:    msg.transcription.TaskID,
+			RequestID: msg.transcription.RequestID,
+			Text:      msg.transcription.Text,
+			CreatedAt: msg.transcription.CreatedAt,
 		}
 	default:
 		payload = errorMessage{

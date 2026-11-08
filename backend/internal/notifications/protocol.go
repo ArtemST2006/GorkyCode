@@ -19,9 +19,10 @@ const (
 
 // Server message types.
 const (
-	msgReady        = "ready"
-	msgNotification = "notification"
-	msgError        = "error"
+	msgReady         = "ready"
+	msgNotification  = "notification"
+	msgTranscription = "transcription"
+	msgError         = "error"
 )
 
 // Error message codes.
@@ -62,6 +63,17 @@ type readyMessage struct {
 type notificationMessage struct {
 	Type         string       `json:"type"`
 	Notification notification `json:"notification"`
+}
+
+// transcriptionMessage carries the recognized text of a voice command. It is
+// a live event: it is neither stored nor resent after a reconnect.
+type transcriptionMessage struct {
+	Type      string     `json:"type"`
+	UserID    uuid.UUID  `json:"user_id"`
+	TaskID    uuid.UUID  `json:"task_id"`
+	RequestID *uuid.UUID `json:"request_id,omitempty"`
+	Text      string     `json:"text"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 // errorMessage answers a malformed client message.

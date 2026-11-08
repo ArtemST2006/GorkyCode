@@ -280,10 +280,15 @@ func TestUpcomingMomentsNextDayKeepsAdvanceChain(t *testing.T) {
 }
 
 func TestServiceSyncTaskStoresComputedMoment(t *testing.T) {
+	// SyncTask takes its own now(), so the deadline must stay relative to the
+	// clock: a fixed date would start scheduling nothing once it passed.
+	setConfiguredOffsets(nil)
 	store := &fakeScheduleStore{}
 	service := NewService(store, &fakeTimezones{zone: "Europe/Moscow"}, time.Second, config.Reminder{}, testServiceLogs())
 
-	task := taskOf("reminder", time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC), new("09:30"))
+	location := moscowLocation(t)
+	day := time.Now().In(location).AddDate(0, 0, 1)
+	task := taskOf("reminder", time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, location), new("09:30"))
 	if err := service.SyncTask(context.Background(), task); err != nil {
 		t.Fatal(err)
 	}
