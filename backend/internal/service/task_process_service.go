@@ -44,11 +44,6 @@ type STT interface {
 	Transcribe(ctx context.Context, file io.Reader) (string, error)
 }
 
-// TranscriptionPublisher pushes recognized voice text to the owner's clients.
-type TranscriptionPublisher interface {
-	PublishTranscription(t model.Transcription)
-}
-
 // TaskCreator persists a task assembled from a validated AI action.
 type TaskCreator interface {
 	Create(ctx context.Context, cmd services.CreateTaskCommand) (*model.Task, error)
@@ -76,17 +71,16 @@ type UpdateService interface {
 
 // TaskProcess turns a text or audio command into an AI-service request.
 type TaskProcess struct {
-	rec            STT
-	draft          DraftStore
-	timezones      TimezoneStore
-	creator        TaskCreator
-	reader         EventReader
-	deleter        DeleteService
-	updater        UpdateService
-	aiURL          string
-	narrate        bool
-	conflicts      ConflictFinder
-	transcriptions TranscriptionPublisher
+	rec       STT
+	draft     DraftStore
+	timezones TimezoneStore
+	creator   TaskCreator
+	reader    EventReader
+	deleter   DeleteService
+	updater   UpdateService
+	aiURL     string
+	narrate   bool
+	conflicts ConflictFinder
 }
 
 // NewTaskProcess constructs a task processor with the given dependencies.
@@ -104,28 +98,6 @@ func NewTaskProcess(rec STT, draft DraftStore, timezones TimezoneStore, creator 
 		processor.updater = update[0]
 	}
 	return processor
-}
-
-// WithTranscriptionPublisher enables the live echo of recognized audio. A nil
-// publisher disables it: text requests never produce a transcription.
-func (t *TaskProcess) WithTranscriptionPublisher(p TranscriptionPublisher) *TaskProcess {
-	t.transcriptions = p
-	return t
-}
-
-// publishTranscription echoes the recognized audio to the owner's sockets. The
-// live event is best-effort: it must never affect the request itself.
-func (t *TaskProcess) publishTranscription(userID, taskID uuid.UUID, requestID *uuid.UUID, text string) {
-	if t.transcriptions == nil {
-		return
-	}
-	t.transcriptions.PublishTranscription(model.Transcription{
-		UserID:    userID,
-		TaskID:    taskID,
-		RequestID: requestID,
-		Text:      text,
-		CreatedAt: time.Now().UTC(),
-	})
 }
 
 // aiClient creates a client with a deadline appropriate for the AI operation.
@@ -235,29 +207,19 @@ func createReq(ctx context.Context, aiURL string, req *ai.JobRequest) (model.AiR
 	return result, nil
 }
 
-// extractedCommand is a decoded request: the command text plus the identifiers
-// the rest of Process needs. audio marks recognized speech, whose text is
-// echoed to the client.
-type extractedCommand struct {
-	text      string
-	userID    openapitypes.UUID
-	taskID    *openapitypes.UUID
-	requestID *uuid.UUID
-	audio     bool
-}
-
 func (t *TaskProcess) extractText(
 	ctx context.Context,
 	req any,
-) (extractedCommand, error) {
+) (string, openapitypes.UUID, *openapitypes.UUID, error) {
 	switch req := req.(type) {
 	case *api.TaskTextRequest:
-		return extractedCommand{text: req.Text, userID: req.UserId, taskID: req.TaskId}, nil
+		return req.Text, req.UserId, req.TaskId, nil
 
 	case *api.TaskAudioRequest:
 		file, err := req.File.Reader()
 		if err != nil {
-			return extractedCommand{}, fmt.Errorf("read audio file: %w", err)
+			return "", req.UserId, req.TaskId,
+				fmt.Errorf("read audio file: %w", err)
 		}
 		defer func() {
 			_ = file.Close()
@@ -266,21 +228,17 @@ func (t *TaskProcess) extractText(
 		text, err := t.rec.Transcribe(ctx, file)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				return extractedCommand{}, fmt.Errorf("%w: transcribe audio: %w", model.ErrGatewayTimeout, err)
+				return "", req.UserId, req.TaskId, fmt.Errorf("%w: transcribe audio: %w", model.ErrGatewayTimeout, err)
 			}
-			return extractedCommand{}, fmt.Errorf("%w: transcribe audio: %w", model.ErrBadGateway, err)
+			return "", req.UserId, req.TaskId,
+				fmt.Errorf("%w: transcribe audio: %w", model.ErrBadGateway, err)
 		}
 
-		return extractedCommand{
-			text:      text,
-			userID:    req.UserId,
-			taskID:    req.TaskId,
-			requestID: req.RequestId,
-			audio:     true,
-		}, nil
+		return text, req.UserId, req.TaskId, nil
 
 	default:
-		return extractedCommand{}, fmt.Errorf("unsupported request type %T", req)
+		return "", openapitypes.UUID{}, nil,
+			fmt.Errorf("unsupported request type %T", req)
 	}
 }
 
@@ -818,11 +776,10 @@ func (t *TaskProcess) Process(
 ) (*model.TaskResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, taskProcessTimeout)
 	defer cancel()
-	cmd, err := t.extractText(ctx, req)
+	text, userID, taskID, err := t.extractText(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	text, userID, taskID := cmd.text, cmd.userID, cmd.taskID
 	if userID == uuid.Nil || strings.TrimSpace(text) == "" {
 		return nil, errors.New("invalid task request")
 	}
@@ -857,11 +814,6 @@ func (t *TaskProcess) Process(
 		} else if err != nil {
 			return nil, err
 		}
-	}
-	if cmd.audio {
-		// The echo precedes the AI call, so the client shows what it heard
-		// while the command is still being processed.
-		t.publishTranscription(userID, *taskID, cmd.requestID, text)
 	}
 	if newDialogue {
 		if err = taskContext.FromEmptyContext(ai.EmptyContext{}); err != nil {

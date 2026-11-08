@@ -136,23 +136,8 @@ paths:
         и увеличением задержки. После 4401 требуется новый access token.
 
         Поток сообщений клиента: AuthMessage, затем AckMessage.
-        Поток сервера: ReadyMessage, NotificationMessage,
-        TranscriptionMessage, ErrorMessage.
+        Поток сервера: ReadyMessage, NotificationMessage, ErrorMessage.
         Форматы и примеры приведены в components.schemas и x-websocket-messages.
-
-        TranscriptionMessage приходит в том же соединении и адресован всем
-        активным соединениям владельца токена: так backend отдаёт расшифровку
-        голосовой команды POST /api/task (multipart WAV). Сообщение
-        отправляется сразу после распознавания речи и до ответа AI-сервиса,
-        поэтому может прийти раньше HTTP-ответа; при ошибке распознавания
-        сообщения нет. text — окончательная расшифровка, task_id — ID диалога
-        из ответа POST /api/task, request_id — значение одноимённого поля
-        загрузки аудио, если клиент его передал. Клиент сопоставляет событие
-        с запросом по request_id, а при его отсутствии — по task_id из
-        HTTP-ответа; события с неизвестным request_id можно игнорировать
-        (их получают и другие вкладки пользователя). Сообщение не сохраняется
-        и не повторяется после переподключения. Переполнение очереди
-        соединения отбрасывает сообщение, не закрывая WebSocket.
       responses:
         '101':
           description: Протокол переключён на WebSocket; дальнейший обмен описан выше.
@@ -167,7 +152,6 @@ paths:
         server:
           - $ref: '#/components/schemas/ReadyMessage'
           - $ref: '#/components/schemas/NotificationMessage'
-          - $ref: '#/components/schemas/TranscriptionMessage'
           - $ref: '#/components/schemas/ErrorMessage'
 components:
   schemas:
@@ -271,46 +255,6 @@ components:
           type: string
           format: date-time
           description: Время создания уведомления; может быть позже scheduled_at.
-    TranscriptionMessage:
-      type: object
-      additionalProperties: false
-      description: |
-        Расшифровка голосовой команды POST /api/task. Отправляется сразу
-        после распознавания речи, до ответа AI-сервиса, всем активным
-        соединениям пользователя. Сообщение не сохраняется и не повторяется
-        после переподключения.
-      required: [type, user_id, task_id, text, created_at]
-      properties:
-        type:
-          type: string
-          enum: [transcription]
-        user_id:
-          type: string
-          format: uuid
-        task_id:
-          type: string
-          format: uuid
-          description: ID диалога; совпадает с task_id ответа POST /api/task.
-        request_id:
-          type: string
-          format: uuid
-          description: |
-            Значение поля request_id загрузки аудио, если клиент его передал;
-            служит для сопоставления события с конкретным запросом.
-        text:
-          type: string
-          minLength: 1
-          description: Распознанный текст голосовой команды.
-        created_at:
-          type: string
-          format: date-time
-      example:
-        type: transcription
-        user_id: b80e93e1-9945-48e0-8460-3ee68bcfb402
-        task_id: 39183a1c-64a9-4f0d-8ab5-2e06e12fc9f0
-        request_id: 6a2f4d9c-0f1b-4f0a-9d5b-1f0a3c2b7d41
-        text: Поставь встречу с Иваном завтра в 15:00
-        created_at: '2026-11-08T12:00:00Z'
     ErrorMessage:
       type: object
       additionalProperties: false

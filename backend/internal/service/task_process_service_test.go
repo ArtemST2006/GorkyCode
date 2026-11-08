@@ -303,56 +303,6 @@ func TestTaskProcessGeneratesTaskIDForFirstRequest(t *testing.T) {
 	}
 }
 
-// recordingPublisher captures the transcription events of the processor.
-type recordingPublisher struct{ events []model.Transcription }
-
-func (p *recordingPublisher) PublishTranscription(event model.Transcription) {
-	p.events = append(p.events, event)
-}
-
-func TestTaskProcessPublishesAudioTranscription(t *testing.T) {
-	userID, requestID := uuid.New(), uuid.New()
-	got := &ai.JobRequest{}
-	process := newTestTaskProcess(t, &fakeSTT{text: "поставь встречу"}, &fakeDraftStore{}, &aiStub{
-		t:      t,
-		status: http.StatusOK,
-		body:   `{"status":"invalid"}`,
-		got:    got,
-	})
-	publisher := &recordingPublisher{}
-	process.WithTranscriptionPublisher(publisher)
-
-	audioReq := newAudioRequest(t, userID, "RIFF-audio")
-	audioReq.RequestId = &requestID
-	_, _ = process.Process(t.Context(), audioReq)
-
-	if len(publisher.events) != 1 {
-		t.Fatalf("published %d transcriptions, want 1", len(publisher.events))
-	}
-	event := publisher.events[0]
-	if event.UserID != userID {
-		t.Fatalf("transcription user_id = %s, want %s", event.UserID, userID)
-	}
-	if event.TaskID == uuid.Nil || event.TaskID != got.TaskId {
-		t.Fatalf("transcription task_id = %s, want %s", event.TaskID, got.TaskId)
-	}
-	if event.RequestID == nil || *event.RequestID != requestID {
-		t.Fatalf("transcription request_id = %v, want %s", event.RequestID, requestID)
-	}
-	if event.Text != "поставь встречу" {
-		t.Fatalf("transcription text = %q", event.Text)
-	}
-	if event.CreatedAt.IsZero() {
-		t.Fatal("transcription created_at is zero")
-	}
-
-	// Text commands are already known to the client and must not be echoed.
-	_, _ = process.Process(t.Context(), &api.TaskTextRequest{UserId: userID, Text: "привет"})
-	if len(publisher.events) != 1 {
-		t.Fatalf("text request published %d transcriptions, want 1", len(publisher.events))
-	}
-}
-
 func TestTaskProcessUsesSavedTimezone(t *testing.T) {
 	got := &ai.JobRequest{}
 	stub := &aiStub{t: t, status: http.StatusOK, body: `{"status":"invalid"}`, got: got}
@@ -1208,15 +1158,8 @@ func TestModelInvalidOutputReturnsClarificationWithoutAction(t *testing.T) {
 			if withID && response.TaskId != taskID {
 				t.Fatalf("existing ID changed: %s", response.TaskId)
 			}
-			key := fmt.Sprintf("task_draft:%s:%s", userID, response.TaskId)
-			if withID {
-				// A failed model response must not erase the pending draft or its
-				// dialogue history of an existing dialogue.
-				if saved, written := store.saved[key]; written {
-					t.Fatalf("existing context was overwritten: %q", saved)
-				}
-			} else if !strings.Contains(store.saved[key], `"draft":{}`) {
-				t.Fatalf("fresh context was not saved: %q", store.saved[key])
+			if !strings.Contains(store.saved[fmt.Sprintf("task_draft:%s:%s", userID, response.TaskId)], `"draft":{}`) {
+				t.Fatal("clarification context was not saved")
 			}
 		})
 	}

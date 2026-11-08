@@ -79,33 +79,17 @@ func NewHub(log *slog.Logger, sessions SessionStore, store PendingStore, queryTi
 	}
 }
 
-// clients snapshots the live connections of one user.
-func (h *Hub) clients(userID uuid.UUID) []*connection {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	targets := make([]*connection, 0, len(h.conns[userID]))
-	for conn := range h.conns[userID] {
-		targets = append(targets, conn)
-	}
-	return targets
-}
-
 // dispatch sends the notification to every client of the user it belongs to.
 func (h *Hub) dispatch(n model.Notification) {
-	for _, conn := range h.clients(n.UserID) {
-		conn.enqueueNotification(n)
+	h.mu.Lock()
+	targets := make([]*connection, 0, len(h.conns[n.UserID]))
+	for conn := range h.conns[n.UserID] {
+		targets = append(targets, conn)
 	}
-}
+	h.mu.Unlock()
 
-// PublishTranscription pushes the recognized text of a voice command to every
-// client of its owner. The call comes from the HTTP request goroutine, so it
-// must neither block nor fail it: a full mailbox drops the frame with a log.
-func (h *Hub) PublishTranscription(t model.Transcription) {
-	for _, conn := range h.clients(t.UserID) {
-		if !conn.enqueueTranscription(t) {
-			h.log.Warn("websocket transcription dropped",
-				slog.String("user_id", t.UserID.String()))
-		}
+	for _, conn := range targets {
+		conn.enqueueNotification(n)
 	}
 }
 

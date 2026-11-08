@@ -764,14 +764,6 @@ components:
           type: string
           format: uuid
           description: Необязательное текстовое поле для продолжения диалога, включая on_delete/on_update.
-        request_id:
-          type: string
-          format: uuid
-          description: |
-            Необязательный клиентский идентификатор попытки. Возвращается в
-            поле request_id сообщения transcription по WebSocket
-            (backend-addition.openapi.yaml), чтобы клиент сопоставил
-            расшифровку со своим запросом. На обработку не влияет.
         file:
           type: string
           format: binary

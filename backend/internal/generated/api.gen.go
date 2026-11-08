@@ -461,12 +461,6 @@ type TaskAudioRequest struct {
 	// конфигурацией backend; другие аудиоформаты отклоняются.
 	File openapi_types.File `json:"file"`
 
-	// RequestId Необязательный клиентский идентификатор попытки. Возвращается в
-	// поле request_id сообщения transcription по WebSocket
-	// (backend-addition.openapi.yaml), чтобы клиент сопоставил
-	// расшифровку со своим запросом. На обработку не влияет.
-	RequestId *openapi_types.UUID `json:"request_id,omitempty"`
-
 	// TaskId Необязательное текстовое поле для продолжения диалога, включая on_delete/on_update.
 	TaskId *openapi_types.UUID `json:"task_id,omitempty"`
 
