@@ -106,6 +106,7 @@ func run() error {
 
 	services := service.New(repo, cfg.Database.QueryTimeout, cfg.Auth.SessionTTL, rec, cfg.AIServiceURL,
 		cfg.Google, googleClient, reminders, log)
+	go services.CalendarService.RunDeletionRetry(ctx)
 	handler := handlers.NewServer(log, services,
 		handlers.WithGoogleFrontendRedirect(cfg.Google.FrontendRedirect),
 		handlers.WithAudioTranscriber(rec))

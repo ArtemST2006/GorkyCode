@@ -650,6 +650,20 @@ func syncedMeeting(userID uuid.UUID, clock, eventID string) model.Task {
 	return *task
 }
 
+type fakeGoogleDeletionQueue struct {
+	jobs      []model.GoogleEventDeletion
+	completed []uuid.UUID
+}
+
+func (q *fakeGoogleDeletionQueue) ClaimGoogleEventDeletions(context.Context, int) ([]model.GoogleEventDeletion, error) {
+	return q.jobs, nil
+}
+
+func (q *fakeGoogleDeletionQueue) CompleteGoogleEventDeletion(_ context.Context, taskID uuid.UUID) error {
+	q.completed = append(q.completed, taskID)
+	return nil
+}
+
 func TestCalendarServiceSyncDeletedTasks(t *testing.T) {
 	userID := uuid.New()
 	connected := func() *fakeGoogleStore {
@@ -698,6 +712,67 @@ func TestCalendarServiceSyncDeletedTasks(t *testing.T) {
 			t.Fatalf("calls = %v, deleted integrations = %v", client.deletedEvents, store.deleted)
 		}
 	})
+}
+
+func TestCalendarServiceDeleteGoogleCopiesForEveryRecordType(t *testing.T) {
+	userID := uuid.New()
+	connectionID := uuid.New()
+	store := newFakeGoogleStore(&model.GoogleIntegration{
+		UserID: userID, RefreshToken: "refresh", CalendarID: "primary", ConnectionID: connectionID,
+	})
+	queue := &fakeGoogleDeletionQueue{}
+	client := &fakeGoogleClient{}
+	calendar := newCalendarService(store, newFakeOAuthStates(), client).WithDeletionQueue(queue)
+	tasks := []model.Task{
+		syncedMeeting(userID, "15:00", "meeting-event"),
+		syncedMeeting(userID, "16:00", "reminder-event"),
+		syncedMeeting(userID, "17:00", "task-event"),
+	}
+	tasks[1].Type = "reminder"
+	tasks[2].Type = "task"
+	calendar.SyncDeletedTasks(t.Context(), tasks)
+	if !reflect.DeepEqual(client.deletedEvents, []string{"meeting-event", "reminder-event", "task-event"}) {
+		t.Fatalf("deleted Google events = %v", client.deletedEvents)
+	}
+	if !reflect.DeepEqual(queue.completed, []uuid.UUID{tasks[0].ID, tasks[1].ID, tasks[2].ID}) {
+		t.Fatalf("completed deletions = %v", queue.completed)
+	}
+}
+
+func TestCalendarServiceRetriesGoogleDeletionAfterFailure(t *testing.T) {
+	userID, taskID, connectionID := uuid.New(), uuid.New(), uuid.New()
+	store := newFakeGoogleStore(&model.GoogleIntegration{
+		UserID: userID, RefreshToken: "refresh", CalendarID: "primary", ConnectionID: connectionID,
+	})
+	queue := &fakeGoogleDeletionQueue{jobs: []model.GoogleEventDeletion{{
+		UserID: userID, TaskID: taskID, EventID: "event-1", CalendarID: "primary", ConnectionID: connectionID,
+	}}}
+	client := &fakeGoogleClient{syncErr: errors.New("temporary Google failure")}
+	calendar := newCalendarService(store, newFakeOAuthStates(), client).WithDeletionQueue(queue)
+	calendar.retryGoogleDeletions(t.Context())
+	if len(queue.completed) != 0 {
+		t.Fatalf("failed deletion marked complete: %v", queue.completed)
+	}
+	client.syncErr = nil
+	calendar.retryGoogleDeletions(t.Context())
+	if !reflect.DeepEqual(queue.completed, []uuid.UUID{taskID}) || len(client.deletedEvents) != 2 {
+		t.Fatalf("completed = %v, attempts = %v", queue.completed, client.deletedEvents)
+	}
+}
+
+func TestCalendarServiceDoesNotDeleteFromDifferentGoogleConnection(t *testing.T) {
+	userID := uuid.New()
+	store := newFakeGoogleStore(&model.GoogleIntegration{
+		UserID: userID, RefreshToken: "refresh", CalendarID: "primary", ConnectionID: uuid.New(),
+	})
+	queue := &fakeGoogleDeletionQueue{jobs: []model.GoogleEventDeletion{{
+		UserID: userID, TaskID: uuid.New(), EventID: "event-1", CalendarID: "primary", ConnectionID: uuid.New(),
+	}}}
+	client := &fakeGoogleClient{}
+	newCalendarService(store, newFakeOAuthStates(), client).WithDeletionQueue(queue).retryGoogleDeletions(t.Context())
+	if len(client.deletedEvents) != 0 || len(queue.completed) != 0 {
+		t.Fatalf("deleted = %v, completed = %v", client.deletedEvents, queue.completed)
+	}
 }
 
 func TestCalendarServiceSyncUpdatedTasks(t *testing.T) {

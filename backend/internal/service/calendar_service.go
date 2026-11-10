@@ -9,6 +9,7 @@ import (
 	"gorkycode/backend/internal/model"
 	services "gorkycode/backend/internal/service/subservice"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,15 +53,28 @@ type GoogleCalendarClient interface {
 	Revoke(ctx context.Context, token string) error
 }
 
+// GoogleDeletionQueue keeps external deletes retryable after local rows are gone.
+type GoogleDeletionQueue interface {
+	ClaimGoogleEventDeletions(ctx context.Context, limit int) ([]model.GoogleEventDeletion, error)
+	CompleteGoogleEventDeletion(ctx context.Context, taskID uuid.UUID) error
+}
+
 // CalendarService connects users' Google Calendars and sends meetings to them.
 type CalendarService struct {
 	store         GoogleIntegrationStore
 	states        OAuthStateStore
 	timezones     TimezoneStore
 	client        GoogleCalendarClient
+	deletions     GoogleDeletionQueue
 	log           *slog.Logger
 	queryTimeout  time.Duration
 	eventDuration time.Duration
+}
+
+// WithDeletionQueue enables durable retries of failed Google deletions.
+func (s *CalendarService) WithDeletionQueue(queue GoogleDeletionQueue) *CalendarService {
+	s.deletions = queue
+	return s
 }
 
 // NewCalendarService constructs the Google Calendar service. A nil client
@@ -254,14 +268,99 @@ func (s *CalendarService) SyncCreatedTask(ctx context.Context, task *model.Task)
 	return nil
 }
 
-// SyncDeletedTasks deletes the Google events of deleted records. Failures are
-// only logged: the records are already deleted and the user gets the result.
+// SyncDeletedTasks attempts to delete Google copies immediately. The local
+// transaction has already queued them, so failures are retried in the background.
 func (s *CalendarService) SyncDeletedTasks(ctx context.Context, tasks []model.Task) {
 	s.syncTasks(ctx, tasks, "delete google event", func(creds google.Credentials, calendarID string, task model.Task) error {
 		googleCtx, cancel := context.WithTimeout(ctx, googleCallTimeout)
 		defer cancel()
-		return s.client.DeleteEvent(googleCtx, creds, calendarID, *task.GoogleEventID)
+		if err := s.client.DeleteEvent(googleCtx, creds, calendarID, *task.GoogleEventID); err != nil {
+			return err
+		}
+		return s.completeGoogleDeletion(ctx, task.ID)
 	})
+}
+
+const (
+	googleDeletionPollInterval = 30 * time.Second
+	googleDeletionBatchLimit   = 20
+)
+
+// RunDeletionRetry processes durable delete requests until shutdown. Claims
+// are leased in PostgreSQL so multiple backend replicas can share the work.
+func (s *CalendarService) RunDeletionRetry(ctx context.Context) {
+	if !s.Enabled() || s.deletions == nil {
+		return
+	}
+	s.retryGoogleDeletions(ctx)
+	ticker := time.NewTicker(googleDeletionPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.retryGoogleDeletions(ctx)
+		}
+	}
+}
+
+func (s *CalendarService) retryGoogleDeletions(ctx context.Context) {
+	queryCtx, cancel := context.WithTimeout(ctx, s.queryTimeout)
+	jobs, err := s.deletions.ClaimGoogleEventDeletions(queryCtx, googleDeletionBatchLimit)
+	cancel()
+	if err != nil {
+		s.log.WarnContext(ctx, "claim google event deletions failed", logger.Err(err))
+		return
+	}
+	for _, job := range jobs {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := s.deleteGoogleEvent(ctx, job); err != nil {
+			s.log.WarnContext(ctx, "google event deletion will be retried",
+				slog.String("task_id", job.TaskID.String()), logger.Err(err))
+		}
+	}
+}
+
+func (s *CalendarService) deleteGoogleEvent(ctx context.Context, job model.GoogleEventDeletion) error {
+	queryCtx, cancel := context.WithTimeout(ctx, s.queryTimeout)
+	integration, err := s.store.GetGoogleIntegration(queryCtx, job.UserID)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("get google integration: %w", err)
+	}
+	// Never use a newly connected, different Google account to delete an old
+	// account's event. Email permits a reconnect to the same account; otherwise
+	// the stable connection ID distinguishes reconnects from token refreshes.
+	if job.GoogleEmail != nil && integration.GoogleEmail != nil {
+		if !strings.EqualFold(*job.GoogleEmail, *integration.GoogleEmail) {
+			return fmt.Errorf("google account changed since task deletion")
+		}
+	} else if job.ConnectionID != integration.ConnectionID {
+		return fmt.Errorf("google connection changed since task deletion")
+	}
+	creds, err := s.credentials(ctx, integration)
+	if err != nil {
+		return err
+	}
+	googleCtx, cancel := context.WithTimeout(ctx, googleCallTimeout)
+	err = s.client.DeleteEvent(googleCtx, creds, job.CalendarID, job.EventID)
+	cancel()
+	if err != nil {
+		return s.handleGoogleError(ctx, job.UserID, "delete google event", err)
+	}
+	return s.completeGoogleDeletion(ctx, job.TaskID)
+}
+
+func (s *CalendarService) completeGoogleDeletion(ctx context.Context, taskID uuid.UUID) error {
+	if s.deletions == nil {
+		return nil
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, s.queryTimeout)
+	defer cancel()
+	return s.deletions.CompleteGoogleEventDeletion(queryCtx, taskID)
 }
 
 // SyncUpdatedTasks moves the Google events of updated records to their new

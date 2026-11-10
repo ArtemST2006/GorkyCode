@@ -28,6 +28,7 @@ type Repositories interface {
 	subservice.TaskDeleteRepository
 	subservice.TaskUpdateRepository
 	GoogleIntegrationStore
+	GoogleDeletionQueue
 	OAuthStateStore
 	MeetingOverlapFinder
 }
@@ -64,7 +65,8 @@ func New(
 	taskDelete := subservice.NewTaskDeleteService(repo, embedder)
 	taskUpdate := subservice.NewTaskUpdateService(repo, taskDelete, embedder).WithReminderSyncer(reminders)
 	taskList := subservice.NewLister(repo)
-	calendar := NewCalendarService(repo, repo, repo, googleClient, log, queryTimeout, googleCfg.EventDuration)
+	calendar := NewCalendarService(repo, repo, repo, googleClient, log, queryTimeout, googleCfg.EventDuration).
+		WithDeletionQueue(repo)
 
 	var creator TaskCreator = taskCreate
 	var googleBusy GoogleBusyChecker

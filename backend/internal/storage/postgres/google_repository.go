@@ -66,14 +66,15 @@ func (r *GoogleRepository) UpsertGoogleIntegration(ctx context.Context, integrat
 			token_expiry = EXCLUDED.token_expiry,
 			calendar_id = EXCLUDED.calendar_id,
 			google_email = EXCLUDED.google_email,
+			connection_id = gen_random_uuid(),
 			updated_at = now()
-		RETURNING created_at, updated_at`).
+		RETURNING created_at, updated_at, connection_id`).
 		ToSql()
 	if err != nil {
 		return fmt.Errorf("build upsert google integration query: %w", err)
 	}
 
-	err = r.pool.QueryRow(ctx, query, args...).Scan(&integration.CreatedAt, &integration.UpdatedAt)
+	err = r.pool.QueryRow(ctx, query, args...).Scan(&integration.CreatedAt, &integration.UpdatedAt, &integration.ConnectionID)
 	if err != nil {
 		return fmt.Errorf("upsert google integration: %w", err)
 	}
@@ -92,15 +93,16 @@ func (r *GoogleRepository) updateGoogleIntegrationKeepingRefreshToken(
 		Set("token_expiry", integration.TokenExpiry).
 		Set("calendar_id", integration.CalendarID).
 		Set("google_email", integration.GoogleEmail).
+		Set("connection_id", sq.Expr("gen_random_uuid()")).
 		Set("updated_at", sq.Expr("now()")).
 		Where(sq.Eq{"user_id": integration.UserID}).
-		Suffix("RETURNING created_at, updated_at").
+		Suffix("RETURNING created_at, updated_at, connection_id").
 		ToSql()
 	if err != nil {
 		return fmt.Errorf("build update google integration query: %w", err)
 	}
 
-	err = r.pool.QueryRow(ctx, query, args...).Scan(&integration.CreatedAt, &integration.UpdatedAt)
+	err = r.pool.QueryRow(ctx, query, args...).Scan(&integration.CreatedAt, &integration.UpdatedAt, &integration.ConnectionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("refresh token is required for a new google integration")
@@ -116,7 +118,7 @@ func (r *GoogleRepository) GetGoogleIntegration(ctx context.Context, userID uuid
 	integration := &model.GoogleIntegration{}
 
 	query, args, err := r.sb.
-		Select("user_id", "refresh_token", "access_token", "token_expiry", "calendar_id", "google_email",
+		Select("user_id", "refresh_token", "access_token", "token_expiry", "calendar_id", "google_email", "connection_id",
 			"created_at", "updated_at").
 		From("google_integrations").
 		Where(sq.Eq{"user_id": userID}).
@@ -132,6 +134,7 @@ func (r *GoogleRepository) GetGoogleIntegration(ctx context.Context, userID uuid
 			&integration.TokenExpiry,
 			&integration.CalendarID,
 			&integration.GoogleEmail,
+			&integration.ConnectionID,
 			&integration.CreatedAt,
 			&integration.UpdatedAt,
 		)

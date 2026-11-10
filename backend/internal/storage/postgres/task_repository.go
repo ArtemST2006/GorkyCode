@@ -325,6 +325,22 @@ func (r *TaskRepository) DeleteTasks(ctx context.Context, userID uuid.UUID, ids 
 	if len(tasks) != len(ids) {
 		return nil, model.ErrStaleSelection
 	}
+	// Queue every known Google copy in the same transaction as the local
+	// deletion. A failed Google call must not lose the event ID forever.
+	for _, task := range tasks {
+		if task.GoogleEventID == nil || strings.TrimSpace(*task.GoogleEventID) == "" {
+			continue
+		}
+		_, err = tx.Exec(ctx, `
+			INSERT INTO google_event_deletions
+				(task_id, user_id, calendar_id, google_event_id, google_email, connection_id)
+			SELECT $1, $2, calendar_id, $3, google_email, connection_id
+			FROM google_integrations WHERE user_id = $2`,
+			task.ID, task.UserID, *task.GoogleEventID)
+		if err != nil {
+			return nil, fmt.Errorf("queue google event deletion: %w", err)
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit delete transaction: %w", err)
 	}
